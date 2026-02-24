@@ -1,7 +1,7 @@
 """Implements a ChunkedArray class for handling pyarrow.Array-like objects."""
 
 from marrow.buffers import Buffer, Bitmap
-from marrow.dtypes import DataType, DType
+from marrow.dtypes import DataType
 
 
 struct ChunkedArray:
@@ -12,7 +12,7 @@ struct ChunkedArray:
 
     var dtype: DataType
     var length: Int
-    var chunks: List[ArrayData]
+    var chunks: List[Array]
 
     fn _compute_length(mut self) -> None:
         """Update the length of the array from the length of its chunks."""
@@ -21,13 +21,13 @@ struct ChunkedArray:
             total_length += chunk.length
         self.length = total_length
 
-    fn __init__(out self, var dtype: DataType, var chunks: List[ArrayData]):
+    fn __init__(out self, var dtype: DataType, var chunks: List[Array]):
         self.dtype = dtype^
         self.chunks = chunks^
         self.length = 0
         self._compute_length()
 
-    fn chunk(self, index: Int) -> ref [self.chunks] ArrayData:
+    fn chunk(self, index: Int) -> ref [self.chunks] Array:
         """Returns the chunk at the given index.
 
         Args:
@@ -38,10 +38,10 @@ struct ChunkedArray:
         """
         return self.chunks[index]
 
-    fn combine_chunks(var self, out combined: ArrayData):
+    fn combine_chunks(var self, out combined: Array):
         """Combines all chunks into a single array."""
         var bitmap = ArcPointer(Bitmap.alloc(self.length))
-        combined = ArrayData(
+        combined = Array(
             dtype=self.dtype.copy(),
             length=self.length,
             bitmap=bitmap,

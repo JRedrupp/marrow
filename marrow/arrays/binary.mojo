@@ -3,11 +3,11 @@ from ..buffers import Buffer
 from ..dtypes import *
 
 
-struct StringArray(Array):
-    var data: ArrayData
+struct StringArray(AsArray, Movable, Representable, Sized, Stringable, Writable):
+    var data: Array
     var capacity: Int
 
-    fn __init__(out self, var data: ArrayData) raises:
+    fn __init__(out self, var data: Array) raises:
         if data.dtype != materialize[string]():
             raise Error(
                 "Unexpected dtype '{}' instead of 'string'.".format(data.dtype)
@@ -35,7 +35,7 @@ struct StringArray(Array):
         offsets.unsafe_set[DType.uint32](0, 0)
 
         self.capacity = capacity
-        self.data = ArrayData(
+        self.data = Array(
             dtype=materialize[string](),
             length=0,
             bitmap=ArcPointer(bitmap^),
@@ -51,10 +51,7 @@ struct StringArray(Array):
     fn __len__(self) -> Int:
         return self.data.length
 
-    fn as_data(self) -> UnsafePointer[ArrayData, ImmutAnyOrigin]:
-        return UnsafePointer(to=self.data)
-
-    fn take_data(deinit self) -> ArrayData:
+    fn as_array(deinit self) -> Array:
         return self.data^
 
     fn grow(mut self, capacity: Int):

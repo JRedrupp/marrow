@@ -1,7 +1,7 @@
 """Test the base module."""
 from testing import assert_true, assert_false, assert_equal, TestSuite
 from memory import ArcPointer
-from marrow.arrays.base import ArrayData
+from marrow.arrays.base import Array
 from marrow.buffers import Buffer, Bitmap
 from marrow.dtypes import DType, int8, uint8, int64
 from marrow.test_fixtures.arrays import build_array_data, assert_bitmap_set
@@ -24,7 +24,7 @@ def test_array_data_with_offset():
     bitmap[].unsafe_set(4, True)
 
     # Create ArrayData with offset=2
-    var array_data = ArrayData(
+    var array_data = Array(
         dtype=materialize[int8](),
         length=3,
         bitmap=bitmap,
@@ -47,7 +47,7 @@ def test_array_data_fieldwise_init():
     var buffer = ArcPointer(Buffer.alloc[int8.native](5))
 
     # Test creating ArrayData with all fields specified including offset
-    var array_data = ArrayData(
+    var array_data = Array(
         dtype=materialize[int8](),
         length=5,
         bitmap=bitmap,
@@ -80,7 +80,7 @@ def test_array_data_write_to_with_offset():
         bitmap[].unsafe_set(3, True)
 
         # Create ArrayData with offset=1, so logical indices 0,1,2 map to physical indices 1,2,3
-        var array_data = ArrayData(
+        var array_data = Array(
             dtype=materialize[dtype](),
             length=3,
             bitmap=bitmap,

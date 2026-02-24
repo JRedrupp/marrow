@@ -242,7 +242,7 @@ struct CArrowArray(Copyable):
         pyobj._export_to_c(Int(ptr))
         return ptr.take_pointee()
 
-    fn to_array(self, dtype: DataType) raises -> ArrayData:
+    fn to_array(self, dtype: DataType) raises -> Array:
         var bitmap: ArcPointer[Bitmap]
         if self.buffers[0]:
             bitmap = ArcPointer(
@@ -277,13 +277,13 @@ struct CArrowArray(Copyable):
         else:
             raise Error("Unknown dtype: " + String(dtype))
 
-        var children = List[ArcPointer[ArrayData]]()
+        var children = List[ArcPointer[Array]]()
         for i in range(self.n_children):
             var child_field = dtype.fields[i].copy()
             var child_array = self.children[i][].to_array(child_field.dtype)
             children.append(ArcPointer(child_array^))
 
-        return ArrayData(
+        return Array(
             dtype=dtype.copy(),
             length=Int(self.length),
             bitmap=bitmap,

@@ -1,6 +1,6 @@
 from marrow.arrays import (
     BoolArray,
-    ArrayData,
+    Array,
     ListArray,
     StructArray,
 )
@@ -23,8 +23,8 @@ fn bool_array(*values: Bool) -> BoolArray:
     return a^
 
 
-def build_array_data(length: Int, nulls: Int) -> ArrayData:
-    """Builds an ArrayData object with nulls.
+def build_array_data(length: Int, nulls: Int) -> Array:
+    """Builds an Array object with nulls.
 
     Args:
         length: The length of the array.
@@ -42,7 +42,7 @@ def build_array_data(length: Int, nulls: Int) -> ArrayData:
         bitmap.unsafe_set(i, is_valid)
 
     var buffers = [ArcPointer(buffer^)]
-    return ArrayData(
+    return Array(
         dtype=materialize[uint8](),
         length=length,
         bitmap=ArcPointer(bitmap^),
@@ -83,7 +83,7 @@ fn build_list_of_int[data_type: DataType]() raises -> ListArray:
     for i in range(10):
         buffer[].unsafe_set[data_type.native](i, i + 1)
 
-    var value_data = ArrayData(
+    var value_data = Array(
         dtype=materialize[data_type](),
         length=10,
         bitmap=ArcPointer(bitmap^),
@@ -100,7 +100,7 @@ fn build_list_of_int[data_type: DataType]() raises -> ListArray:
     var list_bitmap = ArcPointer(Bitmap.alloc(6))
     list_bitmap[].unsafe_range_set(0, 6, True)
     list_bitmap[].unsafe_set(3, False)
-    var list_data = ArrayData(
+    var list_data = Array(
         dtype=list_(materialize[data_type]()),
         length=6,
         buffers=[value_offset],
@@ -124,7 +124,7 @@ fn build_list_of_list[data_type: DataType]() raises -> ListArray:
     for i in range(10):
         buffer[].unsafe_set[data_type.native](i, i + 1)
 
-    var value_data = ArrayData(
+    var value_data = Array(
         dtype=materialize[data_type](),
         length=10,
         bitmap=bitmap,
@@ -141,7 +141,7 @@ fn build_list_of_list[data_type: DataType]() raises -> ListArray:
     var list_bitmap = ArcPointer(Bitmap.alloc(6))
     list_bitmap[].unsafe_range_set(0, 6, True)
     list_bitmap[].unsafe_set(3, False)
-    var list_data = ArrayData(
+    var list_data = Array(
         dtype=list_(materialize[data_type]()),
         length=6,
         buffers=[value_offset],
@@ -155,7 +155,7 @@ fn build_list_of_list[data_type: DataType]() raises -> ListArray:
     var top_bitmap = ArcPointer(Bitmap.alloc(4))
     top_bitmap[].unsafe_range_set(0, 4, True)
     return ListArray(
-        ArrayData(
+        Array(
             dtype=list_(list_(materialize[data_type]())),
             length=4,
             buffers=[ArcPointer(top_offsets^)],
@@ -167,18 +167,18 @@ fn build_list_of_list[data_type: DataType]() raises -> ListArray:
 
 
 def build_struct() -> StructArray:
-    var int_data_a = ArrayData.from_buffer[int32](
+    var int_data_a = Array.from_buffer[int32](
         Buffer.from_values[DType.int32](1, 2, 3, 4, 5), 5
     )
     var field_1 = Field("int_data_a", materialize[int32]())
 
-    var int_data_b = ArrayData.from_buffer[int32](
+    var int_data_b = Array.from_buffer[int32](
         Buffer.from_values[DType.int32](10, 20, 30), 3
     )
     var field_2 = Field("int_data_b", materialize[int32]())
     bitmap = Bitmap.alloc(2)
     bitmap.unsafe_range_set(0, 2, True)
-    var struct_array_data = ArrayData(
+    var struct_array_data = Array(
         dtype=struct_([field_1^, field_2^]),
         length=2,
         bitmap=ArcPointer(bitmap^),

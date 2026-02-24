@@ -9,7 +9,7 @@ from marrow.test_fixtures.arrays import build_list_of_list, build_struct
 
 def test_list_int_array():
     var ints = Int64Array(
-        ArrayData.from_buffer[int64](
+        Array.from_buffer[int64](
             Buffer.from_values[DType.int64](1, 2, 3), 3
         )
     )
@@ -21,7 +21,7 @@ def test_list_int_array():
 
     assert_equal(len(lists), 1)
 
-    var data = lists^.take_data()
+    var data = lists^.as_array()
     assert_equal(data.length, 1)
 
     var arr = data^.as_list()
@@ -84,7 +84,7 @@ def test_struct_array():
     assert_equal(len(struct_arr), 0)
     assert_equal(struct_arr.capacity, 10)
 
-    var data = struct_arr^.take_data()
+    var data = struct_arr^.as_array()
     assert_equal(data.length, 0)
     assert_true(data.dtype.is_struct())
     assert_equal(len(data.dtype.fields), 3)

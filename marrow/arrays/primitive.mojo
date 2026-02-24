@@ -61,16 +61,16 @@ fn drop_nulls[
         start = new_values_end
 
 
-struct PrimitiveArray[T: DataType](Array):
+struct PrimitiveArray[T: DataType](AsArray, Movable, Representable, Sized, Stringable, Writable):
     """An Arrow array of primitive types."""
 
     comptime dtype = Self.T
     comptime scalar = Scalar[Self.T.native]
-    var data: ArrayData
+    var data: Array
     var offset: Int
     var capacity: Int
 
-    fn __init__(out self, var data: ArrayData, offset: Int = 0) raises:
+    fn __init__(out self, var data: Array, offset: Int = 0) raises:
         # TODO(kszucs): put a dtype constraint here
         if data.dtype != materialize[Self.T]():
             raise Error(
@@ -90,7 +90,7 @@ struct PrimitiveArray[T: DataType](Array):
         self.offset = offset
         bitmap = ArcPointer(Bitmap.alloc(capacity))
         buffer = ArcPointer(Buffer.alloc[Self.T.native](capacity))
-        self.data = ArrayData(
+        self.data = Array(
             dtype=materialize[Self.T](),
             length=0,
             bitmap=bitmap,
@@ -110,11 +110,8 @@ struct PrimitiveArray[T: DataType](Array):
     fn buffer(self) -> ref [self.data.buffers] ArcPointer[Buffer]:
         return self.data.buffers[0]
 
-    fn take_data(deinit self) -> ArrayData:
+    fn as_array(deinit self) -> Array:
         return self.data^
-
-    fn as_data(self) -> UnsafePointer[ArrayData, ImmutAnyOrigin]:
-        return UnsafePointer(to=self.data)
 
     fn grow(mut self, capacity: Int):
         self.bitmap()[].grow(capacity)
@@ -150,7 +147,7 @@ struct PrimitiveArray[T: DataType](Array):
         bitmap.unsafe_range_set(0, size, False)
         var buffer = Buffer.alloc[Self.T.native](size)
         return PrimitiveArray[Self.T](
-            data=ArrayData(
+            data=Array(
                 dtype=materialize[Self.T](),
                 length=size,
                 bitmap=ArcPointer(bitmap^),

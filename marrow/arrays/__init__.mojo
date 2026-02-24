@@ -2,6 +2,7 @@ from .base import *
 from .binary import *
 from .nested import *
 from .primitive import *
+from .visitor import *
 
 
 fn array[T: DataType](*values: Scalar[T.native]) -> PrimitiveArray[T]:

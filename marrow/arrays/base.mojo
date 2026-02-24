@@ -3,23 +3,13 @@ from .primitive import *
 from ..buffers import Buffer, Bitmap
 
 
-trait Array(Movable, Representable, Sized, Stringable, Writable):
-    fn take_data(deinit self) -> ArrayData:
-        """Construct an ArrayData by consuming self."""
-        ...
-
-    fn as_data(self) -> UnsafePointer[ArrayData, ImmutAnyOrigin]:
-        """Return a read only reference to the ArrayData wrapped by self.
-
-        Note that ideally the output type would be `ref [self_origin] ArrayData` but this is not supported yet.
-        https://forum.modular.com/t/how-to-mark-a-trait-as-applying-to-not-register-passable/2265/6?u=mseritan
-        """
-        ...
+trait AsArray:
+    fn as_array(deinit self) -> Array: ...
 
 
 @fieldwise_init
-struct ArrayData(Copyable, Representable, Stringable, Writable):
-    """ArrayData is the lower level abstraction directly usable by the library consumer.
+struct Array(Copyable, Representable, Stringable, Writable):
+    """Array is the lower level abstraction directly usable by the library consumer.
 
     Equivalent with https://github.com/apache/arrow/blob/7184439dea96cd285e6de00e07c5114e4919a465/cpp/src/arrow/array/data.h#L62-L84.
     """
@@ -28,18 +18,18 @@ struct ArrayData(Copyable, Representable, Stringable, Writable):
     var length: Int
     var bitmap: ArcPointer[Bitmap]
     var buffers: List[ArcPointer[Buffer]]
-    var children: List[ArcPointer[ArrayData]]
+    var children: List[ArcPointer[Array]]
     var offset: Int
 
     @staticmethod
     fn from_buffer[
         dtype: DataType
-    ](var buffer: Buffer, length: Int) -> ArrayData:
-        """Build an ArrayData from a buffer where all the values are not null.
+    ](var buffer: Buffer, length: Int) -> Array:
+        """Build an Array from a buffer where all the values are not null.
         """
         var bitmap = Bitmap.alloc(length)
         bitmap.unsafe_range_set(0, length, True)
-        return ArrayData(
+        return Array(
             dtype=materialize[dtype](),
             length=length,
             bitmap=ArcPointer(bitmap^),
@@ -127,7 +117,7 @@ struct ArrayData(Copyable, Representable, Stringable, Writable):
 
     fn write_to[W: Writer](self, mut writer: W):
         """
-        Formats this ArrayData to the provided Writer.
+        Formats this Array to the provided Writer.
 
         Parameters:
             W: A type conforming to the Writable trait.
@@ -153,7 +143,7 @@ struct ArrayData(Copyable, Representable, Stringable, Writable):
         return String.write(self)
 
     fn append_to_array(
-        deinit self: ArrayData, mut combined: ArrayData, start: Int
+        deinit self: Array, mut combined: Array, start: Int
     ) -> Int:
         """Append the content self to the combined array, consumes self.
 

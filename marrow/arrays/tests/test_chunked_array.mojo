@@ -1,7 +1,7 @@
 """Test the chunked array implementation."""
 
 from testing import assert_equal, TestSuite
-from marrow.arrays.base import ArrayData
+from marrow.arrays.base import Array
 from marrow.buffers import Buffer, Bitmap
 from marrow.arrays.chunked_array import ChunkedArray
 from marrow.dtypes import int8
@@ -11,7 +11,7 @@ from marrow.test_fixtures.arrays import build_array_data, assert_bitmap_set
 
 def test_chunked_array():
     var first_array_data = build_array_data(1, 0)
-    var arrays = List[ArrayData]()
+    var arrays = List[Array]()
     arrays.append(first_array_data^)
 
     var second_array_data = build_array_data(2, 0)
@@ -29,7 +29,7 @@ def test_chunked_array():
 
 def test_combine_chunked_array():
     var first_array_data = build_array_data(1, 0)
-    var arrays = List[ArrayData]()
+    var arrays = List[Array]()
     arrays.append(first_array_data^)
 
     var second_array_data = build_array_data(2, 0)

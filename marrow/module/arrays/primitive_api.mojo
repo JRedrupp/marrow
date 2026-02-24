@@ -3,7 +3,7 @@
 from os import abort
 from python.bindings import PythonModuleBuilder, PythonObject
 from marrow.dtypes import DataType
-from marrow.arrays.base import ArrayData
+from marrow.arrays.base import Array
 from marrow.arrays import primitive
 from python import Python
 
@@ -12,7 +12,7 @@ from python import Python
 struct PrimitiveArray(Movable, Representable):
     """Type erased PrimitiveArray so that we can return to python."""
 
-    var data: ArrayData
+    var data: Array
     var offset: Int
     var capacity: Int
 
@@ -21,7 +21,7 @@ struct PrimitiveArray(Movable, Representable):
 
     @staticmethod
     fn __len__(py_self: PythonObject) raises -> PythonObject:
-        """Return the length of the underlying ArrayData."""
+        """Return the length of the underlying Array."""
         var self_ptr = py_self.downcast_value_ptr[Self]()
         return self_ptr[].data.length
 

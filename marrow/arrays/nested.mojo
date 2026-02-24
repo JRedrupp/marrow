@@ -2,11 +2,11 @@ from memory import ArcPointer
 from ..buffers import Buffer, Bitmap
 
 
-struct ListArray(Array):
-    var data: ArrayData
+struct ListArray(AsArray, Movable, Representable, Sized, Stringable, Writable):
+    var data: Array
     var capacity: Int
 
-    fn __init__(out self, var data: ArrayData) raises:
+    fn __init__(out self, var data: Array) raises:
         if not data.dtype.is_list():
             raise Error(
                 "Unexpected dtype {} instead of 'list'".format(data.dtype)
@@ -25,10 +25,10 @@ struct ListArray(Array):
     fn offsets(self) -> ArcPointer[Buffer]:
         return self.data.buffers[0]
 
-    fn values(self) -> ArcPointer[ArrayData]:
+    fn values(self) -> ArcPointer[Array]:
         return self.data.children[0]
 
-    fn __init__[T: Array](out self, var values: T, capacity: Int = 1):
+    fn __init__[T: AsArray](out self, var values: T, capacity: Int = 1):
         """Initialize a list with the given values.
 
         Default capacity is at least 1 to accomodate the values.
@@ -37,7 +37,7 @@ struct ListArray(Array):
             values: Array to use as the first element in the ListArray.
             capacity: The capacity of the ListArray.
         """
-        var values_data = values^.take_data()
+        var values_data = values^.as_array()
         var list_dtype = list_(values_data.dtype.copy())
 
         var bitmap = Bitmap.alloc(capacity)
@@ -47,7 +47,7 @@ struct ListArray(Array):
         offsets.unsafe_set[DType.uint32](1, values_data.length)
 
         self.capacity = capacity
-        self.data = ArrayData(
+        self.data = Array(
             dtype=list_dtype^,
             length=1,
             bitmap=ArcPointer(bitmap^),
@@ -63,10 +63,7 @@ struct ListArray(Array):
     fn __len__(self) -> Int:
         return self.data.length
 
-    fn as_data(self) -> UnsafePointer[ArrayData, ImmutAnyOrigin]:
-        return UnsafePointer(to=self.data)
-
-    fn take_data(deinit self) -> ArrayData:
+    fn as_array(deinit self) -> Array:
         return self.data^
 
     fn is_valid(self, index: Int) -> Bool:
@@ -79,7 +76,7 @@ struct ListArray(Array):
         )
         self.data.length += 1
 
-    fn unsafe_get(self, index: Int, out array_data: ArrayData) raises:
+    fn unsafe_get(self, index: Int, out array_data: Array) raises:
         """Access the value at a given index in the list array.
 
         Use an out argument to allow the caller to re-use memory while iterating over a pyarrow structure.
@@ -93,7 +90,7 @@ struct ListArray(Array):
             )
         )
         ref first_child = self.data.children[0][]
-        return ArrayData(
+        return Array(
             dtype=first_child.dtype.copy(),
             bitmap=first_child.bitmap,
             buffers=first_child.buffers.copy(),
@@ -125,8 +122,8 @@ struct ListArray(Array):
         return String.write(self)
 
 
-struct StructArray(Array):
-    var data: ArrayData
+struct StructArray(AsArray, Movable, Representable, Sized, Stringable, Writable):
+    var data: Array
     var fields: List[Field]
     var capacity: Int
 
@@ -142,7 +139,7 @@ struct StructArray(Array):
 
         self.capacity = capacity
         self.fields = fields^
-        self.data = ArrayData(
+        self.data = Array(
             dtype=struct_dtype^,
             length=0,
             bitmap=ArcPointer(bitmap^),
@@ -151,7 +148,7 @@ struct StructArray(Array):
             offset=0,
         )
 
-    fn __init__(out self, *, var data: ArrayData):
+    fn __init__(out self, *, var data: Array):
         self.fields = data.dtype.fields.copy()
         self.capacity = data.length
         self.data = data^
@@ -164,11 +161,8 @@ struct StructArray(Array):
     fn __len__(self) -> Int:
         return self.data.length
 
-    fn take_data(deinit self) -> ArrayData:
+    fn as_array(deinit self) -> Array:
         return self.data^
-
-    fn as_data(self) -> UnsafePointer[ArrayData, ImmutAnyOrigin]:
-        return UnsafePointer(to=self.data)
 
     fn write_to[W: Writer](self, mut writer: W):
         """
@@ -195,7 +189,7 @@ struct StructArray(Array):
 
     fn unsafe_get(
         self, name: StringSlice
-    ) raises -> ref [self.data.children[0]] ArrayData:
+    ) raises -> ref [self.data.children[0]] Array:
         """Access the field with the given name in the struct."""
         return self.data.children[self._index_for_field_name(name)][]
 

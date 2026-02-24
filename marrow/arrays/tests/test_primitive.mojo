@@ -29,7 +29,7 @@ def test_boolean_array():
     assert_true(a.is_valid(2))
     assert_true(a.is_valid(3))
 
-    var d = a^.take_data()
+    var d = a^.as_array()
     assert_equal(d.length, 4)
 
     var b = d^.as_primitive[bool_]()
@@ -89,8 +89,7 @@ def test_primitive_array_with_offset():
     assert_equal(arr.unsafe_get(1), 200)
 
     # Create a copy of array with offset, should point to the same buffers.
-    var arr_data = arr.as_data()
-    var arr_with_offset = PrimitiveArray[int32](arr_data[].copy(), offset=2)
+    var arr_with_offset = PrimitiveArray[int32](arr.data.copy(), offset=2)
     assert_equal(arr_with_offset.offset, 2)
 
     # Test that offset affects get operations

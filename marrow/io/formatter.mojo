@@ -3,7 +3,7 @@ from marrow.dtypes import *
 
 
 struct Formatter:
-    """Recursively formats and prints ArrayData and typed arrays."""
+    """Recursively formats and prints Array and typed arrays."""
 
     # How many elements to print.
     var limit: Int
@@ -64,28 +64,28 @@ struct Formatter:
                 writer.write("NULL")
         writer.write("])")
 
-    fn format[W: Writer](self, mut writer: W, array_data: ArrayData) raises:
-        """Output a dynamic ArrayData to the given writer."""
-        if array_data.dtype.is_numeric():
+    fn format[W: Writer](self, mut writer: W, array: Array) raises:
+        """Output a dynamic Array to the given writer."""
+        if array.dtype.is_numeric():
 
             @parameter
             for dtype in all_numeric_dtypes:
-                if array_data.dtype == materialize[dtype]():
+                if array.dtype == materialize[dtype]():
                     self.format(
                         writer,
-                        PrimitiveArray[dtype](data=array_data.copy()),
+                        PrimitiveArray[dtype](data=array.copy()),
                     )
                     return
-        elif array_data.dtype.is_list():
-            self.format(writer, ListArray(array_data.copy()))
+        elif array.dtype.is_list():
+            self.format(writer, ListArray(array.copy()))
             return
-        elif array_data.dtype.is_struct():
-            self.format(writer, StructArray(data=array_data.copy()))
+        elif array.dtype.is_struct():
+            self.format(writer, StructArray(data=array.copy()))
             return
-        elif array_data.dtype.is_string():
-            self.format(writer, StringArray(data=array_data.copy()))
+        elif array.dtype.is_string():
+            self.format(writer, StringArray(data=array.copy()))
             return
-        raise Error("Unknown dtype {} in format.".format(array_data.dtype))
+        raise Error("Unknown dtype {} in format.".format(array.dtype))
 
     fn format[W: Writer](self, mut writer: W, value: StructArray) raises:
         """Output a StructArray to the Writer."""
