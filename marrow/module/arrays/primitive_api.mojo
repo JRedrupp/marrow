@@ -3,8 +3,9 @@
 from os import abort
 from python.bindings import PythonModuleBuilder, PythonObject
 from marrow.dtypes import DataType
-from marrow.arrays.base import Array
-from marrow.arrays import primitive
+from marrow.dtypes import *
+from marrow.arrays import Array
+from marrow.arrays import PrimitiveArray as _PrimitiveArray
 from python import Python
 
 
@@ -32,7 +33,7 @@ struct PrimitiveArray(Movable, Representable):
         """Access the element at the given index."""
         var self_ptr = py_self.downcast_value_ptr[Self]()
         return PythonObject(
-            primitive.Int64Array(self_ptr[].data.copy()).unsafe_get(
+            _PrimitiveArray[int64](self_ptr[].data.copy()).unsafe_get(
                 Int(py=index)
             )
         )
@@ -48,7 +49,7 @@ fn array(content: PythonObject) raises -> PythonObject:
         A PrimitiveArray wrapped in a PythonObject.
 
     """
-    var actual = primitive.Int64Array()
+    var actual = _PrimitiveArray[int64]()
 
     for v in content:
         actual.append(Int(py=v))
