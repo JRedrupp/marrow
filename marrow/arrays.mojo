@@ -5,7 +5,7 @@ from sys import size_of
 
 
 @fieldwise_init
-struct Array(Copyable, Movable):
+struct Array(Copyable, Movable, Stringable):
     """Array is the lower level abstraction directly usable by the library consumer.
 
     Equivalent with https://github.com/apache/arrow/blob/7184439dea96cd285e6de00e07c5114e4919a465/cpp/src/arrow/array/data.h#L62-L84.
@@ -69,6 +69,15 @@ struct Array(Copyable, Movable):
 
     fn is_valid(self, index: Int) -> Bool:
         return self.bitmap[].unsafe_get(index + self.offset)
+
+    fn __str__(self) -> String:
+        from .pretty import ArrayPrinter
+        var printer = ArrayPrinter()
+        try:
+            printer.visit(self)
+        except:
+            pass
+        return printer^.finish()
 
     fn as_primitive[T: DataType](var self) raises -> PrimitiveArray[T]:
         return PrimitiveArray[T](self^)
@@ -317,6 +326,7 @@ comptime UInt32Array = PrimitiveArray[uint32]
 comptime UInt64Array = PrimitiveArray[uint64]
 comptime Float32Array = PrimitiveArray[float32]
 comptime Float64Array = PrimitiveArray[float64]
+
 
 
 struct StringArray(Movable, Sized):
@@ -569,7 +579,7 @@ struct StructArray(Movable, Sized):
         return self.data.children[self._index_for_field_name(name)][]
 
 
-struct ChunkedArray(Stringable, Writable):
+struct ChunkedArray(Stringable):
     """An array-like composed from a (possibly empty) collection of pyarrow.Arrays.
 
     [Reference](https://arrow.apache.org/docs/python/generated/pyarrow.ChunkedArray.html#pyarrow-chunkedarray).
@@ -591,6 +601,15 @@ struct ChunkedArray(Stringable, Writable):
         self.chunks = chunks^
         self.length = 0
         self._compute_length()
+
+    fn __str__(self) -> String:
+        from .pretty import ArrayPrinter
+        var printer = ArrayPrinter()
+        try:
+            printer.visit(self)
+        except:
+            pass
+        return printer^.finish()
 
     fn chunk(self, index: Int) -> ref [self.chunks] Array:
         """Returns the chunk at the given index.

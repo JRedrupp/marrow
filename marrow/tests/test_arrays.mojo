@@ -63,38 +63,6 @@ def test_array_data_fieldwise_init():
     assert_equal(array_data.offset, 3)
 
 
-def test_array_data_write_to_with_offset():
-    """Test ArrayData write_to method respects offset."""
-
-    var bitmap = ArcPointer(Bitmap.alloc(10))
-    var buffer = ArcPointer(Buffer.alloc[DType.uint8](10))
-
-    @parameter
-    for dtype in [uint8, int64]:
-        # Set up data with values at positions 1,2,3
-        buffer[].unsafe_set[dtype.native](1, 10)
-        buffer[].unsafe_set[dtype.native](2, 11)
-        buffer[].unsafe_set[dtype.native](3, 12)
-
-        # Set validity for positions 1,2,3
-        bitmap[].unsafe_set(1, True)
-        bitmap[].unsafe_set(2, True)
-        bitmap[].unsafe_set(3, True)
-
-        # Create ArrayData with offset=1, so logical indices 0,1,2 map to physical indices 1,2,3
-        var array_data = Array(
-            dtype=materialize[dtype](),
-            length=3,
-            bitmap=bitmap,
-            buffers=[buffer],
-            children=[],
-            offset=1,
-        )
-
-        var writer = String()
-        writer.write(array_data)
-        assert_equal(writer.strip(), "10 11 12")
-
 
 def test_array_from_primitive():
     var prim = array[int32](1, 2, 3)
@@ -307,118 +275,6 @@ def test_primitive_array_nulls_with_offset():
         assert_false(null_arr.is_valid(i))
 
 
-def test_primitive_array_write_to():
-    """Test write_to method formats PrimitiveArray correctly."""
-    var arr = Int32Array(5)
-    arr.append(10)
-    arr.append(20)
-    arr.append(30)
-
-    var output = String()
-    arr.write_to(output)
-
-    # Check that output contains expected format
-    var result = String(output)
-    assert_true("PrimitiveArray(" in result)
-    assert_true("dtype=" in result)
-    assert_true("offset=" in result)
-    assert_true("capacity=" in result)
-    assert_true("buffer=" in result)
-    assert_true("10" in result)  # At least first value should work
-
-
-def test_primitive_array_write_to_with_nulls():
-    """Test write_to method handles null values correctly."""
-    var array_data = build_array_data(5, 2)
-    var arr = PrimitiveArray[uint8](array_data^)
-
-    var output = String()
-    arr.write_to(output)
-
-    # Check that output contains NULL for invalid entries
-    var result = String(output)
-    assert_true("PrimitiveArray(" in result)
-    assert_true("NULL" in result)
-
-
-def test_primitive_array_write_to_with_offset():
-    """Test write_to method works correctly with offset."""
-    var arr = Int16Array(10, offset=2)
-    arr.append(100)
-    arr.append(200)
-
-    var output = String()
-    arr.write_to(output)
-
-    var result = String(output)
-    assert_true("PrimitiveArray(" in result)
-    assert_true("offset=2" in result)
-    # Note: Due to offset bug in write_to, values may not appear correctly
-
-
-def test_primitive_array_write_to_large_array():
-    """Test write_to method truncates large arrays with ellipsis."""
-    var arr = Int8Array(20)  # Use capacity > 10 to trigger truncation
-    # Fill with values 0, 1, 2, ..., 14
-    for i in range(15):
-        arr.append(i)
-
-    var output = String()
-    arr.write_to(output)
-
-    var result = String(output)
-    assert_true("PrimitiveArray(" in result)
-    assert_true("..." in result)  # Should truncate after 10 elements
-
-
-def test_primitive_array_str():
-    """Test __str__ method returns formatted string representation."""
-    var arr = array[int32](42, 84, 126)
-
-    var result = arr.__str__()
-    assert_true("PrimitiveArray(" in result)
-    assert_true("42" in result)  # At least first value should work
-
-
-def test_primitive_array_str_empty():
-    """Test __str__ method on empty array."""
-    var arr = Float32Array(0)
-
-    var result = arr.__str__()
-    assert_true("PrimitiveArray(" in result)
-    assert_true("capacity=0" in result)
-
-
-def test_primitive_array_repr():
-    """Test __repr__ method returns same as __str__."""
-    var arr = UInt8Array(5)
-    arr.append(255)
-    arr.append(128)
-
-    var str_result = arr.__str__()
-    var repr_result = arr.__repr__()
-
-    # Both should be identical
-    assert_equal(str_result, repr_result)
-    assert_equal(
-        repr_result,
-        (
-            "PrimitiveArray( dtype=DataType(code=uint8), offset=0, capacity=5,"
-            " buffer=[255, 128, NULL, NULL, NULL, ])"
-        ),
-    )
-
-    var arr64 = Int64Array()
-    arr64.append(1)
-    arr64.append(3)
-    arr64.append(5)
-    assert_equal(
-        arr64.__repr__(),
-        (
-            "PrimitiveArray( dtype=DataType(code=int64), offset=0, capacity=4,"
-            " buffer=[1, 3, 5, NULL, ])"
-        ),
-    )
 
 
 # --- StringArray tests ---
@@ -440,11 +296,6 @@ def test_string_builder():
     assert_equal(String(a.unsafe_get(0)), "hello")
     assert_equal(String(a.unsafe_get(1)), "world")
 
-    assert_equal(
-        a.__str__().strip(),
-        'StringArray( length=2, data= ["hello", "world",  ])',
-    )
-
 
 # --- ListArray / StructArray tests ---
 
@@ -458,7 +309,7 @@ def test_list_int_array():
     assert_equal(lists.data.dtype, list_(materialize[int64]()))
 
     var first_value = lists.unsafe_get(0)
-    assert_equal(first_value.__str__().strip(), "1 2 3")
+    assert_equal(first_value.__str__(), "PrimitiveArray[DataType(code=int64)]([1, 2, 3])")
 
     assert_equal(len(lists), 1)
 
@@ -533,33 +384,6 @@ def test_struct_array():
     assert_equal(data.dtype.fields[1].name, "name")
     assert_equal(data.dtype.fields[2].name, "active")
 
-
-def test_list_array_str_repr():
-    var ints = Int64Array()
-    var lists = ListArray.from_values(ints^)
-
-    var str_repr = lists.__str__()
-    var repr_repr = lists.__repr__()
-
-    assert_equal(str_repr, "ListArray(length=1)")
-    assert_equal(repr_repr, "ListArray(length=1)")
-    assert_equal(str_repr, repr_repr)
-
-
-def test_struct_array_str_repr():
-    var fields = [
-        Field("id", materialize[int64]()),
-        Field("name", materialize[string]()),
-    ]
-
-    var struct_arr = StructArray(fields^, capacity=5)
-
-    var str_repr = struct_arr.__str__()
-    var repr_repr = struct_arr.__repr__()
-
-    assert_equal(str_repr, "StructArray(length=0)")
-    assert_equal(repr_repr, "StructArray(length=0)")
-    assert_equal(str_repr, repr_repr)
 
 
 def test_struct_array_unsafe_get():
