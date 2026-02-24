@@ -3,12 +3,8 @@ from .primitive import *
 from ..buffers import Buffer, Bitmap
 
 
-trait AsArray:
-    fn as_array(deinit self) -> Array: ...
-
-
 @fieldwise_init
-struct Array(Copyable, Representable, Stringable, Writable):
+struct Array(Copyable, ImplicitlyCopyable, Representable, Stringable, Writable):
     """Array is the lower level abstraction directly usable by the library consumer.
 
     Equivalent with https://github.com/apache/arrow/blob/7184439dea96cd285e6de00e07c5114e4919a465/cpp/src/arrow/array/data.h#L62-L84.
@@ -38,13 +34,29 @@ struct Array(Copyable, Representable, Stringable, Writable):
             offset=0,
         )
 
-    fn __copyinit__(out self, existing: Self):
-        self.dtype = existing.dtype.copy()
-        self.length = existing.length
-        self.bitmap = existing.bitmap
-        self.buffers = existing.buffers.copy()
-        self.children = existing.children.copy()
-        self.offset = existing.offset
+    @implicit
+    fn __init__[T: DataType](out self, var value: PrimitiveArray[T]):
+        self = value.data
+
+    @implicit
+    fn __init__(out self, var value: StringArray):
+        self = value.data
+
+    @implicit
+    fn __init__(out self, var value: ListArray):
+        self = value.data
+
+    @implicit
+    fn __init__(out self, var value: StructArray):
+        self = value.data
+
+    fn __init__(out self, *, copy: Self):
+        self.dtype = copy.dtype.copy()
+        self.length = copy.length
+        self.bitmap = copy.bitmap
+        self.buffers = copy.buffers.copy()
+        self.children = copy.children.copy()
+        self.offset = copy.offset
 
     fn is_valid(self, index: Int) -> Bool:
         return self.bitmap[].unsafe_get(index + self.offset)

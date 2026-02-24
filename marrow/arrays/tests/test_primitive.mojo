@@ -29,7 +29,7 @@ def test_boolean_array():
     assert_true(a.is_valid(2))
     assert_true(a.is_valid(3))
 
-    var d = a^.as_array()
+    var d = Array(a^)
     assert_equal(d.length, 4)
 
     var b = d^.as_primitive[bool_]()

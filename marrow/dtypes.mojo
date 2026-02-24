@@ -234,10 +234,10 @@ struct DataType(Copyable, Equatable, Representable, Stringable, Writable):
         self.native = DType.invalid
         self.fields = fields.copy()
 
-    fn __copyinit__(out self, value: Self):
-        self.code = value.code
-        self.native = value.native
-        self.fields = value.fields.copy()
+    fn __init__(out self, *, copy: Self):
+        self.code = copy.code
+        self.native = copy.native
+        self.fields = copy.fields.copy()
 
     fn __moveinit__(out self, deinit value: Self):
         self.code = value.code

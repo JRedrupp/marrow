@@ -2,7 +2,7 @@ from memory import ArcPointer
 from ..buffers import Buffer, Bitmap
 
 
-struct ListArray(AsArray, Movable, Representable, Sized, Stringable, Writable):
+struct ListArray(Movable, Representable, Sized, Stringable, Writable):
     var data: Array
     var capacity: Int
 
@@ -28,8 +28,9 @@ struct ListArray(AsArray, Movable, Representable, Sized, Stringable, Writable):
     fn values(self) -> ArcPointer[Array]:
         return self.data.children[0]
 
-    fn __init__[T: AsArray](out self, var values: T, capacity: Int = 1):
-        """Initialize a list with the given values.
+    @staticmethod
+    fn from_values(var values: Array, capacity: Int = 1) raises -> ListArray:
+        """Create a ListArray wrapping the given values as its first element.
 
         Default capacity is at least 1 to accomodate the values.
 
@@ -37,24 +38,24 @@ struct ListArray(AsArray, Movable, Representable, Sized, Stringable, Writable):
             values: Array to use as the first element in the ListArray.
             capacity: The capacity of the ListArray.
         """
-        var values_data = values^.as_array()
-        var list_dtype = list_(values_data.dtype.copy())
+        var list_dtype = list_(values.dtype.copy())
+        var length = values.length
 
         var bitmap = Bitmap.alloc(capacity)
         bitmap.unsafe_set(0, True)
         var offsets = Buffer.alloc[DType.uint32](capacity + 1)
         offsets.unsafe_set[DType.uint32](0, 0)
-        offsets.unsafe_set[DType.uint32](1, values_data.length)
+        offsets.unsafe_set[DType.uint32](1, length)
 
-        self.capacity = capacity
-        self.data = Array(
+        var data = Array(
             dtype=list_dtype^,
             length=1,
             bitmap=ArcPointer(bitmap^),
             buffers=[ArcPointer(offsets^)],
-            children=[ArcPointer(values_data^)],
+            children=[ArcPointer(values^)],
             offset=0,
         )
+        return ListArray(data^)
 
     fn __moveinit__(out self, deinit existing: Self):
         self.data = existing.data^
@@ -62,9 +63,6 @@ struct ListArray(AsArray, Movable, Representable, Sized, Stringable, Writable):
 
     fn __len__(self) -> Int:
         return self.data.length
-
-    fn as_array(deinit self) -> Array:
-        return self.data^
 
     fn is_valid(self, index: Int) -> Bool:
         return self.bitmap()[].unsafe_get(index)
@@ -122,7 +120,7 @@ struct ListArray(AsArray, Movable, Representable, Sized, Stringable, Writable):
         return String.write(self)
 
 
-struct StructArray(AsArray, Movable, Representable, Sized, Stringable, Writable):
+struct StructArray(Movable, Representable, Sized, Stringable, Writable):
     var data: Array
     var fields: List[Field]
     var capacity: Int
@@ -160,9 +158,6 @@ struct StructArray(AsArray, Movable, Representable, Sized, Stringable, Writable)
 
     fn __len__(self) -> Int:
         return self.data.length
-
-    fn as_array(deinit self) -> Array:
-        return self.data^
 
     fn write_to[W: Writer](self, mut writer: W):
         """

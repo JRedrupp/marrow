@@ -61,7 +61,7 @@ fn drop_nulls[
         start = new_values_end
 
 
-struct PrimitiveArray[T: DataType](AsArray, Movable, Representable, Sized, Stringable, Writable):
+struct PrimitiveArray[T: DataType](Movable, Representable, Sized, Stringable, Writable):
     """An Arrow array of primitive types."""
 
     comptime dtype = Self.T
@@ -109,9 +109,6 @@ struct PrimitiveArray[T: DataType](AsArray, Movable, Representable, Sized, Strin
 
     fn buffer(self) -> ref [self.data.buffers] ArcPointer[Buffer]:
         return self.data.buffers[0]
-
-    fn as_array(deinit self) -> Array:
-        return self.data^
 
     fn grow(mut self, capacity: Int):
         self.bitmap()[].grow(capacity)

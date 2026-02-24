@@ -13,7 +13,7 @@ def test_list_int_array():
             Buffer.from_values[DType.int64](1, 2, 3), 3
         )
     )
-    var lists = ListArray(ints^)
+    var lists = ListArray.from_values(ints^)
     assert_equal(lists.data.dtype, list_(materialize[int64]()))
 
     var first_value = lists.unsafe_get(0)
@@ -21,7 +21,7 @@ def test_list_int_array():
 
     assert_equal(len(lists), 1)
 
-    var data = lists^.as_array()
+    var data = Array(lists^)
     assert_equal(data.length, 1)
 
     var arr = data^.as_list()
@@ -35,7 +35,7 @@ def test_list_bool_array():
     bools.append(as_bool_array_scalar(False))
     bools.append(as_bool_array_scalar(True))
 
-    var lists = ListArray(bools^)
+    var lists = ListArray.from_values(bools^)
     assert_equal(len(lists), 1)
     var first_value = lists.unsafe_get(0)
     var buffer = first_value.buffers[0]
@@ -53,7 +53,7 @@ def test_list_str():
     strings.unsafe_append("hello")
     strings.unsafe_append("world")
 
-    var lists = ListArray(strings^)
+    var lists = ListArray.from_values(strings^)
     var first_value = StringArray(lists.unsafe_get(0))
 
     assert_equal(first_value.unsafe_get(0), "hello")
@@ -84,7 +84,7 @@ def test_struct_array():
     assert_equal(len(struct_arr), 0)
     assert_equal(struct_arr.capacity, 10)
 
-    var data = struct_arr^.as_array()
+    var data = Array(struct_arr^)
     assert_equal(data.length, 0)
     assert_true(data.dtype.is_struct())
     assert_equal(len(data.dtype.fields), 3)
@@ -95,7 +95,7 @@ def test_struct_array():
 
 def test_list_array_str_repr():
     var ints = Int64Array()
-    var lists = ListArray(ints^)
+    var lists = ListArray.from_values(ints^)
 
     var str_repr = lists.__str__()
     var repr_repr = lists.__repr__()

@@ -3,7 +3,7 @@ from ..buffers import Buffer
 from ..dtypes import *
 
 
-struct StringArray(AsArray, Movable, Representable, Sized, Stringable, Writable):
+struct StringArray(Movable, Representable, Sized, Stringable, Writable):
     var data: Array
     var capacity: Int
 
@@ -50,9 +50,6 @@ struct StringArray(AsArray, Movable, Representable, Sized, Stringable, Writable)
 
     fn __len__(self) -> Int:
         return self.data.length
-
-    fn as_array(deinit self) -> Array:
-        return self.data^
 
     fn grow(mut self, capacity: Int):
         self.bitmap()[].grow(capacity)
