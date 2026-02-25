@@ -37,7 +37,7 @@ fn add(left: Array, right: Array) raises -> Array:
     """
     if left.dtype != right.dtype:
         raise Error(
-            "add: dtype mismatch: {} vs {}".format(left.dtype, right.dtype)
+            "add: dtype mismatch: " + String(left.dtype) + " vs " + String(right.dtype)
         )
 
     @parameter
@@ -50,4 +50,4 @@ fn add(left: Array, right: Array) raises -> Array:
                 )
             )
 
-    raise Error("add: unsupported dtype {}".format(left.dtype))
+    raise Error("add: unsupported dtype " + String(left.dtype))

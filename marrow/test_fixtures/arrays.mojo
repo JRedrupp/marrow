@@ -20,7 +20,7 @@ def build_array_data(length: Int, nulls: Int) -> Array:
     var bitmap = Bitmap.alloc(length)
     var buffer = Buffer.alloc[DType.uint8](length)
     for i in range(length):
-        buffer.unsafe_set(i, i % 256)
+        buffer.unsafe_set(i, UInt8(i % 256))
         # Check to see if the current index should be valid or null.
         var is_valid = True
         if nulls > 0:
@@ -68,7 +68,7 @@ fn build_list_of_int[data_type: DataType]() raises -> ListArray:
     bitmap.unsafe_range_set(0, 10, True)
     var buffer = ArcPointer(Buffer.alloc[data_type.native](10))
     for i in range(10):
-        buffer[].unsafe_set[data_type.native](i, i + 1)
+        buffer[].unsafe_set[data_type.native](i, Scalar[data_type.native](i + 1))
 
     var value_data = Array(
         dtype=materialize[data_type](),
@@ -109,7 +109,7 @@ fn build_list_of_list[data_type: DataType]() raises -> ListArray:
     bitmap[].unsafe_range_set(0, 10, True)
     var buffer = ArcPointer(Buffer.alloc[data_type.native](10))
     for i in range(10):
-        buffer[].unsafe_set[data_type.native](i, i + 1)
+        buffer[].unsafe_set[data_type.native](i, Scalar[data_type.native](i + 1))
 
     var value_data = Array(
         dtype=materialize[data_type](),

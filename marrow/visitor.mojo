@@ -64,4 +64,4 @@ trait ArrayVisitor:
         elif array.dtype.is_struct():
             self.visit(array.copy().as_struct())
         else:
-            raise Error("visit: unsupported dtype {}".format(array.dtype))
+            raise Error("visit: unsupported dtype " + String(array.dtype))

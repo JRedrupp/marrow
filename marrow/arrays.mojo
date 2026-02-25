@@ -171,9 +171,11 @@ struct PrimitiveArray[T: DataType](Movable, Sized):
         # TODO(kszucs): put a dtype constraint here
         if data.dtype != materialize[Self.T]():
             raise Error(
-                "Unexpected dtype '{}' instead of '{}'.".format(
-                    data.dtype, materialize[Self.T]()
-                )
+                "Unexpected dtype '"
+                + String(data.dtype)
+                + "' instead of '"
+                + String(materialize[Self.T]())
+                + "'."
             )
         elif len(data.buffers) != 1:
             raise Error("PrimitiveArray requires exactly one buffer")
@@ -278,7 +280,7 @@ struct StringArray(Movable, Sized):
     fn __init__(out self, ref data: Array) raises:
         if data.dtype != materialize[string]():
             raise Error(
-                "Unexpected dtype '{}' instead of 'string'.".format(data.dtype)
+                "Unexpected dtype '" + String(data.dtype) + "' instead of 'string'."
             )
         elif len(data.buffers) != 2:
             raise Error("StringArray requires exactly two buffers")
@@ -317,7 +319,7 @@ struct StringArray(Movable, Sized):
         # todo(kszucs): use unsafe set
         var index = self.length
         var last_offset = self.offsets[].unsafe_get[DType.uint32](index)
-        var next_offset = last_offset + len(value)
+        var next_offset = last_offset + UInt32(len(value))
         self.length += 1
         self.bitmap[].unsafe_set(index, True)
         self.offsets[].unsafe_set[DType.uint32](index + 1, next_offset)
@@ -366,7 +368,7 @@ struct ListArray(Movable, Sized):
     fn __init__(out self, ref data: Array) raises:
         if not data.dtype.is_list():
             raise Error(
-                "Unexpected dtype {} instead of 'list'".format(data.dtype)
+                "Unexpected dtype " + String(data.dtype) + " instead of 'list'"
             )
         elif len(data.buffers) != 1:
             raise Error("ListArray requires exactly one buffer")
@@ -397,7 +399,7 @@ struct ListArray(Movable, Sized):
         bitmap.unsafe_set(0, True)
         var offsets = Buffer.alloc[DType.uint32](capacity + 1)
         offsets.unsafe_set[DType.uint32](0, 0)
-        offsets.unsafe_set[DType.uint32](1, length)
+        offsets.unsafe_set[DType.uint32](1, UInt32(length))
 
         var list_dtype = list_(values.dtype.copy())
         var data = Array(
@@ -419,7 +421,7 @@ struct ListArray(Movable, Sized):
     fn unsafe_append(mut self, is_valid: Bool):
         self.bitmap[].unsafe_set(self.length, is_valid)
         self.offsets[].unsafe_set[DType.uint32](
-            self.length + 1, self.values[].length
+            self.length + 1, UInt32(self.values[].length)
         )
         self.length += 1
 
@@ -570,5 +572,28 @@ fn array(values: List[Bool]) -> BoolArray:
     var a = BoolArray(len(values))
     for value in values:
         a.unsafe_append(BoolArray.scalar(value))
+    return a^
+
+
+fn arange[T: DataType](start: Scalar[T.native], end: Scalar[T.native]) -> PrimitiveArray[T]:
+    """Create an integer array from start to end (exclusive), similar to numpy.arange.
+
+    Parameters:
+        T: An integer DataType (int8, int16, int32, int64, uint8, uint16, uint32, uint64).
+
+    Args:
+        start: The starting value (inclusive).
+        end: The ending value (exclusive).
+
+    Returns:
+        A PrimitiveArray[T] with values [start, start+1, ..., end-1].
+    """
+    comptime assert T.is_integer(), "range() only supports integer DataTypes"
+    var length = Int(end - start)
+    var a = PrimitiveArray[T](length)
+    var i = start
+    while i < end:
+        a.unsafe_append(i)
+        i += 1
     return a^
 

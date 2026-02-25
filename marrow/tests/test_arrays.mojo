@@ -195,6 +195,51 @@ def test_array_from_list_overload():
     assert_equal(b.unsafe_get(2), BoolArray.scalar(True))
 
 
+def test_arange():
+    var a = arange[int32](1, 5)
+    assert_equal(len(a), 4)
+    assert_equal(a.unsafe_get(0), 1)
+    assert_equal(a.unsafe_get(1), 2)
+    assert_equal(a.unsafe_get(2), 3)
+    assert_equal(a.unsafe_get(3), 4)
+
+    var b = arange[uint8](0, 3)
+    assert_equal(len(b), 3)
+    assert_equal(b.unsafe_get(0), 0)
+    assert_equal(b.unsafe_get(2), 2)
+
+
+def test_arange_empty():
+    var a = arange[int32](5, 5)
+    assert_equal(len(a), 0)
+
+
+def test_arange_single():
+    var a = arange[int64](7, 8)
+    assert_equal(len(a), 1)
+    assert_equal(a.unsafe_get(0), 7)
+
+
+def test_arange_validity():
+    var a = arange[int16](0, 4)
+    for i in range(4):
+        assert_true(a.is_valid(i))
+
+
+def test_arange_int8():
+    var a = arange[int8](10, 15)
+    assert_equal(len(a), 5)
+    assert_equal(a.unsafe_get(0), 10)
+    assert_equal(a.unsafe_get(4), 14)
+
+
+def test_arange_uint64():
+    var a = arange[uint64](100, 103)
+    assert_equal(len(a), 3)
+    assert_equal(a.unsafe_get(0), 100)
+    assert_equal(a.unsafe_get(2), 102)
+
+
 def test_drop_null() -> None:
     """Test the drop null function via the compute module."""
     from marrow.compute.filter import drop_nulls
@@ -332,7 +377,7 @@ def test_list_int_array():
 
     var first_value = lists.unsafe_get(0)
     assert_equal(
-        first_value.__str__(), "PrimitiveArray[DataType(code=int64)]([1, 2, 3])"
+        first_value.__str__(), "PrimitiveArray[int64]([1, 2, 3])"
     )
 
     assert_equal(len(lists), 1)

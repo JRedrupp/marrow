@@ -115,7 +115,7 @@ struct Buffer(Movable):
             var byte_index = adjusted_index // 8
             var bit_index = adjusted_index % 8
             var byte = self.ptr[byte_index]
-            var wanted_bit = (byte >> bit_index) & 1
+            var wanted_bit = (byte >> UInt8(bit_index)) & 1
             return Scalar[T](wanted_bit)
         else:
             return self.ptr.bitcast[output]()[index + self.offset]
@@ -131,9 +131,9 @@ struct Buffer(Movable):
             var bit_index = adjusted_index % 8
             var byte = self.ptr[byte_index]
             if value:
-                self.ptr[byte_index] = byte | (1 << bit_index)
+                self.ptr[byte_index] = byte | UInt8(1 << bit_index)
             else:
-                self.ptr[byte_index] = byte & ~(1 << bit_index)
+                self.ptr[byte_index] = byte & ~UInt8(1 << bit_index)
         else:
             comptime output = Scalar[T]
             self.ptr.bitcast[output]()[index + self.offset] = value
@@ -269,7 +269,7 @@ struct Bitmap(Movable, Representable, Stringable, Writable):
             if value:
                 loaded = ~loaded
             var mask = (1 << bit_in_first_byte) - 1
-            loaded &= ~mask
+            loaded &= ~UInt8(mask)
             leading_zeros = Int(count_trailing_zeros(loaded))
             if leading_zeros == 0:
                 return count
@@ -377,9 +377,9 @@ struct Bitmap(Movable, Representable, Stringable, Writable):
         var initial_value = self.buffer.unsafe_get[DType.uint8](byte_index)
         var buffer_value = initial_value
         if value:
-            buffer_value = buffer_value | mask
+            buffer_value = buffer_value | UInt8(mask)
         else:
-            buffer_value = buffer_value & ~mask
+            buffer_value = buffer_value & ~UInt8(mask)
         self.buffer.unsafe_set[DType.uint8](byte_index, buffer_value)
 
     fn unsafe_range_set[
@@ -418,6 +418,6 @@ struct Bitmap(Movable, Representable, Stringable, Writable):
             var byte_value = 255 if value else 0
             memset(
                 self.buffer.get_ptr_at(start_index),
-                value=byte_value,
+                value=UInt8(byte_value),
                 count=end_index - start_index,
             )

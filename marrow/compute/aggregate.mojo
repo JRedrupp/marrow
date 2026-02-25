@@ -39,4 +39,4 @@ fn sum(array: Array) raises -> Scalar[DType.float64]:
             var result = sum[dtype](array.as_primitive[dtype]())
             return result.cast[DType.float64]()
 
-    raise Error("sum: unsupported dtype {}".format(array.dtype))
+    raise Error("sum: unsupported dtype " + String(array.dtype))

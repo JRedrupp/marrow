@@ -1,11 +1,10 @@
-from sys.ffi import external_call, c_char
+from ffi import external_call, c_char
 from memory import ArcPointer, memcpy
 from sys import size_of
 
 import math
 from python import Python, PythonObject
 from python._cpython import CPython, PyObjectPtr
-from sys.ffi import c_char
 from io.write import Writable, Writer
 
 from .dtypes import *
@@ -87,10 +86,8 @@ struct CArrowSchema(Copyable, Representable, Stringable, Writable):
         elif dtype == materialize[string]():
             fmt = "u"
         elif dtype.is_struct():
-            print("EEE")
-
             fmt = "+s"
-            n_children = Int(len(dtype.fields))
+            n_children = Int64(len(dtype.fields))
             children = alloc[UnsafePointer[CArrowSchema, MutAnyOrigin]](
                 Int(n_children)
             )
@@ -297,7 +294,7 @@ struct CArrowArray(Copyable):
 
 
 @fieldwise_init
-struct CArrowArrayStream(Copyable, TrivialRegisterType):
+struct CArrowArrayStream(Copyable, TrivialRegisterPassable):
     var get_schema: fn(
         UnsafePointer[CArrowArrayStream, MutAnyOrigin],
         UnsafePointer[CArrowSchema, MutAnyOrigin],
@@ -306,7 +303,7 @@ struct CArrowArrayStream(Copyable, TrivialRegisterType):
         UnsafePointer[CArrowArrayStream, MutAnyOrigin],
         UnsafePointer[CArrowArray, MutAnyOrigin],
     ) -> Int32
-    var get_last_error: fn(UnsafePointer[CArrowArrayStream]) -> UnsafePointer[
+    var get_last_error: fn(UnsafePointer[CArrowArrayStream, MutAnyOrigin]) -> UnsafePointer[
         UInt8, MutAnyOrigin
     ]
     var release: fn(UnsafePointer[CArrowArrayStream, MutAnyOrigin]) -> None

@@ -42,4 +42,4 @@ fn drop_nulls(array: Array) raises -> Array:
         if array.dtype == materialize[dtype]():
             return Array(drop_nulls[dtype](array.as_primitive[dtype]()))
 
-    raise Error("drop_nulls: unsupported dtype {}".format(array.dtype))
+    raise Error("drop_nulls: unsupported dtype " + String(array.dtype))

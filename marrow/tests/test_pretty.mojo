@@ -27,7 +27,7 @@ def test_format_primitive():
     var a = array[int32]([1, 2, 3])
     assert_equal(
         _fmt(Array(a^)),
-        "PrimitiveArray[DataType(code=int32)]([1, 2, 3])",
+        "PrimitiveArray[int32]([1, 2, 3])",
     )
 
 
@@ -35,7 +35,7 @@ def test_format_primitive_with_limit():
     var a = array[int32]([1, 2, 3, 4, 5])
     assert_equal(
         _fmt(Array(a^), limit=3),
-        "PrimitiveArray[DataType(code=int32)]([1, 2, 3, ...])",
+        "PrimitiveArray[int32]([1, 2, 3, ...])",
     )
 
 
@@ -43,7 +43,7 @@ def test_format_bool():
     var a = array([True, False])
     assert_equal(
         _fmt(Array(a^)),
-        "PrimitiveArray[DataType(code=bool)]([True, False])",
+        "PrimitiveArray[bool]([True, False])",
     )
 
 
@@ -62,9 +62,9 @@ def test_format_list():
     assert_equal(
         _fmt(Array(arr^), limit=3),
         (
-            "ListArray([PrimitiveArray[DataType(code=int64)]([1, 2]),"
-            " PrimitiveArray[DataType(code=int64)]([3, 4]),"
-            " PrimitiveArray[DataType(code=int64)]([5, 6, 7]), ...])"
+            "ListArray([PrimitiveArray[int64]([1, 2]),"
+            " PrimitiveArray[int64]([3, 4]),"
+            " PrimitiveArray[int64]([5, 6, 7]), ...])"
         ),
     )
 
@@ -74,12 +74,12 @@ def test_format_list_of_list():
     assert_equal(
         _fmt(Array(arr^)),
         (
-            "ListArray([ListArray([PrimitiveArray[DataType(code=int16)]([1,"
-            " 2]), PrimitiveArray[DataType(code=int16)]([3, 4])]),"
-            " ListArray([PrimitiveArray[DataType(code=int16)]([5, 6, 7]),"
-            " PrimitiveArray[DataType(code=int16)]([]),"
-            " PrimitiveArray[DataType(code=int16)]([8])]),"
-            " ListArray([PrimitiveArray[DataType(code=int16)]([9, 10])]), ...])"
+            "ListArray([ListArray([PrimitiveArray[int16]([1,"
+            " 2]), PrimitiveArray[int16]([3, 4])]),"
+            " ListArray([PrimitiveArray[int16]([5, 6, 7]),"
+            " PrimitiveArray[int16]([]),"
+            " PrimitiveArray[int16]([8])]),"
+            " ListArray([PrimitiveArray[int16]([9, 10])]), ...])"
         ),
     )
 
@@ -90,8 +90,8 @@ def test_format_struct():
         _fmt(Array(struct_arr^), limit=3),
         (
             "StructArray({'int_data_a': "
-            "PrimitiveArray[DataType(code=int32)]([1, 2, 3, ...]), "
-            "'int_data_b': PrimitiveArray[DataType(code=int32)]([10, 20, 30])})"
+            "PrimitiveArray[int32]([1, 2, 3, ...]), "
+            "'int_data_b': PrimitiveArray[int32]([10, 20, 30])})"
         ),
     )
 
@@ -116,8 +116,8 @@ def test_format_chunked():
     assert_equal(
         _fmt_chunked(chunked^),
         (
-            "ChunkedArray([PrimitiveArray[DataType(code=uint8)]([0, 1]),"
-            " PrimitiveArray[DataType(code=uint8)]([0, 1, 2])])"
+            "ChunkedArray([PrimitiveArray[uint8]([0, 1]),"
+            " PrimitiveArray[uint8]([0, 1, 2])])"
         ),
     )
 
@@ -125,15 +125,15 @@ def test_format_chunked():
 def test_format_limits():
     assert_equal(
         _fmt(Array(array[int32]([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])), limit=0),
-        "PrimitiveArray[DataType(code=int32)]([...])",
+        "PrimitiveArray[int32]([...])",
     )
     assert_equal(
         _fmt(Array(array[int32]([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])), limit=1),
-        "PrimitiveArray[DataType(code=int32)]([1, ...])",
+        "PrimitiveArray[int32]([1, ...])",
     )
     assert_equal(
         _fmt(Array(array[int32]([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])), limit=10),
-        "PrimitiveArray[DataType(code=int32)]([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])",
+        "PrimitiveArray[int32]([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])",
     )
 
 
@@ -141,7 +141,7 @@ def test_format_empty_array():
     var arr = Int32Array(0)
     assert_equal(
         _fmt(Array(arr^)),
-        "PrimitiveArray[DataType(code=int32)]([])",
+        "PrimitiveArray[int32]([])",
     )
 
 
@@ -151,7 +151,7 @@ def test_format_all_nulls():
     arr.bitmap[].unsafe_range_set(0, 3, False)
     assert_equal(
         _fmt(Array(arr^)),
-        "PrimitiveArray[DataType(code=int32)]([NULL, NULL, NULL])",
+        "PrimitiveArray[int32]([NULL, NULL, NULL])",
     )
 
 
@@ -164,7 +164,7 @@ def test_format_mixed_nulls():
     arr.append(4)
     assert_equal(
         _fmt(Array(arr^)),
-        "PrimitiveArray[DataType(code=int32)]([1, 2, NULL, ...])",
+        "PrimitiveArray[int32]([1, 2, NULL, ...])",
     )
 
 
