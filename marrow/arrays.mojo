@@ -558,3 +558,16 @@ fn array[T: DataType](*values: Scalar[T.native]) -> PrimitiveArray[T]:
     for value in values:
         a.unsafe_append(value)
     return a^
+
+
+# TODO(stdlib): Bool literals (True/False) cannot be implicitly converted to
+# Scalar[DType.bool] in variadic arguments, unlike integer literals which
+# coerce freely to any Scalar[DType.int*]. A dedicated overload is required
+# until Mojo supports this implicit coercion.
+# Upstream issue candidate: https://github.com/modular/modular
+fn array(*values: Bool) -> BoolArray:
+    """Create a bool array with the given values."""
+    var a = BoolArray(len(values))
+    for value in values:
+        a.unsafe_append(BoolArray.scalar(value))
+    return a^

@@ -10,7 +10,6 @@ from marrow.test_fixtures.arrays import (
     build_list_of_list,
     build_struct,
 )
-from marrow.test_fixtures.bool_array import as_bool_array_scalar
 
 
 # --- Array (base) tests ---
@@ -144,13 +143,13 @@ def test_boolean_array():
     assert_equal(len(a), 0)
     assert_equal(a.capacity, 3)
 
-    a.append(as_bool_array_scalar(True))
-    a.append(as_bool_array_scalar(False))
-    a.append(as_bool_array_scalar(True))
+    a.append(BoolArray.scalar(True))
+    a.append(BoolArray.scalar(False))
+    a.append(BoolArray.scalar(True))
     assert_equal(len(a), 3)
     assert_equal(a.capacity, 3)
 
-    a.append(as_bool_array_scalar(True))
+    a.append(BoolArray.scalar(True))
     assert_equal(len(a), 4)
     assert_equal(a.capacity, 6)
     assert_true(a.is_valid(0))
@@ -333,11 +332,7 @@ def test_list_int_array():
 
 
 def test_list_bool_array():
-    var bools = BoolArray()
-
-    bools.append(as_bool_array_scalar(True))
-    bools.append(as_bool_array_scalar(False))
-    bools.append(as_bool_array_scalar(True))
+    var bools = array(True, False, True)
 
     var lists = ListArray.from_values(bools^)
     assert_equal(len(lists), 1)

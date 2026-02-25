@@ -8,19 +8,18 @@ from marrow.test_fixtures.arrays import (
     build_list_of_int,
     build_list_of_list,
     build_struct,
-    bool_array,
 )
 
 
-def _fmt(array: Array, limit: Int = 3) -> String:
+def _fmt(arr: Array, limit: Int = 3) -> String:
     var printer = ArrayPrinter(limit=limit)
-    printer.visit(array)
+    printer.visit(arr)
     return printer^.finish()
 
 
-def _fmt_chunked(array: ChunkedArray, limit: Int = 3) -> String:
+def _fmt_chunked(arr: ChunkedArray, limit: Int = 3) -> String:
     var printer = ArrayPrinter(limit=limit)
-    printer.visit(array)
+    printer.visit(arr)
     return printer^.finish()
 
 
@@ -41,7 +40,7 @@ def test_format_primitive_with_limit():
 
 
 def test_format_bool():
-    var a = bool_array(True, False)
+    var a = array(True, False)
     assert_equal(
         _fmt(Array(a^)),
         "PrimitiveArray[DataType(code=bool)]([True, False])",
