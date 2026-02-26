@@ -243,7 +243,9 @@ struct CArrowArray(Copyable):
         var bitmap: ArcPointer[Bitmap]
         if self.buffers[0]:
             bitmap = ArcPointer(
-                Bitmap(Buffer.view[DType.bool](self.buffers[0], self.length))
+                Bitmap(
+                    Buffer.view(self.buffers[0], (Int(self.length) + 7) // 8)
+                )
             )
         else:
             # bitmaps are allowed to be nullptrs by the specification, in this

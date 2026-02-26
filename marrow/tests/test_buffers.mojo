@@ -15,23 +15,25 @@ def test_buffer_init():
     assert_equal(b.size, 64)
     assert_true(is_aligned(b.ptr, 64))
 
-    var b1 = Buffer.alloc[DType.bool](10)
-    assert_equal(b1.size, 64)
-    assert_true(is_aligned(b1.ptr, 64))
 
-    var b2 = Buffer.alloc[DType.bool](64 * 8 + 1)
-    assert_equal(b2.size, 128)
-    assert_true(is_aligned(b2.ptr, 64))
+def test_bitmap_alloc_sizes():
+    # 10 bits → ceildiv(10,8)=2 bytes → aligned to 64
+    var b1 = Bitmap.alloc(10)
+    assert_equal(b1.size(), 64)
+
+    # 64*8+1 bits → ceildiv(513,8)=65 bytes → aligned to 128
+    var b2 = Bitmap.alloc(64 * 8 + 1)
+    assert_equal(b2.size(), 128)
 
 
 def test_buffer_grow():
     var b = Buffer.alloc(10)
     b.unsafe_set(0, 111)
     assert_equal(b.size, 64)
-    b.grow(20)
+    b.resize(20)
     assert_equal(b.size, 64)
     assert_equal(b.unsafe_get(0), 111)
-    b.grow(80)
+    b.resize(80)
     assert_equal(b.size, 128)
     assert_equal(b.unsafe_get(0), 111)
 
@@ -70,7 +72,7 @@ def test_buffer_swap():
     var two = Buffer.alloc(10)
     two.unsafe_set(0, 222)
 
-    one.swap(two)
+    swap(one, two)
 
     assert_equal(one.unsafe_get(0), 222)
     assert_equal(two.unsafe_get(0), 111)
@@ -213,17 +215,6 @@ def test_buffer_with_offset():
     buf_with_offset.unsafe_set(1, 99)  # Should set buf[3]
     assert_equal(buf.unsafe_get(3), 99)
 
-    # Test offset with boolean data type - simplified test
-    var buf_bool = Buffer.alloc[DType.bool](16)
-    # Test basic functionality first
-    buf_bool.unsafe_set[DType.bool](0, True)
-    assert_true(buf_bool.unsafe_get[DType.bool](0))
-
-    # Now test with offset - use a simple offset of 1 bit
-    var buf_bool_offset = Buffer(buf_bool.ptr, buf_bool.size, False, offset=1)
-    buf_bool_offset.unsafe_set[DType.bool](0, True)  # Should set buf[1]
-    assert_true(buf_bool.unsafe_get[DType.bool](1))  # Check if buf[1] was set
-
 
 def test_buffer_moveinit_with_offset():
     # Test __moveinit__ preserves offset
@@ -246,7 +237,7 @@ def test_buffer_swap_with_offset():
     buf2.offset = 4
     buf2.unsafe_set(0, 222)
 
-    buf1.swap(buf2)
+    swap(buf1, buf2)
 
     # After swap, buf1 should have buf2's original offset and data
     assert_equal(buf1.offset, 4)
@@ -258,32 +249,30 @@ def test_buffer_swap_with_offset():
 
 
 def test_bitmap_with_offset():
-    # Test Bitmap with offset functionality
-    var buffer = Buffer.alloc[DType.bool](16)
-    # Set some bits in the underlying buffer
-    buffer.unsafe_set[DType.bool](3, True)
-    buffer.unsafe_set[DType.bool](4, False)
-    buffer.unsafe_set[DType.bool](5, True)
-    buffer.unsafe_set[DType.bool](6, True)
+    # Populate a Bitmap with known bits
+    var bm = Bitmap.alloc(16)
+    bm.unsafe_set(3, True)
+    bm.unsafe_set(5, True)
+    bm.unsafe_set(6, True)
 
-    var bitmap = Bitmap(buffer^, offset=3)
-    assert_equal(bitmap.offset, 3)
+    # Create a non-owning view of the same raw bytes with offset=3
+    var view = Bitmap(Buffer(bm.buffer.ptr, bm.buffer.size, False), offset=3)
+    assert_equal(view.offset, 3)
 
-    # Test that offset affects get operations
-    assert_true(bitmap.unsafe_get(0))  # Should get buffer[3]
-    assert_false(bitmap.unsafe_get(1))  # Should get buffer[4]
-    assert_true(bitmap.unsafe_get(2))  # Should get buffer[5]
-    assert_true(bitmap.unsafe_get(3))  # Should get buffer[6]
+    # Reads through view are shifted by 3
+    assert_true(view.unsafe_get(0))  # bit 3
+    assert_false(view.unsafe_get(1))  # bit 4
+    assert_true(view.unsafe_get(2))  # bit 5
+    assert_true(view.unsafe_get(3))  # bit 6
 
-    # Test that offset affects set operations
-    bitmap.unsafe_set(4, True)  # Should set buffer[7]
-    assert_true(bitmap.buffer.unsafe_get[DType.bool](7))
+    # Write through view sets the correct underlying bit
+    view.unsafe_set(4, True)  # sets bit 7
+    assert_true(bm.unsafe_get(7))
 
 
 def test_bitmap_moveinit_with_offset():
     # Test __moveinit__ preserves offset
-    var buffer = Buffer.alloc[DType.bool](8)
-    var bitmap = Bitmap(buffer^, offset=2)
+    var bitmap = Bitmap(Buffer.alloc(1), offset=2)
     bitmap.unsafe_set(0, True)
 
     var moved_bitmap = bitmap^

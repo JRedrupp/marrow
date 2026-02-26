@@ -142,13 +142,13 @@ def test_boolean_array():
     assert_equal(len(a), 0)
     assert_equal(a.capacity, 3)
 
-    a.append(BoolArray.scalar(True))
-    a.append(BoolArray.scalar(False))
-    a.append(BoolArray.scalar(True))
+    a.append(True)
+    a.append(False)
+    a.append(True)
     assert_equal(len(a), 3)
     assert_equal(a.capacity, 3)
 
-    a.append(BoolArray.scalar(True))
+    a.append(True)
     assert_equal(len(a), 4)
     assert_equal(a.capacity, 6)
     assert_true(a.is_valid(0))
@@ -159,7 +159,7 @@ def test_boolean_array():
     var d = Array(a^)
     assert_equal(d.length, 4)
 
-    var b = d^.as_primitive[bool_]()
+    var b = d^.as_bool()
 
 
 def test_append():
@@ -187,9 +187,9 @@ def test_array_from_ints():
 
     var b = array([True, False, True])
     assert_equal(len(b), 3)
-    assert_equal(b.unsafe_get(0), BoolArray.scalar(True))
-    assert_equal(b.unsafe_get(1), BoolArray.scalar(False))
-    assert_equal(b.unsafe_get(2), BoolArray.scalar(True))
+    assert_equal(b.unsafe_get(0), True)
+    assert_equal(b.unsafe_get(1), False)
+    assert_equal(b.unsafe_get(2), True)
 
 
 def test_array_with_nulls():
@@ -406,14 +406,10 @@ def test_list_bool_array():
     var lists = ListArray.from_values(bools^)
     assert_equal(len(lists), 1)
     var first_value = lists.unsafe_get(0)
-    var buffer = first_value.buffers[0]
-
-    fn get(index: Int) -> Bool:
-        return buffer[].unsafe_get[DType.bool](index)
-
-    assert_equal(get(0), True)
-    assert_equal(get(1), False)
-    assert_equal(get(2), True)
+    var bool_array = BoolArray(first_value)
+    assert_equal(bool_array.unsafe_get(0), True)
+    assert_equal(bool_array.unsafe_get(1), False)
+    assert_equal(bool_array.unsafe_get(2), True)
 
 
 def test_list_str():

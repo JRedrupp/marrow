@@ -10,18 +10,15 @@ from bit import pop_count, count_trailing_zeros
 
 
 fn _required_bytes[T: DType](length: Int) -> Int:
-    var n = (
-        math.ceildiv(length, 8) if T == DType.bool else length * size_of[T]()
-    )
-    return math.align_up(n, 64)
+    return math.align_up(length * size_of[T](), 64)
 
 
 comptime simd_width = simd_byte_width()
 
 comptime simd_widths = (simd_width, simd_width // 2, 1)
 
+
 # TODO(kszucs): add mut comptime parameter and probably an owns based on which use either ownedpointer or plain pointer but rather not unsafepointer
-# TODO(kszucs): remove bool support from buffer, clearly separate buffer and bitmap, they could be converted between each other but they have different semantics and usage patterns. Buffer should be a simple wrapper around a memory region, while Bitmap should provide bitmap specific operations on top of a buffer.
 # TODO(kszucs): parametrize its mutability
 struct Buffer(Movable):
     var ptr: UnsafePointer[UInt8, MutAnyOrigin]
@@ -40,13 +37,6 @@ struct Buffer(Movable):
         self.size = size
         self.owns = owns
         self.offset = offset
-
-    fn swap(mut self, mut other: Self):
-        """Swap the content of this buffer with another buffer."""
-        swap(self.ptr, other.ptr)
-        swap(self.size, other.size)
-        swap(self.owns, other.owns)
-        swap(self.offset, other.offset)
 
     @staticmethod
     fn alloc[I: Intable, //, T: DType = DType.uint8](length: I) -> Buffer:
@@ -77,17 +67,20 @@ struct Buffer(Movable):
     fn get_ptr_at(self, index: Int) -> UnsafePointer[UInt8, MutAnyOrigin]:
         return self.ptr + index
 
-    fn grow[I: Intable, //, T: DType = DType.uint8](mut self, target_length: I):
-        if self.length[T]() >= Int(target_length):
-            return
-
-        var new = Buffer.alloc[T](target_length)
+    fn resize[I: Intable, //, T: DType = DType.uint8](mut self, length: I):
+        comptime elem_bytes = size_of[T]()
+        var new = Buffer.alloc[T](length)
         memcpy(
             dest=new.ptr,
-            src=self.ptr,
-            count=self.size,
+            src=self.get_ptr_at(self.offset * elem_bytes),
+            count=min(
+                self.size - self.offset * elem_bytes, Int(length) * elem_bytes
+            ),
         )
-        self.swap(new)
+        swap(self.ptr, new.ptr)
+        swap(self.size, new.size)
+        swap(self.owns, new.owns)
+        self.offset = 0
 
     fn __del__(deinit self):
         if self.owns:
@@ -95,66 +88,22 @@ struct Buffer(Movable):
 
     @always_inline
     fn length[T: DType = DType.uint8](self) -> Int:
-        @parameter
-        if T == DType.bool:
-            return self.size * 8
-        else:
-            return self.size // size_of[T]()
+        return self.size // size_of[T]()
 
     @always_inline
     fn unsafe_get[T: DType = DType.uint8](self, index: Int) -> Scalar[T]:
         comptime output = Scalar[T]
-
-        @parameter
-        if T == DType.bool:
-            var adjusted_index = index + self.offset
-            var byte_index = adjusted_index // 8
-            var bit_index = adjusted_index % 8
-            var byte = self.ptr[byte_index]
-            var wanted_bit = (byte >> UInt8(bit_index)) & 1
-            return Scalar[T](wanted_bit)
-        else:
-            return self.ptr.bitcast[output]()[index + self.offset]
+        return self.ptr.bitcast[output]()[index + self.offset]
 
     @always_inline
     fn unsafe_set[
         T: DType = DType.uint8
     ](mut self, index: Int, value: Scalar[T]):
-        @parameter
-        if T == DType.bool:
-            var adjusted_index = index + self.offset
-            var byte_index = adjusted_index // 8
-            var bit_index = adjusted_index % 8
-            var byte = self.ptr[byte_index]
-            if value:
-                self.ptr[byte_index] = byte | UInt8(1 << bit_index)
-            else:
-                self.ptr[byte_index] = byte & ~UInt8(1 << bit_index)
-        else:
-            comptime output = Scalar[T]
-            self.ptr.bitcast[output]()[index + self.offset] = value
-
-    fn bit_count(self) -> Int:
-        """The number of bits with value 1 in the buffer."""
-        var start = 0
-        var count = 0
-        while start < self.size:
-            if self.size - start > simd_width:
-                count += (
-                    self.get_ptr_at(start)
-                    .load[width=simd_width]()
-                    .reduce_bit_count()
-                )
-                start += simd_width
-            else:
-                count += (
-                    self.get_ptr_at(start).load[width=1]().reduce_bit_count()
-                )
-                start += 1
-        return count
+        comptime output = Scalar[T]
+        self.ptr.bitcast[output]()[index + self.offset] = value
 
 
-struct Bitmap(Movable, Representable, Stringable, Writable):
+struct Bitmap(Movable, Stringable):
 
     """Hold information about the null records in an array."""
 
@@ -163,59 +112,54 @@ struct Bitmap(Movable, Representable, Stringable, Writable):
 
     @staticmethod
     fn alloc[I: Intable](length: I) -> Bitmap:
-        return Bitmap(Buffer.alloc[DType.bool](length))
+        return Bitmap(Buffer.alloc(math.ceildiv(Int(length), 8)))
 
     fn __init__(out self, var buffer: Buffer, offset: Int = 0):
         self.buffer = buffer^
         self.offset = offset
 
-    fn write_to[W: Writer](self, mut writer: W):
-        """
-        Formats this buffer to the provided Writer.
-
-        Parameters:
-            W: A type conforming to the Writable trait.
-
-        Args:
-            writer: The object to write to.
-        """
-
+    fn __str__(self) -> String:
+        var output = String()
         for i in range(self.length()):
             var value = self.unsafe_get(i)
             if value:
-                writer.write("T")
+                output += "T"
             else:
-                writer.write("f")
+                output += "f"
             if i > 16:
-                writer.write("...")
+                output += "..."
                 break
-
-    fn __str__(self) -> String:
-        var output = String()
-        output.write(self)
-        return output
-
-    fn __repr__(self) -> String:
-        var output = String()
-        output.write(self)
         return output
 
     fn unsafe_get(self, index: Int) -> Bool:
-        return self.buffer.unsafe_get[DType.bool](index + self.offset)
+        var adjusted = index + self.offset
+        return Bool((self.buffer.ptr[adjusted // 8] >> UInt8(adjusted % 8)) & 1)
 
     fn unsafe_set(mut self, index: Int, value: Bool) -> None:
-        self.buffer.unsafe_set[DType.bool](index + self.offset, value)
+        var adjusted = index + self.offset
+        var byte_index = adjusted // 8
+        var bit_mask = UInt8(1 << (adjusted % 8))
+        if value:
+            self.buffer.ptr[byte_index] = self.buffer.ptr[byte_index] | bit_mask
+        else:
+            self.buffer.ptr[byte_index] = (
+                self.buffer.ptr[byte_index] & ~bit_mask
+            )
 
     @always_inline
     fn length(self) -> Int:
-        return self.buffer.length[DType.bool]()
+        return self.buffer.size * 8
 
     @always_inline
     fn size(self) -> Int:
         return self.buffer.size
 
-    fn grow[I: Intable](mut self, target_length: I):
-        return self.buffer.grow[DType.bool](target_length)
+    fn resize[I: Intable](mut self, length: I, start: Int = 0):
+        var new = Bitmap.alloc(length)
+        for i in range(Int(length)):
+            new.unsafe_set(i, self.unsafe_get(i + start))
+        swap(self.buffer, new.buffer)
+        self.offset = 0
 
     fn bit_count(self) -> Int:
         """The number of bits with value 1 in the Bitmap."""
@@ -341,8 +285,7 @@ struct Bitmap(Movable, Representable, Stringable, Writable):
             start: The starting index in the destination array.
             length: The number of elements to copy from the source array.
         """
-        var desired_size = _required_bytes[DType.bool](start + length)
-        self.buffer.grow[DType.bool](desired_size)
+        self.buffer.resize(math.ceildiv(start + length, 8))
 
         for i in range(length):
             self.unsafe_set(i + start, other.unsafe_get(i))
