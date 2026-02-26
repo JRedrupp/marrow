@@ -257,8 +257,9 @@ struct CArrowArray(Movable):
         else:
             # bitmaps are allowed to be nullptrs by the specification; in this
             # case we allocate a new owned buffer to hold the validity bitmap.
-            bitmap = ArcPointer(Bitmap.alloc(self.length))
-            bitmap[].unsafe_range_set(0, self.length, True)
+            var bm = Bitmap.alloc(self.length)
+            bm.unsafe_range_set(0, self.length, True)
+            bitmap = ArcPointer(bm^.freeze())
 
         var buffers = List[ArcPointer[Buffer]]()
         var children = List[ArcPointer[Array]]()
@@ -277,7 +278,7 @@ struct CArrowArray(Movable):
                     )
                 )
             var values = Bitmap.foreign_view(self.buffers[1], length, keeper)
-            buffers.append(ArcPointer[Buffer](values^))
+            buffers.append(ArcPointer(Buffer(values^)))
         elif dtype.is_primitive():
             if self.n_buffers != 2:
                 raise Error(

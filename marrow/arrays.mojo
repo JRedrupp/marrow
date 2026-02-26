@@ -1,3 +1,43 @@
+"""Arrow columnar arrays with compile-time mutability control.
+
+Every typed array (`BoolArray`, `PrimitiveArray`, `StringArray`, `ListArray`,
+`StructArray`) carries a `mut: Bool` parameter that defaults to `False`
+(immutable).  This means **the common read path requires no annotation** — a
+bare `PrimitiveArray[int64]` is immutable, matching the fact that most code
+*consumes* arrays rather than building them.
+
+Lifecycle — building an array
+-----------------------------
+1. **Create a builder** with explicit `mut=True`:
+
+       var builder = PrimitiveArray[int64, mut=True](capacity=1024)
+
+2. **Append / set values** through gated methods (only available on `mut=True`):
+
+       builder.append(42)
+       builder.unsafe_append_null()
+
+3. **Freeze** the builder into an immutable array (zero-cost `rebind`):
+
+       var arr = builder^.freeze()   # PrimitiveArray[int64]
+
+   `freeze()` shrinks buffers to exact length (normalises offset to 0) and
+   returns the default (immutable) type.  After freezing, the builder is
+   consumed — no mutable handle remains.
+
+Convenience factory functions (`array()`, `arange()`, `nulls()`) encapsulate
+this lifecycle: they build with `mut=True` internally and return a frozen,
+immutable array.
+
+Array — the generic container
+-----------------------------
+`Array` is the low-level, type-erased container used for storage, exchange
+(C Data Interface), and visitor dispatch.  It always holds **immutable**
+bitmaps and buffers (`ArcPointer[Bitmap]`, `ArcPointer[Buffer]`) — there is
+no mutable variant of `Array`.  Typed arrays convert to/from `Array` via
+implicit constructors and `as_*()` accessors.
+"""
+
 from memory import ArcPointer, memcpy
 from sys import size_of
 from .buffers import Buffer, Bitmap
@@ -9,6 +49,10 @@ struct Array(Copyable, Movable, Stringable):
     """Array is the lower level abstraction directly usable by the library consumer.
 
     Equivalent with https://github.com/apache/arrow/blob/7184439dea96cd285e6de00e07c5114e4919a465/cpp/src/arrow/array/data.h#L62-L84.
+
+    Array holds immutable bitmap and buffers. Use typed array builders
+    (e.g. PrimitiveArray[Self.T, mut=True]) to construct data, then convert
+    to Array for storage/exchange.
     """
 
     var dtype: DataType
@@ -23,59 +67,64 @@ struct Array(Copyable, Movable, Stringable):
         """Build an Array from a buffer where all the values are not null."""
         var bitmap = Bitmap.alloc(length)
         bitmap.unsafe_range_set(0, length, True)
+        var buffers = List[ArcPointer[Buffer]]()
+        buffers.append(rebind[ArcPointer[Buffer]](ArcPointer(buffer^)))
         return Array(
             dtype=materialize[dtype](),
             length=length,
-            bitmap=ArcPointer(bitmap^),
-            buffers=[ArcPointer(buffer^)],
+            bitmap=ArcPointer(bitmap^.freeze()),
+            buffers=buffers^,
             children=[],
             offset=0,
         )
 
     @implicit
     fn __init__[
-        T: DataType, is_mutable: Bool
-    ](out self, array: PrimitiveArray[T, is_mutable]):
+        T: DataType, is_mut: Bool
+    ](out self, array: PrimitiveArray[T, mut=is_mut]):
         self.dtype = materialize[T]()
         self.length = array.length
         self.offset = array.offset
-        self.bitmap = array.bitmap
-        self.buffers = [array.buffer]
+        self.bitmap = rebind[ArcPointer[Bitmap]](array.bitmap)
+        self.buffers = [rebind[ArcPointer[Buffer]](array.buffer)]
         self.children = []
 
     @implicit
-    fn __init__[is_mutable: Bool](out self, array: BoolArray[is_mutable]):
+    fn __init__[is_mut: Bool](out self, array: BoolArray[mut=is_mut]):
         self.dtype = materialize[bool_]()
         self.length = array.length
         self.offset = array.offset
-        self.bitmap = array.bitmap
-        self.buffers = [array.buffer]
+        self.bitmap = rebind[ArcPointer[Bitmap]](array.bitmap)
+        self.buffers = [rebind[ArcPointer[Buffer]](array.values)]
         self.children = []
 
     @implicit
-    fn __init__[is_mutable: Bool](out self, array: StringArray[is_mutable]):
+    fn __init__[is_mut: Bool](out self, array: StringArray[mut=is_mut]):
         self.dtype = materialize[string]()
         self.length = array.length
         self.offset = array.offset
-        self.bitmap = array.bitmap
-        self.buffers = [array.offsets, array.values]
+        self.bitmap = rebind[ArcPointer[Bitmap]](array.bitmap)
+        self.buffers = [
+            rebind[ArcPointer[Buffer]](array.offsets),
+            rebind[ArcPointer[Buffer]](array.values),
+        ]
         self.children = []
 
     @implicit
-    fn __init__[is_mutable: Bool](out self, array: ListArray[is_mutable]):
+    fn __init__[is_mut: Bool](out self, array: ListArray[mut=is_mut]):
         self.dtype = array.dtype.copy()
         self.length = array.length
         self.offset = array.offset
-        self.bitmap = array.bitmap
-        self.buffers = [array.offsets]
+        self.bitmap = rebind[ArcPointer[Bitmap]](array.bitmap)
+        self.buffers = [rebind[ArcPointer[Buffer]](array.offsets)]
         self.children = [array.values]
 
     @implicit
-    fn __init__[is_mutable: Bool](out self, array: StructArray[is_mutable]):
+    fn __init__[is_mut: Bool](out self, array: StructArray[mut=is_mut]):
         self.dtype = array.dtype.copy()
         self.length = array.length
         self.offset = 0
-        self.bitmap = array.bitmap
+        self.bitmap = rebind[ArcPointer[Bitmap]](array.bitmap)
         self.buffers = []
         self.children = array.children.copy()
 
@@ -114,35 +163,35 @@ struct Array(Copyable, Movable, Stringable):
     fn as_bool(self) raises -> BoolArray:
         return BoolArray(self)
 
-    fn as_int8(self) raises -> Int8Array:
-        return Int8Array(self)
+    fn as_int8(self) raises -> PrimitiveArray[int8]:
+        return PrimitiveArray[int8](self)
 
-    fn as_int16(self) raises -> Int16Array:
-        return Int16Array(self)
+    fn as_int16(self) raises -> PrimitiveArray[int16]:
+        return PrimitiveArray[int16](self)
 
-    fn as_int32(self) raises -> Int32Array:
-        return Int32Array(self)
+    fn as_int32(self) raises -> PrimitiveArray[int32]:
+        return PrimitiveArray[int32](self)
 
-    fn as_int64(self) raises -> Int64Array:
-        return Int64Array(self)
+    fn as_int64(self) raises -> PrimitiveArray[int64]:
+        return PrimitiveArray[int64](self)
 
-    fn as_uint8(self) raises -> UInt8Array:
-        return UInt8Array(self)
+    fn as_uint8(self) raises -> PrimitiveArray[uint8]:
+        return PrimitiveArray[uint8](self)
 
-    fn as_uint16(self) raises -> UInt16Array:
-        return UInt16Array(self)
+    fn as_uint16(self) raises -> PrimitiveArray[uint16]:
+        return PrimitiveArray[uint16](self)
 
-    fn as_uint32(self) raises -> UInt32Array:
-        return UInt32Array(self)
+    fn as_uint32(self) raises -> PrimitiveArray[uint32]:
+        return PrimitiveArray[uint32](self)
 
-    fn as_uint64(self) raises -> UInt64Array:
-        return UInt64Array(self)
+    fn as_uint64(self) raises -> PrimitiveArray[uint64]:
+        return PrimitiveArray[uint64](self)
 
-    fn as_float32(self) raises -> Float32Array:
-        return Float32Array(self)
+    fn as_float32(self) raises -> PrimitiveArray[float32]:
+        return PrimitiveArray[float32](self)
 
-    fn as_float64(self) raises -> Float64Array:
-        return Float64Array(self)
+    fn as_float64(self) raises -> PrimitiveArray[float64]:
+        return PrimitiveArray[float64](self)
 
     fn as_string(self) raises -> StringArray:
         return StringArray(self)
@@ -153,38 +202,22 @@ struct Array(Copyable, Movable, Stringable):
     fn as_struct(self) raises -> StructArray:
         return StructArray(data=self)
 
-    fn append_to_array(
-        deinit self: Array, mut combined: Array, start: Int
-    ) -> Int:
-        """Append the content self to the combined array, consumes self.
 
-        Args:
-            combined: Array to append to.
-            start: Position where to append.
+struct BoolArray[*, mut: Bool = False](Movable, Sized):
+    """An Arrow array of boolean values stored as a bit-packed buffer.
 
-        Returns:
-            The new start position.
-        """
-        combined.bitmap[].extend(self.bitmap[], start, self.length)
-        combined.buffers.extend(self.buffers^)
-        combined.children.extend(self.children^)
-        return start + self.length
-
-
-# TODO(kszucs): rename mut parameter to is_builder to signify that the
-# array is mutable because it's being built, but it will be frozen once it's ready
-# it should be false by default, there can be type aliases like Int8Builder
-# also the capacity fields should be present only for builders
-struct BoolArray[is_builder: Bool = True](Movable, Sized):
-    """An Arrow array of boolean values stored as a bit-packed buffer."""
+    Immutable by default (`mut=False`).  Use `BoolArray[mut=True](capacity=n)`
+    to create a mutable builder, then call `freeze()` to obtain an immutable
+    `BoolArray`.  Constructing from an `Array` always yields an immutable view.
+    """
 
     var length: Int
     var offset: Int
     var capacity: Int
-    var bitmap: ArcPointer[Bitmap]
-    var buffer: ArcPointer[Buffer]
+    var bitmap: ArcPointer[Bitmap[mut=Self.mut]]
+    var values: ArcPointer[Buffer[mut=Self.mut]]
 
-    fn __init__(out self, ref data: Array, offset: Int = 0) raises:
+    fn __init__(out self: BoolArray, ref data: Array, offset: Int = 0) raises:
         if data.dtype != materialize[bool_]():
             raise Error(
                 "Unexpected dtype '"
@@ -197,29 +230,27 @@ struct BoolArray[is_builder: Bool = True](Movable, Sized):
         self.length = data.length
         self.capacity = data.length
         self.bitmap = data.bitmap
-        self.buffer = data.buffers[0]
+        self.values = data.buffers[0]
 
-    fn __init__(out self, capacity: Int = 0, offset: Int = 0):
+    fn __init__(out self: BoolArray[mut=True], capacity: Int = 0, offset: Int = 0):
         self.capacity = capacity
         self.length = 0
         self.offset = offset
         self.bitmap = ArcPointer(Bitmap.alloc(capacity))
-        self.buffer = ArcPointer(Buffer.alloc((capacity + 7) // 8))
+        self.values = ArcPointer(Buffer.alloc((capacity + 7) // 8))
 
     fn __init__[
         other_mut: Bool, //
-    ](out self, deinit other: BoolArray[other_mut]):
-        comptime assert not Self.is_builder, "use direct move for mutable-to-mutable"
+    ](out self: BoolArray, deinit other: BoolArray[mut=other_mut]):
         self.length = other.length
         self.offset = other.offset
         self.capacity = other.capacity
-        self.bitmap = other.bitmap^
-        self.buffer = other.buffer^
+        self.bitmap = rebind[ArcPointer[Bitmap]](other.bitmap^)
+        self.values = rebind[ArcPointer[Buffer]](other.values^)
 
-    fn grow(mut self, capacity: Int):
-        comptime assert Self.is_builder, "cannot grow a frozen (immutable) array"
+    fn grow(mut self: BoolArray[mut=True], capacity: Int):
         self.bitmap[].resize(capacity)
-        self.buffer[].resize((capacity + 7) // 8)
+        self.values[].resize((capacity + 7) // 8)
         self.capacity = capacity
 
     @always_inline
@@ -234,36 +265,31 @@ struct BoolArray[is_builder: Bool = True](Movable, Sized):
     fn unsafe_get(self, index: Int) -> Bool:
         var adjusted = index + self.offset
         return Bool(
-            (self.buffer[].ptr[adjusted // 8] >> UInt8(adjusted % 8)) & 1
+            (self.values[].ptr[adjusted // 8] >> UInt8(adjusted % 8)) & 1
         )
 
     @always_inline
-    fn unsafe_set(mut self, index: Int, value: Bool):
-        comptime assert (
-            Self.is_builder
-        ), "cannot set a value on a frozen (immutable) array"
+    fn unsafe_set(mut self: BoolArray[mut=True], index: Int, value: Bool):
         self.bitmap[].unsafe_set(index + self.offset, True)
         var adjusted = index + self.offset
         var byte_index = adjusted // 8
         var bit_mask = UInt8(1 << (adjusted % 8))
         if value:
-            self.buffer[].ptr[byte_index] = (
-                self.buffer[].ptr[byte_index] | bit_mask
+            self.values[].ptr[byte_index] = (
+                self.values[].ptr[byte_index] | bit_mask
             )
         else:
-            self.buffer[].ptr[byte_index] = (
-                self.buffer[].ptr[byte_index] & ~bit_mask
+            self.values[].ptr[byte_index] = (
+                self.values[].ptr[byte_index] & ~bit_mask
             )
 
     @always_inline
-    fn unsafe_append(mut self, value: Bool):
-        comptime assert Self.is_builder, "cannot append to a frozen (immutable) array"
+    fn unsafe_append(mut self: BoolArray[mut=True], value: Bool):
         self.unsafe_set(self.length, value)
         self.length += 1
 
     @always_inline
-    fn unsafe_append_null(mut self):
-        comptime assert Self.is_builder, "cannot append to a frozen (immutable) array"
+    fn unsafe_append_null(mut self: BoolArray[mut=True]):
         self.bitmap[].unsafe_set(self.length + self.offset, False)
         self.length += 1
 
@@ -277,10 +303,7 @@ struct BoolArray[is_builder: Bool = True](Movable, Sized):
             )
         return self.unsafe_get(index)
 
-    fn __setitem__(mut self, index: Int, value: Bool) raises:
-        comptime assert (
-            Self.is_builder
-        ), "cannot set item on a frozen (immutable) array"
+    fn __setitem__(mut self: BoolArray[mut=True], index: Int, value: Bool) raises:
         if index < 0 or index >= self.length:
             raise Error(
                 "index "
@@ -290,16 +313,13 @@ struct BoolArray[is_builder: Bool = True](Movable, Sized):
             )
         self.unsafe_set(index, value)
 
-    fn shrink_to_fit(mut self):
+    fn shrink_to_fit(mut self: BoolArray[mut=True]):
         """Shrink buffers to exact length and normalize offset to 0 in place."""
-        comptime assert (
-            Self.is_builder
-        ), "cannot shrink_to_fit a frozen (immutable) array"
         if self.length == self.capacity and self.offset == 0:
             return
 
         var new_buf = Buffer.alloc((self.length + 7) // 8)
-        ref src = self.buffer[]
+        ref src = self.values[]
         for i in range(self.length):
             var src_idx = i + self.offset
             var bit = Bool((src.ptr[src_idx // 8] >> UInt8(src_idx % 8)) & 1)
@@ -310,24 +330,22 @@ struct BoolArray[is_builder: Bool = True](Movable, Sized):
         for i in range(self.length):
             new_bitmap.unsafe_set(i, self.bitmap[].unsafe_get(i + self.offset))
 
-        self.buffer = ArcPointer(new_buf^)
+        self.values = ArcPointer(new_buf^)
         self.bitmap = ArcPointer(new_bitmap^)
         self.offset = 0
         self.capacity = self.length
 
-    fn freeze(deinit self) -> BoolArray[False]:
+    fn freeze(deinit self: BoolArray[mut=True]) -> BoolArray:
         """Shrink buffers to exact length and return as an immutable array."""
         self.shrink_to_fit()
-        return BoolArray[False](self^)
+        return BoolArray(self^)
 
-    fn append(mut self, value: Bool):
-        comptime assert Self.is_builder, "cannot append to a frozen (immutable) array"
+    fn append(mut self: BoolArray[mut=True], value: Bool):
         if self.length >= self.capacity:
             self.grow(max(self.capacity * 2, self.length + 1))
         self.unsafe_append(value)
 
-    fn extend(mut self, values: List[Bool]):
-        comptime assert Self.is_builder, "cannot extend a frozen (immutable) array"
+    fn extend(mut self: BoolArray[mut=True], values: List[Bool]):
         if self.__len__() + len(values) >= self.capacity:
             self.grow(self.capacity + len(values))
         for value in values:
@@ -339,8 +357,13 @@ struct BoolArray[is_builder: Bool = True](Movable, Sized):
         return self.length - valid_count
 
 
-struct PrimitiveArray[T: DataType, is_builder: Bool = True](Movable, Sized):
-    """An Arrow array of primitive types."""
+struct PrimitiveArray[T: DataType, *, mut: Bool = False](Movable, Sized):
+    """An Arrow array of fixed-size primitive values (integers, floats, etc.).
+
+    Immutable by default (`mut=False`).  Use
+    `PrimitiveArray[T, mut=True](capacity=n)` to create a mutable builder,
+    then call `freeze()` to obtain an immutable `PrimitiveArray[T]`.
+    """
 
     # comptime assert T.is_primitive(), "PrimitiveArray requires a primitive data type"
     comptime dtype = Self.T
@@ -349,11 +372,10 @@ struct PrimitiveArray[T: DataType, is_builder: Bool = True](Movable, Sized):
     var length: Int
     var offset: Int
     var capacity: Int
-    var bitmap: ArcPointer[Bitmap]
-    var buffer: ArcPointer[Buffer]
+    var bitmap: ArcPointer[Bitmap[mut=Self.mut]]
+    var buffer: ArcPointer[Buffer[mut=Self.mut]]
 
-    fn __init__(out self, ref data: Array, offset: Int = 0) raises:
-        # TODO(kszucs): put a dtype constraint here
+    fn __init__(out self: PrimitiveArray[Self.T], ref data: Array, offset: Int = 0) raises:
         if data.dtype != materialize[Self.T]():
             raise Error(
                 "Unexpected dtype '"
@@ -371,7 +393,7 @@ struct PrimitiveArray[T: DataType, is_builder: Bool = True](Movable, Sized):
         self.bitmap = data.bitmap
         self.buffer = data.buffers[0]
 
-    fn __init__(out self, capacity: Int = 0, offset: Int = 0):
+    fn __init__(out self: PrimitiveArray[Self.T, mut=True], capacity: Int = 0, offset: Int = 0):
         self.capacity = capacity
         self.length = 0
         self.offset = offset
@@ -380,16 +402,14 @@ struct PrimitiveArray[T: DataType, is_builder: Bool = True](Movable, Sized):
 
     fn __init__[
         other_mut: Bool, //
-    ](out self, deinit other: PrimitiveArray[Self.T, other_mut]):
-        comptime assert not Self.is_builder, "use direct move for mutable-to-mutable"
+    ](out self: PrimitiveArray[Self.T], deinit other: PrimitiveArray[Self.T, mut=other_mut]):
         self.length = other.length
         self.offset = other.offset
         self.capacity = other.capacity
-        self.bitmap = other.bitmap^
-        self.buffer = other.buffer^
+        self.bitmap = rebind[ArcPointer[Bitmap]](other.bitmap^)
+        self.buffer = rebind[ArcPointer[Buffer]](other.buffer^)
 
-    fn grow(mut self, capacity: Int):
-        comptime assert Self.is_builder, "cannot grow a frozen (immutable) array"
+    fn grow(mut self: PrimitiveArray[Self.T, mut=True], capacity: Int):
         self.bitmap[].resize(capacity)
         self.buffer[].resize[Self.T.native](capacity)
         self.capacity = capacity
@@ -407,22 +427,17 @@ struct PrimitiveArray[T: DataType, is_builder: Bool = True](Movable, Sized):
         return self.buffer[].unsafe_get[Self.T.native](index + self.offset)
 
     @always_inline
-    fn unsafe_set(mut self, index: Int, value: Self.scalar):
-        comptime assert (
-            Self.is_builder
-        ), "cannot set a value on a frozen (immutable) array"
+    fn unsafe_set(mut self: PrimitiveArray[Self.T, mut=True], index: Int, value: Self.scalar):
         self.bitmap[].unsafe_set(index + self.offset, True)
         self.buffer[].unsafe_set[Self.T.native](index + self.offset, value)
 
     @always_inline
-    fn unsafe_append(mut self, value: Self.scalar):
-        comptime assert Self.is_builder, "cannot append to a frozen (immutable) array"
+    fn unsafe_append(mut self: PrimitiveArray[Self.T, mut=True], value: Self.scalar):
         self.unsafe_set(self.length, value)
         self.length += 1
 
     @always_inline
-    fn unsafe_append_null(mut self):
-        comptime assert Self.is_builder, "cannot append to a frozen (immutable) array"
+    fn unsafe_append_null(mut self: PrimitiveArray[Self.T, mut=True]):
         self.bitmap[].unsafe_set(self.length + self.offset, False)
         self.length += 1
 
@@ -436,10 +451,7 @@ struct PrimitiveArray[T: DataType, is_builder: Bool = True](Movable, Sized):
             )
         return self.unsafe_get(index)
 
-    fn __setitem__(mut self, index: Int, value: Self.scalar) raises:
-        comptime assert (
-            Self.is_builder
-        ), "cannot set item on a frozen (immutable) array"
+    fn __setitem__(mut self: PrimitiveArray[Self.T, mut=True], index: Int, value: Self.scalar) raises:
         if index < 0 or index >= self.length:
             raise Error(
                 "index "
@@ -449,11 +461,8 @@ struct PrimitiveArray[T: DataType, is_builder: Bool = True](Movable, Sized):
             )
         self.unsafe_set(index, value)
 
-    fn shrink_to_fit(mut self):
+    fn shrink_to_fit(mut self: PrimitiveArray[Self.T, mut=True]):
         """Shrink buffers to exact length and normalize offset to 0 in place."""
-        comptime assert (
-            Self.is_builder
-        ), "cannot shrink_to_fit a frozen (immutable) array"
         if self.length == self.capacity and self.offset == 0:
             return
 
@@ -463,21 +472,17 @@ struct PrimitiveArray[T: DataType, is_builder: Bool = True](Movable, Sized):
         self.offset = 0
         self.capacity = self.length
 
-    fn freeze(deinit self) -> PrimitiveArray[Self.T, False]:
+    fn freeze(deinit self: PrimitiveArray[Self.T, mut=True]) -> PrimitiveArray[Self.T]:
         """Shrink buffers to exact length and return as an immutable array."""
         self.shrink_to_fit()
-        return PrimitiveArray[Self.T, False](self^)
+        return PrimitiveArray[Self.T](self^)
 
-    fn append(mut self, value: Self.scalar):
-        comptime assert Self.is_builder, "cannot append to a frozen (immutable) array"
+    fn append(mut self: PrimitiveArray[Self.T, mut=True], value: Self.scalar):
         if self.length >= self.capacity:
             self.grow(max(self.capacity * 2, self.length + 1))
         self.unsafe_append(value)
 
-    # fn append(mut self, value: Optional[Self.scalar]):
-
-    fn extend(mut self, values: List[self.scalar]):
-        comptime assert Self.is_builder, "cannot extend a frozen (immutable) array"
+    fn extend(mut self: PrimitiveArray[Self.T, mut=True], values: List[self.scalar]):
         if self.__len__() + len(values) >= self.capacity:
             self.grow(self.capacity + len(values))
         for value in values:
@@ -501,15 +506,21 @@ comptime Float32Array = PrimitiveArray[float32]
 comptime Float64Array = PrimitiveArray[float64]
 
 
-struct StringArray[is_builder: Bool = True](Movable, Sized):
+struct StringArray[*, mut: Bool = False](Movable, Sized):
+    """An Arrow array of variable-length UTF-8 strings.
+
+    Immutable by default (`mut=False`).  Use `StringArray[mut=True](capacity=n)`
+    to create a mutable builder, then call `freeze()` to obtain an immutable
+    `StringArray`.
+    """
     var length: Int
     var offset: Int
     var capacity: Int
-    var bitmap: ArcPointer[Bitmap]
-    var offsets: ArcPointer[Buffer]
-    var values: ArcPointer[Buffer]
+    var bitmap: ArcPointer[Bitmap[mut=Self.mut]]
+    var offsets: ArcPointer[Buffer[mut=Self.mut]]
+    var values: ArcPointer[Buffer[mut=Self.mut]]
 
-    fn __init__(out self, ref data: Array) raises:
+    fn __init__(out self: StringArray, ref data: Array) raises:
         if data.dtype != materialize[string]():
             raise Error(
                 "Unexpected dtype '"
@@ -526,8 +537,7 @@ struct StringArray[is_builder: Bool = True](Movable, Sized):
         self.offsets = data.buffers[0]
         self.values = data.buffers[1]
 
-    fn __init__(out self, capacity: Int = 0):
-        # TODO(kszucs): initial values capacity should be either 0 or some value received from the user
+    fn __init__(out self: StringArray[mut=True], capacity: Int = 0):
         self.capacity = capacity
         self.length = 0
         self.offset = 0
@@ -538,21 +548,18 @@ struct StringArray[is_builder: Bool = True](Movable, Sized):
 
     fn __init__[
         other_mut: Bool, //
-    ](out self, deinit other: StringArray[other_mut]):
-        comptime assert not Self.is_builder, "use direct move for mutable-to-mutable"
+    ](out self: StringArray, deinit other: StringArray[mut=other_mut]):
         self.length = other.length
         self.offset = other.offset
         self.capacity = other.capacity
-        self.bitmap = other.bitmap^
-        self.offsets = other.offsets^
-        self.values = other.values^
+        self.bitmap = rebind[ArcPointer[Bitmap]](other.bitmap^)
+        self.offsets = rebind[ArcPointer[Buffer]](other.offsets^)
+        self.values = rebind[ArcPointer[Buffer]](other.values^)
 
     fn __len__(self) -> Int:
         return self.length
 
-    # TODO(kszucs): not grow by a single slot
-    fn grow(mut self, capacity: Int):
-        comptime assert Self.is_builder, "cannot grow a frozen (immutable) array"
+    fn grow(mut self: StringArray[mut=True], capacity: Int):
         self.bitmap[].resize(capacity)
         self.offsets[].resize[DType.uint32](capacity + 1)
         self.capacity = capacity
@@ -560,9 +567,7 @@ struct StringArray[is_builder: Bool = True](Movable, Sized):
     fn is_valid(self, index: Int) -> Bool:
         return self.bitmap[].unsafe_get(index)
 
-    fn unsafe_append(mut self, value: String):
-        comptime assert Self.is_builder, "cannot append to a frozen (immutable) array"
-        # todo(kszucs): use unsafe set
+    fn unsafe_append(mut self: StringArray[mut=True], value: String):
         var index = self.length
         var last_offset = self.offsets[].unsafe_get[DType.uint32](index)
         var next_offset = last_offset + UInt32(len(value))
@@ -586,10 +591,7 @@ struct StringArray[is_builder: Bool = True](Movable, Sized):
             .unsafe_origin_cast[self_origin]()
         return StringSlice[self_origin](ptr=ptr, length=length)
 
-    fn unsafe_set(mut self, index: Int, value: String) raises:
-        comptime assert (
-            Self.is_builder
-        ), "cannot set a value on a frozen (immutable) array"
+    fn unsafe_set(mut self: StringArray[mut=True], index: Int, value: String) raises:
         var start_offset = self.offsets[].unsafe_get[DType.int32](index)
         var end_offset = self.offsets[].unsafe_get[DType.int32](index + 1)
         var length = Int(end_offset - start_offset)
@@ -616,11 +618,8 @@ struct StringArray[is_builder: Bool = True](Movable, Sized):
             )
         return self.unsafe_get(UInt(index))
 
-    fn shrink_to_fit(mut self):
+    fn shrink_to_fit(mut self: StringArray[mut=True]):
         """Shrink buffers to exact length and normalize offset to 0 in place."""
-        comptime assert (
-            Self.is_builder
-        ), "cannot shrink_to_fit a frozen (immutable) array"
         if self.length == self.capacity and self.offset == 0:
             return
 
@@ -647,22 +646,28 @@ struct StringArray[is_builder: Bool = True](Movable, Sized):
         self.offset = 0
         self.capacity = self.length
 
-    fn freeze(deinit self) -> StringArray[False]:
+    fn freeze(deinit self: StringArray[mut=True]) -> StringArray:
         """Shrink buffers to exact length and return as an immutable array."""
         self.shrink_to_fit()
-        return StringArray[False](self^)
+        return StringArray(self^)
 
 
-struct ListArray[is_builder: Bool = True](Movable, Sized):
+struct ListArray[*, mut: Bool = False](Movable, Sized):
+    """An Arrow array of variable-length lists (each element is a sub-array).
+
+    Immutable by default (`mut=False`).  Use `ListArray.from_values()` to
+    create a mutable builder, then call `freeze()` to obtain an immutable
+    `ListArray`.
+    """
     var dtype: DataType
     var length: Int
     var offset: Int
     var capacity: Int
-    var bitmap: ArcPointer[Bitmap]
-    var offsets: ArcPointer[Buffer]
+    var bitmap: ArcPointer[Bitmap[mut=Self.mut]]
+    var offsets: ArcPointer[Buffer[mut=Self.mut]]
     var values: ArcPointer[Array]
 
-    fn __init__(out self, ref data: Array) raises:
+    fn __init__(out self: ListArray, ref data: Array) raises:
         if not data.dtype.is_list():
             raise Error(
                 "Unexpected dtype " + String(data.dtype) + " instead of 'list'"
@@ -682,21 +687,41 @@ struct ListArray[is_builder: Bool = True](Movable, Sized):
 
     fn __init__[
         other_mut: Bool, //
-    ](out self, deinit other: ListArray[other_mut]):
-        comptime assert not Self.is_builder, "use direct move for mutable-to-mutable"
+    ](out self: ListArray, deinit other: ListArray[mut=other_mut]):
         self.dtype = other.dtype^
         self.length = other.length
         self.offset = other.offset
         self.capacity = other.capacity
-        self.bitmap = other.bitmap^
-        self.offsets = other.offsets^
+        self.bitmap = rebind[ArcPointer[Bitmap]](other.bitmap^)
+        self.offsets = rebind[ArcPointer[Buffer]](other.offsets^)
         self.values = other.values^
 
-    @staticmethod
-    fn from_values(var values: Array, capacity: Int = 1) raises -> ListArray:
-        """Create a ListArray wrapping the given values as its first element.
+    fn __init__(
+        out self: ListArray[mut=True],
+        var dtype: DataType,
+        length: Int,
+        offset: Int,
+        capacity: Int,
+        var bitmap: ArcPointer[Bitmap[mut=True]],
+        var offsets: ArcPointer[Buffer[mut=True]],
+        var values: ArcPointer[Array],
+    ):
+        """Builder constructor for creating a mutable ListArray."""
+        self.dtype = dtype^
+        self.length = length
+        self.offset = offset
+        self.capacity = capacity
+        self.bitmap = bitmap^
+        self.offsets = offsets^
+        self.values = values^
 
-        Default capacity is at least 1 to accomodate the values.
+    @staticmethod
+    fn from_values(var values: Array, capacity: Int = 1) raises -> ListArray[mut=True]:
+        """Create a mutable ListArray builder wrapping the given values.
+
+        Returns a mutable `ListArray[mut=True]` so that additional entries can
+        be appended.  Call `freeze()` when done to obtain an immutable
+        `ListArray`.
 
         Args:
             values: Array to use as the first element in the ListArray.
@@ -711,15 +736,15 @@ struct ListArray[is_builder: Bool = True](Movable, Sized):
         offsets.unsafe_set[DType.uint32](1, UInt32(length))
 
         var list_dtype = list_(values.dtype.copy())
-        var data = Array(
+        return ListArray[mut=True](
             dtype=list_dtype^,
             length=1,
-            bitmap=ArcPointer(bitmap^),
-            buffers=[ArcPointer(offsets^)],
-            children=[ArcPointer(values^)],
             offset=0,
+            capacity=capacity,
+            bitmap=ArcPointer(bitmap^),
+            offsets=ArcPointer(offsets^),
+            values=ArcPointer(values^),
         )
-        return ListArray(data^)
 
     fn __len__(self) -> Int:
         return self.length
@@ -727,19 +752,15 @@ struct ListArray[is_builder: Bool = True](Movable, Sized):
     fn is_valid(self, index: Int) -> Bool:
         return self.bitmap[].unsafe_get(index)
 
-    fn unsafe_append(mut self, is_valid: Bool):
-        comptime assert Self.is_builder, "cannot append to a frozen (immutable) array"
+    fn unsafe_append(mut self: ListArray[mut=True], is_valid: Bool):
         self.bitmap[].unsafe_set(self.length, is_valid)
         self.offsets[].unsafe_set[DType.uint32](
             self.length + 1, UInt32(self.values[].length)
         )
         self.length += 1
 
-    fn shrink_to_fit(mut self):
+    fn shrink_to_fit(mut self: ListArray[mut=True]):
         """Shrink buffers to exact length and normalize offset to 0 in place."""
-        comptime assert (
-            Self.is_builder
-        ), "cannot shrink_to_fit a frozen (immutable) array"
         if self.length == self.capacity and self.offset == 0:
             return
 
@@ -763,10 +784,10 @@ struct ListArray[is_builder: Bool = True](Movable, Sized):
         self.offset = 0
         self.capacity = self.length
 
-    fn freeze(deinit self) -> ListArray[False]:
+    fn freeze(deinit self: ListArray[mut=True]) -> ListArray:
         """Shrink buffers to exact length and return as an immutable array."""
         self.shrink_to_fit()
-        return ListArray[False](self^)
+        return ListArray(self^)
 
     fn unsafe_get(self, index: Int, out array_data: Array) raises:
         """Access the value at a given index in the list array.
@@ -790,15 +811,21 @@ struct ListArray[is_builder: Bool = True](Movable, Sized):
         )
 
 
-struct StructArray[is_builder: Bool = True](Movable, Sized):
+struct StructArray[*, mut: Bool = False](Movable, Sized):
+    """An Arrow array of structs (each element is a collection of named fields).
+
+    Immutable by default (`mut=False`).  Use
+    `StructArray[mut=True](fields, capacity=n)` to create a mutable builder,
+    then call `freeze()` to obtain an immutable `StructArray`.
+    """
     var dtype: DataType
     var length: Int
     var capacity: Int
-    var bitmap: ArcPointer[Bitmap]
+    var bitmap: ArcPointer[Bitmap[mut=Self.mut]]
     var children: List[ArcPointer[Array]]
 
     fn __init__(
-        out self,
+        out self: StructArray[mut=True],
         var fields: List[Field],
         capacity: Int = 0,
     ):
@@ -811,7 +838,7 @@ struct StructArray[is_builder: Bool = True](Movable, Sized):
         self.bitmap = ArcPointer(bitmap^)
         self.children = []
 
-    fn __init__(out self, *, ref data: Array):
+    fn __init__(out self: StructArray, *, ref data: Array):
         self.dtype = data.dtype.copy()
         self.length = data.length
         self.capacity = data.length
@@ -820,12 +847,11 @@ struct StructArray[is_builder: Bool = True](Movable, Sized):
 
     fn __init__[
         other_mut: Bool, //
-    ](out self, deinit other: StructArray[other_mut]):
-        comptime assert not Self.is_builder, "use direct move for mutable-to-mutable"
+    ](out self: StructArray, deinit other: StructArray[mut=other_mut]):
         self.dtype = other.dtype^
         self.length = other.length
         self.capacity = other.capacity
-        self.bitmap = other.bitmap^
+        self.bitmap = rebind[ArcPointer[Bitmap]](other.bitmap^)
         self.children = other.children^
 
     fn __len__(self) -> Int:
@@ -844,11 +870,8 @@ struct StructArray[is_builder: Bool = True](Movable, Sized):
         """Access the field with the given name in the struct."""
         return self.children[self._index_for_field_name(name)][]
 
-    fn shrink_to_fit(mut self):
+    fn shrink_to_fit(mut self: StructArray[mut=True]):
         """Shrink bitmap to exact length in place."""
-        comptime assert (
-            Self.is_builder
-        ), "cannot shrink_to_fit a frozen (immutable) array"
         if self.length == self.capacity:
             return
 
@@ -861,10 +884,10 @@ struct StructArray[is_builder: Bool = True](Movable, Sized):
         self.bitmap = ArcPointer(new_bitmap^)
         self.capacity = self.length
 
-    fn freeze(deinit self) -> StructArray[False]:
+    fn freeze(deinit self: StructArray[mut=True]) -> StructArray:
         """Shrink bitmap to exact length and return as an immutable array."""
         self.shrink_to_fit()
-        return StructArray[False](self^)
+        return StructArray(self^)
 
 
 struct ChunkedArray(Stringable):
@@ -913,52 +936,64 @@ struct ChunkedArray(Stringable):
 
     fn combine_chunks(var self, out combined: Array):
         """Combines all chunks into a single array."""
-        var bitmap = ArcPointer(Bitmap.alloc(self.length))
-        combined = Array(
-            dtype=self.dtype.copy(),
-            length=self.length,
-            bitmap=bitmap,
-            buffers=[],
-            children=[],
-            offset=0,
-        )
+        var bitmap = Bitmap.alloc(self.length)
+        var buffers = List[ArcPointer[Buffer]]()
+        var children = List[ArcPointer[Array]]()
         var start = 0
         while self.chunks:
             var chunk = self.chunks.pop(0)
-            start += chunk^.append_to_array(combined, start)
-        return combined^
+            var chunk_length = chunk.length
+            bitmap.extend(chunk.bitmap[], start, chunk_length)
+            for i in range(len(chunk.buffers)):
+                buffers.append(chunk.buffers[i])
+            for i in range(len(chunk.children)):
+                children.append(chunk.children[i])
+            start += chunk_length
+        combined = Array(
+            dtype=self.dtype.copy(),
+            length=self.length,
+            bitmap=ArcPointer(bitmap^.freeze()),
+            buffers=buffers^,
+            children=children^,
+            offset=0,
+        )
 
 
 fn array[T: DataType]() -> PrimitiveArray[T]:
-    """Create an empty primitive array."""
-    return PrimitiveArray[T]()
+    """Create an empty immutable primitive array."""
+    return PrimitiveArray[T, mut=True](0).freeze()
 
 
 fn array[T: DataType](values: List[Optional[Int]]) -> PrimitiveArray[T]:
-    """Create a primitive array from a list of values, where None becomes null.
+    """Create an immutable primitive array from a list of values.
+
+    `None` entries become null.
     """
-    var a = PrimitiveArray[T](len(values))
+    var a = PrimitiveArray[T, mut=True](len(values))
     for value in values:
         if value:
             a.unsafe_append(Scalar[T.native](value.value()))
         else:
             a.unsafe_append_null()
-    return a^
+    return a^.freeze()
 
 
 fn array(values: List[Optional[Bool]]) -> BoolArray:
-    """Create a bool array from a list of values, where None becomes null."""
-    var a = BoolArray(len(values))
+    """Create an immutable bool array from a list of values.
+
+    `None` entries become null.
+    """
+    var a = BoolArray[mut=True](len(values))
     for value in values:
         if value:
             a.unsafe_append(value.value())
         else:
             a.unsafe_append_null()
-    return a^
+    return a^.freeze()
 
 
 fn nulls[T: DataType](size: Int) -> PrimitiveArray[T]:
-    """Create a PrimitiveArray of the given size where all values are null.
+    """Create an immutable PrimitiveArray where all values are null.
 
     Parameters:
         T: The DataType of the array elements.
@@ -969,16 +1004,16 @@ fn nulls[T: DataType](size: Int) -> PrimitiveArray[T]:
     Returns:
         A PrimitiveArray[T] with all values null.
     """
-    var a = PrimitiveArray[T](capacity=size)
+    var a = PrimitiveArray[T, mut=True](capacity=size)
     a.length = size
-    return a^
+    return a^.freeze()
 
 
 fn arange[T: DataType](start: Int, end: Int) -> PrimitiveArray[T]:
-    """Create an integer array from start to end (exclusive), similar to numpy.arange.
+    """Create an immutable integer array from start to end (exclusive).
 
     Parameters:
-        T: An integer DataType (int8, int16, int32, int64, uint8, uint16, uint32, uint64).
+        T: An integer DataType.
 
     Args:
         start: The starting value (inclusive).
@@ -988,7 +1023,7 @@ fn arange[T: DataType](start: Int, end: Int) -> PrimitiveArray[T]:
         A PrimitiveArray[T] with values [start, start+1, ..., end-1].
     """
     comptime assert T.is_integer(), "arange() only supports integer DataTypes"
-    var a = PrimitiveArray[T](end - start)
+    var a = PrimitiveArray[T, mut=True](end - start)
     for i in range(start, end):
         a.unsafe_append(Scalar[T.native](i))
-    return a^
+    return a^.freeze()

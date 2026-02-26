@@ -29,12 +29,12 @@ fn unary[
         A new PrimitiveArray with the function applied to each valid element.
     """
     var length = len(array)
-    var result = PrimitiveArray[OutT](length)
+    var result = PrimitiveArray[OutT, mut=True](length)
     for i in range(length):
         if array.is_valid(i):
             result.unsafe_set(i, func(array.unsafe_get(i)))
     result.length = length
-    return result^
+    return result^.freeze()
 
 
 fn binary[
@@ -69,12 +69,12 @@ fn binary[
             .format(len(left), len(right))
         )
     var length = len(left)
-    var result = PrimitiveArray[OutT](length)
+    var result = PrimitiveArray[OutT, mut=True](length)
     for i in range(length):
         if left.is_valid(i) and right.is_valid(i):
             result.unsafe_set(i, func(left.unsafe_get(i), right.unsafe_get(i)))
     result.length = length
-    return result^
+    return result^.freeze()
 
 
 fn reduce[

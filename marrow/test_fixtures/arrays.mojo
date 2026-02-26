@@ -15,7 +15,7 @@ fn buffer_from[dtype: DType](*values: Scalar[dtype]) -> Buffer:
     var buffer = Buffer.alloc[dtype](len(values))
     for i in range(len(values)):
         buffer.unsafe_set[dtype](i, values[i])
-    return buffer^
+    return buffer^.freeze()
 
 
 @always_inline
@@ -45,17 +45,17 @@ fn build_list_of_int[data_type: DataType]() raises -> ListArray:
     # Define all the values.
     var bitmap = Bitmap.alloc(10)
     bitmap.unsafe_range_set(0, 10, True)
-    var buffer = ArcPointer(Buffer.alloc[data_type.native](10))
+    var buffer = Buffer.alloc[data_type.native](10)
     for i in range(10):
-        buffer[].unsafe_set[data_type.native](
+        buffer.unsafe_set[data_type.native](
             i, Scalar[data_type.native](i + 1)
         )
 
     var value_data = Array(
         dtype=materialize[data_type](),
         length=10,
-        bitmap=ArcPointer(bitmap^),
-        buffers=[buffer],
+        bitmap=ArcPointer(bitmap^.freeze()),
+        buffers=[ArcPointer(buffer^.freeze())],
         children=[],
         offset=0,
     )
@@ -65,15 +65,15 @@ fn build_list_of_int[data_type: DataType]() raises -> ListArray:
         buffer_from[DType.int32](0, 2, 4, 7, 7, 8, 10)
     )
 
-    var list_bitmap = ArcPointer(Bitmap.alloc(6))
-    list_bitmap[].unsafe_range_set(0, 6, True)
-    list_bitmap[].unsafe_set(3, False)
+    var list_bitmap = Bitmap.alloc(6)
+    list_bitmap.unsafe_range_set(0, 6, True)
+    list_bitmap.unsafe_set(3, False)
     var list_data = Array(
         dtype=list_(materialize[data_type]()),
         length=6,
         buffers=[value_offset],
         children=[ArcPointer(value_data^)],
-        bitmap=list_bitmap,
+        bitmap=ArcPointer(list_bitmap^.freeze()),
         offset=0,
     )
     return ListArray(list_data^)
@@ -86,19 +86,19 @@ fn build_list_of_list[data_type: DataType]() raises -> ListArray:
     """
 
     # Define all the values.
-    var bitmap = ArcPointer(Bitmap.alloc(10))
-    bitmap[].unsafe_range_set(0, 10, True)
-    var buffer = ArcPointer(Buffer.alloc[data_type.native](10))
+    var bitmap = Bitmap.alloc(10)
+    bitmap.unsafe_range_set(0, 10, True)
+    var buffer = Buffer.alloc[data_type.native](10)
     for i in range(10):
-        buffer[].unsafe_set[data_type.native](
+        buffer.unsafe_set[data_type.native](
             i, Scalar[data_type.native](i + 1)
         )
 
     var value_data = Array(
         dtype=materialize[data_type](),
         length=10,
-        bitmap=bitmap,
-        buffers=[buffer],
+        bitmap=ArcPointer(bitmap^.freeze()),
+        buffers=[ArcPointer(buffer^.freeze())],
         children=[],
         offset=0,
     )
@@ -108,29 +108,29 @@ fn build_list_of_list[data_type: DataType]() raises -> ListArray:
         buffer_from[DType.int32](0, 2, 4, 7, 7, 8, 10)
     )
 
-    var list_bitmap = ArcPointer(Bitmap.alloc(6))
-    list_bitmap[].unsafe_range_set(0, 6, True)
-    list_bitmap[].unsafe_set(3, False)
+    var list_bitmap = Bitmap.alloc(6)
+    list_bitmap.unsafe_range_set(0, 6, True)
+    list_bitmap.unsafe_set(3, False)
     var list_data = Array(
         dtype=list_(materialize[data_type]()),
         length=6,
         buffers=[value_offset],
         children=[ArcPointer(value_data^)],
-        bitmap=list_bitmap,
+        bitmap=ArcPointer(list_bitmap^.freeze()),
         offset=0,
     )
 
     # Now define the master array data.
     var top_offsets = buffer_from[DType.int32](0, 2, 5, 6)
-    var top_bitmap = ArcPointer(Bitmap.alloc(4))
-    top_bitmap[].unsafe_range_set(0, 4, True)
+    var top_bitmap = Bitmap.alloc(4)
+    top_bitmap.unsafe_range_set(0, 4, True)
     return ListArray(
         Array(
             dtype=list_(list_(materialize[data_type]())),
             length=4,
             buffers=[ArcPointer(top_offsets^)],
             children=[ArcPointer(list_data^)],
-            bitmap=top_bitmap,
+            bitmap=ArcPointer(top_bitmap^.freeze()),
             offset=0,
         )
     )
@@ -151,7 +151,7 @@ def build_struct() -> StructArray:
     var struct_array_data = Array(
         dtype=struct_([field_1^, field_2^]),
         length=2,
-        bitmap=ArcPointer(bitmap^),
+        bitmap=ArcPointer(bitmap^.freeze()),
         offset=0,
         buffers=[],
         children=[ArcPointer(int_data_a^), ArcPointer(int_data_b^)],

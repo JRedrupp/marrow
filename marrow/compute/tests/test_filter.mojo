@@ -3,8 +3,6 @@ from testing import assert_equal, assert_true, TestSuite
 from marrow.arrays import (
     array,
     Array,
-    Int32Array,
-    Int64Array,
     PrimitiveArray,
     nulls,
 )
@@ -14,7 +12,7 @@ from marrow.compute.filter import drop_nulls
 
 def test_drop_nulls_typed():
     """Drop nulls removes null elements and compacts valid ones."""
-    var a = Int32Array(4)
+    var a = PrimitiveArray[int32, mut=True](4)
     a.unsafe_append(10)
     # index 1 is null
     a.unsafe_append(30)
@@ -23,7 +21,7 @@ def test_drop_nulls_typed():
     a.length = 4
     a.unsafe_set(3, 40)
     # Now: [10, 30, null, 40]
-    var result = drop_nulls[int32](a)
+    var result = drop_nulls[int32](a^.freeze())
     assert_equal(len(result), 3)
     assert_equal(result.unsafe_get(0), 10)
     assert_equal(result.unsafe_get(1), 30)

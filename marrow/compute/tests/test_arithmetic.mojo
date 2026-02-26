@@ -1,6 +1,6 @@
 from testing import assert_equal, assert_true, assert_false, TestSuite
 
-from marrow.arrays import array, Array, PrimitiveArray, Int32Array
+from marrow.arrays import array, Array, PrimitiveArray
 from marrow.dtypes import int32, int64, materialize
 from marrow.compute.arithmetic import add
 
@@ -18,14 +18,14 @@ def test_add_typed():
 
 def test_add_with_nulls():
     """Nulls propagate: null + valid = null."""
-    var a = Int32Array(3)
+    var a = PrimitiveArray[int32, mut=True](3)
     a.unsafe_append(1)
     a.unsafe_append(2)
     # index 2 is null (bitmap zero-initialized, length set manually)
     a.length = 3
 
     var b = array[int32]([10, 20, 30])
-    var result = add[int32](a, b)
+    var result = add[int32](a^.freeze(), b)
     assert_equal(len(result), 3)
     assert_true(result.is_valid(0))
     assert_true(result.is_valid(1))

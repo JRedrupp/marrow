@@ -1,6 +1,6 @@
 from testing import assert_equal, TestSuite
 
-from marrow.arrays import array, Array, Int32Array, Int64Array, nulls
+from marrow.arrays import array, Array, PrimitiveArray, nulls
 from marrow.dtypes import int32, int64
 from marrow.compute.aggregate import sum
 
@@ -13,12 +13,12 @@ def test_sum_typed():
 
 def test_sum_with_nulls():
     """Sum skips null values."""
-    var a = Int32Array(3)
+    var a = PrimitiveArray[int32, mut=True](3)
     a.unsafe_append(10)
     a.unsafe_append(20)
     # index 2 is null
     a.length = 3
-    var result = sum[int32](a)
+    var result = sum[int32](a^.freeze())
     assert_equal(result, 30)
 
 

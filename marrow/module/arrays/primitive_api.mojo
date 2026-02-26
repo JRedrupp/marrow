@@ -49,7 +49,7 @@ fn array(content: PythonObject) raises -> PythonObject:
         A PrimitiveArray wrapped in a PythonObject.
 
     """
-    var actual = _PrimitiveArray[int64]()
+    var actual = _PrimitiveArray[int64, mut=True]()
 
     for v in content:
         actual.append(Scalar[int64.native](Int(py=v)))

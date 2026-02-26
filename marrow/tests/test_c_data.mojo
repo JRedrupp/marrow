@@ -55,10 +55,6 @@ def test_primitive_array_from_pyarrow():
     assert_equal(array.unsafe_get(3), 4)
     assert_equal(array.unsafe_get(4), 0)
 
-    array.unsafe_set(0, 10)
-    assert_equal(array.unsafe_get(0), 10)
-    assert_equal(String(pyarr), "[\n  10,\n  2,\n  3,\n  4,\n  null\n]")
-
 
 def test_binary_array_from_pyarrow():
     var pa = Python.import_module("pyarrow")
@@ -91,10 +87,6 @@ def test_binary_array_from_pyarrow():
     assert_equal(String(array.unsafe_get(0)), "foo")
     assert_equal(String(array.unsafe_get(1)), "bar")
     assert_equal(String(array.unsafe_get(2)), "")
-
-    array.unsafe_set(0, "qux")
-    assert_equal(String(array.unsafe_get(0)), "qux")
-    assert_equal(String(pyarr), '[\n  "qux",\n  "bar",\n  null\n]')
 
 
 def test_list_array_from_pyarrow():
@@ -131,16 +123,6 @@ def test_list_array_from_pyarrow():
     var values = array.unsafe_get(0).as_int64()
     assert_equal(values.unsafe_get(0), 1)
     assert_equal(values.unsafe_get(1), 2)
-    values.unsafe_set(0, 10)
-    values.unsafe_set(2, 30)
-
-    assert_equal(
-        String(pyarr),
-        (
-            "[\n  [\n    10,\n    2,\n    30\n  ],\n  null,\n  [\n    6,\n   "
-            " 7\n  ]\n]"
-        ),
-    )
 
 
 def test_schema_from_dtype():

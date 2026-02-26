@@ -1,8 +1,17 @@
 """Arrow-compatible memory buffers with compile-time mutability control.
 
 Buffer and Bitmap are the foundational memory types for Arrow arrays. Both are
-parameterized on `mut: Bool` so that arrays can be built with mutable buffers
-then "frozen" into immutable ones once construction is complete.
+parameterized on `mut: Bool` (default `False` — immutable) so that the common
+read-only path requires no annotation while builders opt in explicitly.
+
+Lifecycle
+---------
+1. **Allocate** a mutable buffer:  `Buffer.alloc[T](n)` → `Buffer[mut=True]`
+2. **Write** through gated methods:  `buffer.unsafe_set(i, v)`
+3. **Freeze** into an immutable buffer:  `buffer^.freeze()` → `Buffer`
+
+`freeze()` is a zero-cost type-level cast (via `rebind`) because `mut` only
+affects the pointer origin — both variants share the same in-memory layout.
 
 Mutability design
 -----------------
@@ -14,12 +23,6 @@ Methods that write (unsafe_set, resize, extend, ...) are gated by requiring
 `mut self: Buffer[mut=True]` (the Span pattern from the Mojo stdlib). This
 makes `Self.mut` resolve to `True` inside the method body, allowing the
 compiler to prove the pointer is writable.
-
-Freezing
---------
-`freeze()` consumes a mutable buffer/bitmap and returns an immutable one via
-`rebind`. Because `mut` only affects the pointer origin and both variants share
-the same layout, this is a zero-cost type-level cast with no data copying.
 
 In `__del__`, the pointer must be freed regardless of `mut`, so the pointer is
 rebound to `MutExternalOrigin` before calling `.free()`.
@@ -100,11 +103,11 @@ struct ForeignMemoryOwner(Movable):
         self.release(self.ptr)
 
 
-struct Buffer[*, mut: Bool = True](Movable):
+struct Buffer[*, mut: Bool = False](Movable):
     """Contiguous memory region with 64-byte alignment, parameterized on mutability.
 
-    Create mutable buffers with `Buffer.alloc()`, write with `unsafe_set()`,
-    then call `freeze()` to obtain an immutable `Buffer[mut=False]`.
+    Immutable by default. Use `Buffer.alloc()` to create a mutable builder,
+    then call `freeze()` to obtain an immutable `Buffer`.
     """
 
     var ptr: UnsafePointer[UInt8, ExternalOrigin[mut=Self.mut]]
@@ -136,14 +139,18 @@ struct Buffer[*, mut: Bool = True](Movable):
     @implicit
     fn __init__(out self, var bitmap: Bitmap[mut=Self.mut]):
         """Implicitly convert a Bitmap to its underlying Buffer."""
-        self = bitmap^.buffer^
+        self.ptr = bitmap.buffer.ptr
+        self.size = bitmap.buffer.size
+        self.offset = bitmap.buffer.offset
+        self._owner = None
+        swap(self._owner, bitmap.buffer._owner)
 
     @staticmethod
-    fn alloc[I: Intable, //, T: DType = DType.uint8](length: I) -> Buffer:
+    fn alloc[I: Intable, //, T: DType = DType.uint8](length: I) -> Buffer[mut=True]:
         var size = math.align_up(Int(length) * size_of[T](), 64)
         var ptr = alloc[UInt8](size, alignment=64)
         memset_zero(ptr, size)
-        return Buffer(ptr, size)
+        return Buffer[mut=True](ptr, size)
 
     @staticmethod
     fn foreign_view[
@@ -154,18 +161,19 @@ struct Buffer[*, mut: Bool = True](Movable):
         dtype: DType,
         owner: ArcPointer[ForeignMemoryOwner],
     ) -> Buffer:
-        """Create a non-owning view into foreign memory.
+        """Create an immutable view into foreign memory.
 
         The caller passes an ArcPointer[ForeignMemoryOwner] that keeps the
         source allocation alive for as long as any buffer (or bitmap) derived
         from it exists.  When the last such buffer is dropped the owner's
         release callback fires automatically.
         """
-        return Buffer(
-            ptr.bitcast[UInt8](),
+        var result = Buffer(
+            rebind[UnsafePointer[UInt8, ExternalOrigin[mut=False]]](ptr.bitcast[UInt8]()),
             math.align_up(Int(length) * dynamic_size_of(dtype), 64),
-            _owner=Optional(owner),
         )
+        result._owner = Optional(owner)
+        return result^
 
     fn resize[I: Intable, //, T: DType = DType.uint8](mut self: Buffer[mut=True], length: I):
         comptime elem_bytes = size_of[T]()
@@ -200,21 +208,21 @@ struct Buffer[*, mut: Bool = True](Movable):
         self.ptr.bitcast[output]()[index + self.offset] = value
 
 
-struct Bitmap[*, mut: Bool = True](Movable, Stringable):
+struct Bitmap[*, mut: Bool = False](Movable, Stringable):
     """Bit-packed validity bitmap backed by a Buffer, parameterized on mutability.
 
-    Tracks which elements of an Arrow array are valid (True) vs null (False).
-    Supports an `offset` for zero-copy slicing. Implicitly converts to its
-    underlying Buffer. Call `freeze()` to obtain an immutable `Bitmap[mut=False]`.
+    Immutable by default. Tracks which elements of an Arrow array are valid
+    (True) vs null (False). Use `Bitmap.alloc()` to create a mutable builder,
+    then call `freeze()` to obtain an immutable `Bitmap`.
     """
 
     var buffer: Buffer[mut=Self.mut]
     var offset: Int
 
     @staticmethod
-    fn alloc[I: Intable](length: I) -> Bitmap:
+    fn alloc[I: Intable](length: I) -> Bitmap[mut=True]:
         var byte_length = math.ceildiv(Int(length), 8)
-        return Bitmap(Buffer.alloc(byte_length))
+        return Bitmap[mut=True](Buffer.alloc(byte_length))
 
     @staticmethod
     fn foreign_view[
@@ -224,6 +232,7 @@ struct Bitmap[*, mut: Bool = True](Movable, Stringable):
         length: I,
         owner: ArcPointer[ForeignMemoryOwner],
     ) -> Bitmap:
+        """Create an immutable view into foreign memory."""
         var byte_length = math.ceildiv(Int(length), 8)
         var buffer = Buffer.foreign_view(ptr, byte_length, DType.uint8, owner)
         return Bitmap(buffer^)
@@ -389,9 +398,9 @@ struct Bitmap[*, mut: Bool = True](Movable, Stringable):
         """
         return self.count_leading_bits(start, value=True)
 
-    fn extend(
+    fn extend[*, other_mut: Bool = True](
         mut self: Bitmap[mut=True],
-        other: Bitmap,
+        other: Bitmap[mut=other_mut],
         start: Int,
         length: Int,
     ) -> None:

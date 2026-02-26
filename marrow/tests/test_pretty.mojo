@@ -47,7 +47,7 @@ def test_format_bool():
 
 
 def test_format_string():
-    var s = StringArray()
+    var s = StringArray[mut=True]()
     s.unsafe_append("hello")
     s.unsafe_append("world")
     assert_equal(
@@ -101,7 +101,7 @@ def test_format_empty_struct():
         Field("name", materialize[string]()),
         Field("active", materialize[bool_]()),
     ]
-    var s = StructArray(fields^, capacity=10)
+    var s = StructArray[mut=True](fields^, capacity=10)
     assert_equal(_fmt(Array(s^)), "StructArray({})")
 
 
@@ -137,7 +137,7 @@ def test_format_limits():
 
 
 def test_format_empty_array():
-    var arr = Int32Array(0)
+    var arr = PrimitiveArray[int32, mut=True](0)
     assert_equal(
         _fmt(Array(arr^)),
         "PrimitiveArray[int32]([])",
@@ -145,7 +145,7 @@ def test_format_empty_array():
 
 
 def test_format_all_nulls():
-    var arr = Int32Array(3)
+    var arr = PrimitiveArray[int32, mut=True](3)
     arr.length = 3
     arr.bitmap[].unsafe_range_set(0, 3, False)
     assert_equal(
@@ -155,7 +155,7 @@ def test_format_all_nulls():
 
 
 def test_format_mixed_nulls():
-    var arr = Int32Array(5)
+    var arr = PrimitiveArray[int32, mut=True](5)
     arr.append(1)
     arr.append(2)
     arr.bitmap[].unsafe_set(2, False)
