@@ -1,8 +1,15 @@
 from testing import assert_equal, assert_true, assert_false, TestSuite
 from memory import ArcPointer
 from marrow.arrays import *
+from marrow.builders import (
+    BoolBuilder,
+    PrimitiveBuilder,
+    StringBuilder,
+    ListBuilder,
+    StructBuilder,
+)
 from marrow.dtypes import *
-from marrow.buffers import Buffer, Bitmap
+from marrow.buffers import Buffer, Bitmap, BufferBuilder, BitmapBuilder
 from marrow.compute.filter import drop_nulls
 from marrow.test_fixtures.arrays import (
     assert_bitmap_set,
@@ -18,8 +25,8 @@ from marrow.test_fixtures.arrays import (
 def test_array_data_with_offset():
     """Test ArrayData with offset functionality."""
     # Create ArrayData with offset
-    var bitmap = Bitmap.alloc(10)
-    var buffer = Buffer.alloc[int8.native](10)
+    var bitmap = BitmapBuilder.alloc(10)
+    var buffer = BufferBuilder.alloc[int8.native](10)
 
     # Set some data in the buffer
     buffer.unsafe_set[int8.native](2, 100)
@@ -32,12 +39,14 @@ def test_array_data_with_offset():
     bitmap.unsafe_set(4, True)
 
     # Create ArrayData with offset=2
+    var buffers = List[Buffer]()
+    buffers.append(buffer^.freeze())
     var array_data = Array(
         dtype=materialize[int8](),
         length=3,
-        bitmap=ArcPointer(bitmap^.freeze()),
-        buffers=[ArcPointer(buffer^.freeze())],
-        children=[],
+        bitmap=bitmap^.freeze(),
+        buffers=buffers^,
+        children=List[ArcPointer[Array]](),
         offset=2,
     )
 
@@ -51,16 +60,18 @@ def test_array_data_with_offset():
 
 def test_array_data_fieldwise_init():
     """Test that @fieldwise_init decorator works with offset field."""
-    var bitmap = ArcPointer(Bitmap.alloc(5).freeze())
-    var buffer = ArcPointer(Buffer.alloc[int8.native](5).freeze())
+    var bitmap = BitmapBuilder.alloc(5).freeze()
+    var buffer = BufferBuilder.alloc[int8.native](5).freeze()
 
     # Test creating ArrayData with all fields specified including offset
+    var buffers = List[Buffer]()
+    buffers.append(buffer)
     var array_data = Array(
         dtype=materialize[int8](),
         length=5,
         bitmap=bitmap,
-        buffers=[buffer],
-        children=[],
+        buffers=buffers^,
+        children=List[ArcPointer[Array]](),
         offset=3,
     )
 
@@ -77,35 +88,37 @@ def test_array_from_primitive():
 
 
 def test_array_from_string():
-    var s = StringArray[mut=True]()
+    var s = StringBuilder()
     s.unsafe_append("hello")
     s.unsafe_append("world")
-    var a = Array(s^)
+    var a = Array(s^.freeze())
     assert_equal(a.length, 2)
     assert_true(a.dtype.is_string())
 
 
 def test_array_from_list():
-    var ints = PrimitiveArray[int64, mut=True]()
-    var l = ListArray.from_values(ints^)
-    var a = Array(l^)
+    var b = PrimitiveBuilder[int64]()
+    var l = ListBuilder.from_values(b^.freeze())
+    var a = Array(l^.freeze())
     assert_true(a.dtype.is_list())
 
 
 def test_array_from_struct():
     var fields = [Field("x", materialize[int32]())]
-    var s = StructArray[mut=True](fields^, capacity=5)
-    var a = Array(s^)
+    var s = StructBuilder(fields^, capacity=5)
+    var a = Array(s^.freeze())
     assert_true(a.dtype.is_struct())
 
 
 def test_array_copy():
+    var src_buffers = List[Buffer]()
+    src_buffers.append(BufferBuilder.alloc[int8.native](3).freeze())
     var src = Array(
         dtype=materialize[int8](),
         length=3,
-        bitmap=ArcPointer(Bitmap.alloc(3).freeze()),
-        buffers=[ArcPointer(Buffer.alloc[int8.native](3).freeze())],
-        children=[],
+        bitmap=BitmapBuilder.alloc(3).freeze(),
+        buffers=src_buffers^,
+        children=List[ArcPointer[Array]](),
         offset=0,
     )
     var copy = src.copy()
@@ -118,12 +131,14 @@ def test_array_copy():
 
 
 def test_array_move():
+    var a_buffers = List[Buffer]()
+    a_buffers.append(BufferBuilder.alloc[int8.native](5).freeze())
     var a = Array(
         dtype=materialize[int8](),
         length=5,
-        bitmap=ArcPointer(Bitmap.alloc(5).freeze()),
-        buffers=[ArcPointer(Buffer.alloc[int8.native](5).freeze())],
-        children=[],
+        bitmap=BitmapBuilder.alloc(5).freeze(),
+        buffers=a_buffers^,
+        children=List[ArcPointer[Array]](),
         offset=0,
     )
     var b = a^
@@ -135,7 +150,7 @@ def test_array_move():
 
 
 def test_boolean_array():
-    var a = BoolArray[mut=True]()
+    var a = BoolBuilder()
     assert_equal(len(a), 0)
     assert_equal(a.capacity, 0)
 
@@ -152,19 +167,21 @@ def test_boolean_array():
     a.append(True)
     assert_equal(len(a), 4)
     assert_equal(a.capacity, 6)
-    assert_true(a.is_valid(0))
-    assert_true(a.is_valid(1))
-    assert_true(a.is_valid(2))
-    assert_true(a.is_valid(3))
 
-    var d = Array(a^)
+    var frozen = a^.freeze()
+    assert_true(frozen.is_valid(0))
+    assert_true(frozen.is_valid(1))
+    assert_true(frozen.is_valid(2))
+    assert_true(frozen.is_valid(3))
+
+    var d = Array(frozen^)
     assert_equal(d.length, 4)
 
     var b = d^.as_bool()
 
 
 def test_append():
-    var a = PrimitiveArray[int8, mut=True]()
+    var a = PrimitiveBuilder[int8]()
     assert_equal(len(a), 0)
     assert_equal(a.capacity, 0)
     a.append(1)
@@ -264,7 +281,7 @@ def test_drop_null() -> None:
     )
     # Check the setup.
     assert_equal(primitive_array.null_count(), 5)
-    assert_bitmap_set(primitive_array.bitmap[], [1, 3, 5, 7, 9], "check setup")
+    assert_bitmap_set(primitive_array.bitmap, [1, 3, 5, 7, 9], "check setup")
 
     var result = drop_nulls[uint8](primitive_array)
     assert_equal(result.unsafe_get(0), 1)
@@ -274,13 +291,14 @@ def test_drop_null() -> None:
 
 def test_primitive_array_with_offset():
     """Test PrimitiveArray with offset functionality."""
-    # Create a regular array first
-    var arr = PrimitiveArray[int32, mut=True](10)
-    arr.unsafe_set(0, 100)
-    arr.unsafe_set(1, 200)
-    arr.unsafe_set(2, 300)
-    arr.unsafe_set(3, 400)
-    arr.unsafe_set(4, 500)
+    # Create a builder, populate, freeze, then create offset view
+    var b = PrimitiveBuilder[int32](10)
+    b.unsafe_append(100)
+    b.unsafe_append(200)
+    b.unsafe_append(300)
+    b.unsafe_append(400)
+    b.unsafe_append(500)
+    var arr = b^.freeze()
 
     # Default offset should be 0
     assert_equal(arr.offset, 0)
@@ -288,12 +306,14 @@ def test_primitive_array_with_offset():
     assert_equal(arr.unsafe_get(1), 200)
 
     # Create a copy of array with offset, should point to the same buffers.
+    var arr_buffers = List[Buffer]()
+    arr_buffers.append(arr.buffer)
     var arr_data = Array(
         dtype=materialize[int32](),
         length=arr.length,
-        bitmap=rebind[ArcPointer[Bitmap]](arr.bitmap),
-        buffers=[rebind[ArcPointer[Buffer]](arr.buffer)],
-        children=[],
+        bitmap=arr.bitmap,
+        buffers=arr_buffers^,
+        children=List[ArcPointer[Array]](),
         offset=arr.offset,
     )
     var arr_with_offset = PrimitiveArray[int32](arr_data, offset=2)
@@ -305,43 +325,42 @@ def test_primitive_array_with_offset():
     assert_equal(arr_with_offset.unsafe_get(2), 500)  # Should get arr[4]
 
 
-def test_primitive_array_moveinit_with_offset():
-    """Test __moveinit__ preserves offset."""
-    var arr = PrimitiveArray[int16, mut=True](5, offset=3)
-    arr.unsafe_set(0, 123)
+def test_primitive_builder_moveinit_with_offset():
+    """Test __moveinit__ preserves offset on builders."""
+    var b = PrimitiveBuilder[int16](5, offset=3)
+    b.unsafe_append(123)
 
-    var moved_arr = arr^
-    assert_equal(moved_arr.offset, 3)
-    assert_equal(moved_arr.unsafe_get(0), 123)
-
-
-def test_primitive_array_constructor_with_offset():
-    """Test PrimitiveArray constructor with offset parameter."""
-    var arr1 = PrimitiveArray[int8, mut=True](10)  # Default offset=0
-    assert_equal(arr1.offset, 0)
-
-    var arr2 = PrimitiveArray[int8, mut=True](10, offset=5)  # Explicit offset
-    assert_equal(arr2.offset, 5)
-
-    # Test that offset is also set correctly
-    assert_equal(arr2.offset, 5)
+    var moved = b^
+    assert_equal(moved.offset, 3)
+    var frozen = moved^.freeze()
+    assert_equal(frozen.unsafe_get(0), 123)
 
 
-def test_primitive_array_offset_with_validity():
+def test_primitive_builder_constructor_with_offset():
+    """Test PrimitiveBuilder constructor with offset parameter."""
+    var b1 = PrimitiveBuilder[int8](10)  # Default offset=0
+    assert_equal(b1.offset, 0)
+
+    var b2 = PrimitiveBuilder[int8](10, offset=5)  # Explicit offset
+    assert_equal(b2.offset, 5)
+
+
+def test_primitive_builder_offset_with_validity():
     """Test that offset works correctly with validity bitmap."""
-    var arr = PrimitiveArray[uint8, mut=True](10, offset=1)
+    var b = PrimitiveBuilder[uint8](10, offset=1)
 
     # Set some values with validity
-    arr.unsafe_set(0, 42)  # This should set buffer[1] and bitmap[1]
-    arr.unsafe_set(1, 43)  # This should set buffer[2] and bitmap[2]
+    b.unsafe_append(42)  # This should set buffer[1] and bitmap[1]
+    b.unsafe_append(43)  # This should set buffer[2] and bitmap[2]
 
-    # Verify values are accessible through offset
-    assert_equal(arr.unsafe_get(0), 42)
-    assert_equal(arr.unsafe_get(1), 43)
+    # Verify values are accessible through the frozen array
+    var frozen = b^.freeze()
+    assert_equal(frozen.unsafe_get(0), 42)
+    assert_equal(frozen.unsafe_get(1), 43)
 
-    # Verify bitmap is also offset correctly
-    assert_true(arr.is_valid(0))  # Should check bitmap[1]
-    assert_true(arr.is_valid(1))  # Should check bitmap[2]
+    # Verify bitmap is correct
+    assert_true(frozen.is_valid(0))
+    assert_true(frozen.is_valid(1))
 
 
 def test_primitive_array_nulls_with_offset():
@@ -358,7 +377,7 @@ def test_primitive_array_nulls_with_offset():
 
 
 def test_string_builder():
-    var a = StringArray[mut=True]()
+    var a = StringBuilder()
     assert_equal(len(a), 0)
     assert_equal(a.capacity, 0)
 
@@ -371,8 +390,9 @@ def test_string_builder():
     assert_equal(len(a), 2)
     assert_equal(a.capacity, 2)
 
-    assert_equal(String(a.unsafe_get(0)), "hello")
-    assert_equal(String(a.unsafe_get(1)), "world")
+    var frozen = a^.freeze()
+    assert_equal(String(frozen.unsafe_get(0)), "hello")
+    assert_equal(String(frozen.unsafe_get(1)), "world")
 
 
 # --- ListArray / StructArray tests ---
@@ -382,8 +402,9 @@ def test_list_int_array():
     var ints = PrimitiveArray[int64](
         Array.from_buffer[int64](buffer_from[DType.int64](1, 2, 3), 3)
     )
-    var lists = ListArray.from_values(ints^)
-    assert_equal(lists.dtype, list_(materialize[int64]()))
+    var builder = ListBuilder.from_values(ints^)
+    assert_equal(builder.dtype, list_(materialize[int64]()))
+    var lists = builder^.freeze()
 
     var first_value = lists.unsafe_get(0)
     assert_equal(first_value.__str__(), "PrimitiveArray[int64]([1, 2, 3])")
@@ -400,7 +421,8 @@ def test_list_int_array():
 def test_list_bool_array():
     var bools = array([True, False, True])
 
-    var lists = ListArray.from_values(bools^)
+    var builder = ListBuilder.from_values(bools^)
+    var lists = builder^.freeze()
     assert_equal(len(lists), 1)
     var first_value = lists.unsafe_get(0)
     var bool_array = BoolArray(first_value)
@@ -410,11 +432,12 @@ def test_list_bool_array():
 
 
 def test_list_str():
-    var strings = StringArray[mut=True]()
+    var strings = StringBuilder()
     strings.unsafe_append("hello")
     strings.unsafe_append("world")
 
-    var lists = ListArray.from_values(strings^)
+    var builder = ListBuilder.from_values(strings^.freeze())
+    var lists = builder^.freeze()
     var first_value = StringArray(lists.unsafe_get(0))
 
     assert_equal(first_value.unsafe_get(0), "hello")
@@ -441,11 +464,11 @@ def test_struct_array():
         Field("active", materialize[bool_]()),
     ]
 
-    var struct_arr = StructArray[mut=True](fields^, capacity=10)
-    assert_equal(len(struct_arr), 0)
-    assert_equal(struct_arr.capacity, 10)
+    var struct_builder = StructBuilder(fields^, capacity=10)
+    assert_equal(len(struct_builder), 0)
+    assert_equal(struct_builder.capacity, 10)
 
-    var data = Array(struct_arr^)
+    var data = Array(struct_builder^.freeze())
     assert_equal(data.length, 0)
     assert_true(data.dtype.is_struct())
     assert_equal(len(data.dtype.fields), 3)
@@ -498,18 +521,17 @@ def test_combine_chunked_array():
     assert_equal(combined_array.length, 3)
     assert_equal(combined_array.dtype, materialize[int8]())
     # Ensure that the last element of the last buffer has the expected value.
-    assert_equal(combined_array.buffers[1][].unsafe_get(1), 1)
+    assert_equal(combined_array.buffers[1].unsafe_get(1), 1)
 
 
 def test_primitive_freeze_zero_copy():
-    """Freeze() on an exact-size array moves ArcPointers without allocation."""
-    var a = PrimitiveArray[int64, mut=True](capacity=3)
+    """Freeze() on an exact-size builder moves buffers without allocation."""
+    var a = PrimitiveBuilder[int64](capacity=3)
     a.unsafe_append(10)
     a.unsafe_append(20)
     a.unsafe_append(30)
     var frozen = a^.freeze()
     assert_equal(frozen.length, 3)
-    assert_equal(frozen.capacity, 3)
     assert_equal(frozen.offset, 0)
     assert_equal(frozen.unsafe_get(0), 10)
     assert_equal(frozen.unsafe_get(1), 20)
@@ -517,33 +539,31 @@ def test_primitive_freeze_zero_copy():
 
 
 def test_primitive_freeze_shrinks():
-    """Freeze() on an over-allocated array trims capacity to length."""
-    var a = PrimitiveArray[int64, mut=True](capacity=100)
+    """Freeze() on an over-allocated builder trims capacity to length."""
+    var a = PrimitiveBuilder[int64](capacity=100)
     a.unsafe_append(42)
     a.unsafe_append(99)
     var frozen = a^.freeze()
     assert_equal(frozen.length, 2)
-    assert_equal(frozen.capacity, 2)
     assert_equal(frozen.unsafe_get(0), 42)
     assert_equal(frozen.unsafe_get(1), 99)
 
 
 def test_primitive_freeze_via_append():
-    """Freeze() works on an array built with append() (auto-grow capacity)."""
-    var a = PrimitiveArray[int64, mut=True]()
+    """Freeze() works on a builder built with append() (auto-grow capacity)."""
+    var a = PrimitiveBuilder[int64]()
     a.append(1)
     a.append(2)
     a.append(3)
     var frozen = a^.freeze()
     assert_equal(frozen.length, 3)
-    assert_equal(frozen.capacity, 3)
     assert_equal(frozen.unsafe_get(0), 1)
     assert_equal(frozen.unsafe_get(2), 3)
 
 
 def test_primitive_freeze_preserves_nulls():
     """Freeze() preserves null validity information."""
-    var a = PrimitiveArray[int64, mut=True](capacity=3)
+    var a = PrimitiveBuilder[int64](capacity=3)
     a.unsafe_append(1)
     a.unsafe_append_null()
     a.unsafe_append(3)
@@ -556,7 +576,7 @@ def test_primitive_freeze_preserves_nulls():
 
 def test_primitive_freeze_converts_to_array():
     """A frozen PrimitiveArray still converts to the Array base implicitly."""
-    var a = PrimitiveArray[int64, mut=True]()
+    var a = PrimitiveBuilder[int64]()
     a.append(7)
     a.append(8)
     var frozen = a^.freeze()
@@ -566,19 +586,22 @@ def test_primitive_freeze_converts_to_array():
 
 
 def test_primitive_freeze_with_offset():
-    """Freeze() with non-zero offset normalizes the data (offset becomes 0)."""
-    var a = PrimitiveArray[int64, mut=True](capacity=5)
-    a.unsafe_append(0)
-    a.unsafe_append(10)
-    a.unsafe_append(20)
-    a.unsafe_append(30)
-    a.unsafe_append(40)
+    """Array with offset views into frozen data correctly."""
+    var b = PrimitiveBuilder[int64](capacity=5)
+    b.unsafe_append(0)
+    b.unsafe_append(10)
+    b.unsafe_append(20)
+    b.unsafe_append(30)
+    b.unsafe_append(40)
+    var a = b^.freeze()
+    var data_buffers = List[Buffer]()
+    data_buffers.append(a.buffer)
     var data = Array(
         dtype=materialize[int64](),
         length=3,
-        bitmap=rebind[ArcPointer[Bitmap]](a.bitmap),
-        buffers=[rebind[ArcPointer[Buffer]](a.buffer)],
-        children=[],
+        bitmap=a.bitmap,
+        buffers=data_buffers^,
+        children=List[ArcPointer[Array]](),
         offset=1,
     )
     var sliced = PrimitiveArray[int64](data)
@@ -590,9 +613,10 @@ def test_primitive_freeze_with_offset():
 
 def test_getitem_bounds_check():
     """__getitem__ raises on out-of-bounds access."""
-    var a = PrimitiveArray[int64, mut=True]()
-    a.append(1)
-    a.append(2)
+    var b = PrimitiveBuilder[int64]()
+    b.append(1)
+    b.append(2)
+    var a = b^.freeze()
     try:
         _ = a[5]
         assert_true(False, "should have raised")
@@ -608,47 +632,50 @@ def test_getitem_bounds_check():
 
 
 def test_setitem_bounds_check():
-    """__setitem__ raises on out-of-bounds and works in bounds."""
-    var a = PrimitiveArray[int64, mut=True]()
+    """Builder __setitem__ raises on out-of-bounds and works in bounds."""
+    var a = PrimitiveBuilder[int64]()
     a.append(10)
     a[0] = 99
-    assert_equal(a[0], 99)
+    var frozen = a^.freeze()
+    assert_equal(frozen[0], 99)
+    # Verify out-of-bounds write raises on a new builder
+    var b = PrimitiveBuilder[int64]()
+    b.append(10)
     try:
-        a[1] = 0
+        b[1] = 0
         assert_true(False, "should have raised")
     except:
         pass
 
 
 def test_string_freeze_zero_copy():
-    """Freeze() on an exact-size StringArray moves ArcPointers."""
-    var s = StringArray[mut=True](capacity=2)
+    """Freeze() on an exact-size StringBuilder moves buffers."""
+    var s = StringBuilder(capacity=2)
     s.unsafe_append("hello")
     s.unsafe_append("world")
     var frozen = s^.freeze()
     assert_equal(frozen.length, 2)
-    assert_equal(frozen.capacity, 2)
     assert_equal(String(frozen.unsafe_get(0)), "hello")
     assert_equal(String(frozen.unsafe_get(1)), "world")
 
 
 def test_string_freeze_shrinks():
-    """Freeze() on an over-allocated StringArray trims to exact size."""
-    var s = StringArray[mut=True](capacity=100)
+    """Freeze() on an over-allocated StringBuilder trims to exact size."""
+    var s = StringBuilder(capacity=100)
     s.unsafe_append("hi")
     var frozen = s^.freeze()
     assert_equal(frozen.length, 1)
-    assert_equal(frozen.capacity, 1)
     assert_equal(String(frozen.unsafe_get(0)), "hi")
 
 
 def test_string_getitem_bounds_check():
     """StringArray __getitem__ raises on out-of-bounds."""
-    var s = StringArray[mut=True]()
+    var s = StringBuilder()
     s.unsafe_append("a")
-    assert_equal(String(s[0]), "a")
+    var frozen = s^.freeze()
+    assert_equal(String(frozen[0]), "a")
     try:
-        _ = s[1]
+        _ = frozen[1]
         assert_true(False, "should have raised")
     except:
         pass
@@ -656,7 +683,7 @@ def test_string_getitem_bounds_check():
 
 def test_primitive_shrink_to_fit_with_offset():
     """Shrink_to_fit() with non-zero offset copies the correct data slice."""
-    var a = PrimitiveArray[int64, mut=True](capacity=8)
+    var a = PrimitiveBuilder[int64](capacity=8)
     a.unsafe_append(0)
     a.unsafe_append(10)
     a.unsafe_append(20)
@@ -675,17 +702,18 @@ def test_primitive_shrink_to_fit_with_offset():
     assert_equal(a.offset, 0)
     assert_equal(a.length, 4)
     assert_equal(a.capacity, 4)
-    assert_equal(a.unsafe_get(0), 30)
-    assert_equal(a.unsafe_get(1), 40)
-    assert_equal(a.unsafe_get(2), 50)
-    assert_equal(a.unsafe_get(3), 60)
+    var frozen = a^.freeze()
+    assert_equal(frozen.unsafe_get(0), 30)
+    assert_equal(frozen.unsafe_get(1), 40)
+    assert_equal(frozen.unsafe_get(2), 50)
+    assert_equal(frozen.unsafe_get(3), 60)
     for i in range(4):
-        assert_true(a.is_valid(i))
+        assert_true(frozen.is_valid(i))
 
 
 def test_primitive_shrink_to_fit_preserves_nulls():
     """Shrink_to_fit() with offset preserves the null bitmap correctly."""
-    var a = PrimitiveArray[int32, mut=True](capacity=6)
+    var a = PrimitiveBuilder[int32](capacity=6)
     a.unsafe_append(0)
     a.unsafe_append_null()
     a.unsafe_append(20)
@@ -700,16 +728,17 @@ def test_primitive_shrink_to_fit_preserves_nulls():
 
     assert_equal(a.offset, 0)
     assert_equal(a.length, 3)
-    assert_false(a.is_valid(0))
-    assert_true(a.is_valid(1))
-    assert_false(a.is_valid(2))
-    assert_equal(a.unsafe_get(1), 20)
+    var frozen = a^.freeze()
+    assert_false(frozen.is_valid(0))
+    assert_true(frozen.is_valid(1))
+    assert_false(frozen.is_valid(2))
+    assert_equal(frozen.unsafe_get(1), 20)
 
 
 def test_string_shrink_to_fit_with_offset():
     """Shrink_to_fit() with non-zero offset extracts the correct string slice.
     """
-    var s = StringArray[mut=True]()
+    var s = StringBuilder()
     s.unsafe_append("alpha")
     s.unsafe_append("beta")
     s.unsafe_append("gamma")
@@ -719,22 +748,22 @@ def test_string_shrink_to_fit_with_offset():
     # Simulate a slice: elements [2, 3, 4] = ["gamma", "delta", "epsilon"]
     s.offset = 2
     s.length = 3
-    assert_equal(String(s.unsafe_get(0)), "gamma")
 
     s.shrink_to_fit()
 
     assert_equal(s.offset, 0)
     assert_equal(s.length, 3)
     assert_equal(s.capacity, 3)
-    assert_equal(String(s.unsafe_get(0)), "gamma")
-    assert_equal(String(s.unsafe_get(1)), "delta")
-    assert_equal(String(s.unsafe_get(2)), "epsilon")
+    var frozen = s^.freeze()
+    assert_equal(String(frozen.unsafe_get(0)), "gamma")
+    assert_equal(String(frozen.unsafe_get(1)), "delta")
+    assert_equal(String(frozen.unsafe_get(2)), "epsilon")
 
 
 def test_list_shrink_to_fit_with_offset():
     """Shrink_to_fit() with non-zero offset copies the correct offsets slice."""
     var ints = array[int64]([1, 2, 3])
-    var lists = ListArray.from_values(Array(ints^), capacity=5)
+    var lists = ListBuilder.from_values(Array(ints^), capacity=5)
     # Append 4 more empty list entries so length=5, capacity=5
     for _ in range(4):
         lists.unsafe_append(True)
@@ -751,48 +780,24 @@ def test_list_shrink_to_fit_with_offset():
     assert_equal(lists.capacity, 3)
     # The raw offsets buffer should hold the 4 values from original positions 1..4
     assert_equal(
-        lists.offsets[].unsafe_get[DType.uint32](0),
+        lists.offsets.unsafe_get[DType.uint32](0),
         UInt32(3),  # original offsets[1] = 3 (first element has 3 child items)
     )
     assert_equal(
-        lists.offsets[].unsafe_get[DType.uint32](1),
+        lists.offsets.unsafe_get[DType.uint32](1),
         UInt32(3),  # original offsets[2] = 3 (empty list)
     )
     assert_equal(
-        lists.offsets[].unsafe_get[DType.uint32](3),
+        lists.offsets.unsafe_get[DType.uint32](3),
         UInt32(3),  # original offsets[4] = 3 (empty list)
     )
 
 
-fn test_mut_parameter_compile_time() raises:
-    """Compile-time checks for the mut type parameter on all typed arrays."""
-    # Default is immutable (mut=False)
-    comptime assert not PrimitiveArray[int64].mut
-    comptime assert PrimitiveArray[int64, mut=True].mut
-
-    # BoolArray
-    comptime assert not BoolArray[].mut
-    comptime assert BoolArray[mut=True].mut
-
-    # StringArray
-    comptime assert not StringArray[].mut
-    comptime assert StringArray[mut=True].mut
-
-    # ListArray
-    comptime assert not ListArray[].mut
-    comptime assert ListArray[mut=True].mut
-
-    # StructArray
-    comptime assert not StructArray[].mut
-    comptime assert StructArray[mut=True].mut
-
-    # freeze() returns the default type (immutable); the type annotation is
-    # itself a compile-time check — if freeze() returned the wrong type, this
-    # won't compile.
-    var a = PrimitiveArray[int64, mut=True]()
+fn test_builder_freeze_types() raises:
+    """Freeze() returns the correct immutable type — compile-time check."""
+    var a = PrimitiveBuilder[int64]()
     a.append(1)
     var _: PrimitiveArray[int64] = a^.freeze()
-    comptime assert not PrimitiveArray[int64].mut
 
 
 def main():

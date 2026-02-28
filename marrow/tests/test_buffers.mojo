@@ -11,23 +11,23 @@ def is_aligned[
 
 
 def test_buffer_init():
-    var b = Buffer.alloc(10)
+    var b = BufferBuilder.alloc(10)
     assert_equal(b.size, 64)
     assert_true(is_aligned(b.ptr, 64))
 
 
 def test_bitmap_alloc_sizes():
     # 10 bits → ceildiv(10,8)=2 bytes → aligned to 64
-    var b1 = Bitmap.alloc(10)
+    var b1 = BitmapBuilder.alloc(10)
     assert_equal(b1.size(), 64)
 
     # 64*8+1 bits → ceildiv(513,8)=65 bytes → aligned to 128
-    var b2 = Bitmap.alloc(64 * 8 + 1)
+    var b2 = BitmapBuilder.alloc(64 * 8 + 1)
     assert_equal(b2.size(), 128)
 
 
 def test_buffer_grow():
-    var b = Buffer.alloc(10)
+    var b = BufferBuilder.alloc(10)
     b.unsafe_set(0, 111)
     assert_equal(b.size, 64)
     b.resize(20)
@@ -39,7 +39,7 @@ def test_buffer_grow():
 
 
 def test_buffer_set_get():
-    var buf = Buffer.alloc(10)
+    var buf = BufferBuilder.alloc(10)
     assert_equal(buf.size, 64)
 
     buf.unsafe_set(0, 42)
@@ -59,9 +59,9 @@ def test_buffer_set_get():
 
 
 def test_buffer_swap():
-    var one = Buffer.alloc(10)
+    var one = BufferBuilder.alloc(10)
     one.unsafe_set(0, 111)
-    var two = Buffer.alloc(10)
+    var two = BufferBuilder.alloc(10)
     two.unsafe_set(0, 222)
 
     swap(one, two)
@@ -71,7 +71,7 @@ def test_buffer_swap():
 
 
 def test_bitmap():
-    var b = Bitmap.alloc(10)
+    var b = BitmapBuilder.alloc(10)
     assert_equal(b.size(), 64)
     assert_equal(b.length(), 64 * 8)
     assert_equal(b.bit_count(), 0)
@@ -87,7 +87,7 @@ def test_bitmap():
 
 
 def test_count_leading_zeros():
-    var b = Bitmap.alloc(10)
+    var b = BitmapBuilder.alloc(10)
     var expected_bits = b.length()
     assert_equal(b.count_leading_zeros(), expected_bits)
     assert_equal(b.count_leading_zeros(10), expected_bits - 10)
@@ -109,7 +109,7 @@ def test_count_leading_zeros():
 
 
 def test_count_leading_ones():
-    var b = Bitmap.alloc(10)
+    var b = BitmapBuilder.alloc(10)
     assert_equal(b.count_leading_ones(), 0)
     b.unsafe_set(0, True)
     assert_equal(b.count_leading_ones(), 1)
@@ -120,13 +120,13 @@ def test_count_leading_ones():
     assert_equal(b.count_leading_ones(1), 1)
 
 
-def _reset(mut bitmap: Bitmap[mut=True]):
+def _reset(mut bitmap: BitmapBuilder):
     bitmap.unsafe_range_set(0, bitmap.length(), False)
     assert_bitmap_set(bitmap, [], "after _reset")
 
 
 def test_unsafe_range_set():
-    var bitmap = Bitmap.alloc(16)
+    var bitmap = BitmapBuilder.alloc(16)
 
     bitmap.unsafe_range_set(0, 10, True)
     assert_bitmap_set(bitmap, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], "range 0-10")
@@ -149,7 +149,7 @@ def test_unsafe_range_set():
 
 
 def test_partial_byte_set():
-    var bitmap = Bitmap.alloc(16)
+    var bitmap = BitmapBuilder.alloc(16)
 
     bitmap.unsafe_range_set(0, 0, True)
     assert_bitmap_set(bitmap, [], "range 0")
@@ -172,23 +172,23 @@ def test_partial_byte_set():
 
 
 def test_expand_bitmap() -> None:
-    var bitmap = Bitmap.alloc(6)
+    var bitmap = BitmapBuilder.alloc(6)
     bitmap.unsafe_set(0, True)
     bitmap.unsafe_set(5, True)
     assert_bitmap_set(bitmap, [0, 5], "initial setup")
 
     # Create a new bitmap with 2 bits
-    var new_bitmap = Bitmap.alloc(2)
+    var new_bitmap = BitmapBuilder.alloc(2)
     new_bitmap.unsafe_set(0, True)
 
-    # Expand the bitmap
-    bitmap.extend(new_bitmap, 6, 2)
+    # Expand the bitmap (extend takes immutable Bitmap)
+    bitmap.extend(new_bitmap^.freeze(), 6, 2)
     assert_bitmap_set(bitmap, [0, 5, 6], "after expand")
 
 
 def test_buffer_with_offset():
     # Test Buffer with offset functionality
-    var buf = Buffer.alloc(10)
+    var buf = BufferBuilder.alloc(10)
     assert_equal(buf.offset, 0)  # Default offset should be 0
 
     # Set values in buffer without offset
@@ -208,7 +208,7 @@ def test_buffer_with_offset():
 
 def test_buffer_moveinit_with_offset():
     # Test __moveinit__ preserves offset
-    var buf = Buffer.alloc(5)
+    var buf = BufferBuilder.alloc(5)
     buf.offset = 3
     buf.unsafe_set(0, 123)
 
@@ -219,11 +219,11 @@ def test_buffer_moveinit_with_offset():
 
 def test_buffer_swap_with_offset():
     # Test swap preserves offsets correctly
-    var buf1 = Buffer.alloc(5)
+    var buf1 = BufferBuilder.alloc(5)
     buf1.offset = 2
     buf1.unsafe_set(0, 111)
 
-    var buf2 = Buffer.alloc(5)
+    var buf2 = BufferBuilder.alloc(5)
     buf2.offset = 4
     buf2.unsafe_set(0, 222)
 
@@ -240,7 +240,7 @@ def test_buffer_swap_with_offset():
 
 def test_bitmap_with_offset():
     # Populate a Bitmap with known bits then test offset arithmetic in place.
-    var bm = Bitmap.alloc(16)
+    var bm = BitmapBuilder.alloc(16)
     bm.unsafe_set(3, True)
     bm.unsafe_set(5, True)
     bm.unsafe_set(6, True)
@@ -261,7 +261,7 @@ def test_bitmap_with_offset():
 
 def test_bitmap_moveinit_with_offset():
     # Test __moveinit__ preserves offset
-    var bitmap = Bitmap(Buffer.alloc(1), offset=2)
+    var bitmap = BitmapBuilder(BufferBuilder.alloc(1), offset=2)
     bitmap.unsafe_set(0, True)
 
     var moved_bitmap = bitmap^
@@ -270,7 +270,7 @@ def test_bitmap_moveinit_with_offset():
 
 
 def test_buffer_freeze():
-    var buf = Buffer.alloc(10)
+    var buf = BufferBuilder.alloc(10)
     buf.unsafe_set(0, 42)
     buf.unsafe_set(1, 99)
 
@@ -283,7 +283,7 @@ def test_buffer_freeze():
 
 
 def test_buffer_freeze_preserves_offset():
-    var buf = Buffer.alloc(10)
+    var buf = BufferBuilder.alloc(10)
     buf.unsafe_set(2, 77)
     buf.offset = 2
 
@@ -293,7 +293,7 @@ def test_buffer_freeze_preserves_offset():
 
 
 def test_bitmap_freeze():
-    var bm = Bitmap.alloc(16)
+    var bm = BitmapBuilder.alloc(16)
     bm.unsafe_set(0, True)
     bm.unsafe_set(5, True)
     bm.unsafe_set(7, True)
@@ -308,7 +308,7 @@ def test_bitmap_freeze():
 
 
 def test_bitmap_freeze_preserves_offset():
-    var bm = Bitmap.alloc(16)
+    var bm = BitmapBuilder.alloc(16)
     bm.unsafe_set(3, True)
     bm.offset = 3
 
@@ -319,13 +319,14 @@ def test_bitmap_freeze_preserves_offset():
 
 def test_bitmap_to_buffer_implicit():
     # Bitmap implicitly converts to Buffer when passed where a Buffer is expected.
-    var bm = Bitmap.alloc(8)
+    var bm = BitmapBuilder.alloc(8)
     bm.unsafe_set(0, True)
     bm.unsafe_set(7, True)
     var expected_size = bm.size()
 
-    # The implicit conversion consumes the bitmap and yields its underlying buffer.
-    var buf: Buffer[mut=True] = bm^
+    # Freeze to immutable Bitmap, then test implicit Bitmap → Buffer conversion.
+    var frozen = bm^.freeze()
+    var buf: Buffer = frozen^
     assert_equal(buf.size, expected_size)
     # Bit 0 set and bit 7 set → byte 0 should be 0b10000001 = 129
     assert_equal(buf.unsafe_get(0), 129)

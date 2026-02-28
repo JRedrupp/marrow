@@ -1,38 +1,28 @@
-"""Arrow-compatible memory buffers with compile-time mutability control.
-
-Buffer and Bitmap are the foundational memory types for Arrow arrays. Both are
-parameterized on `mut: Bool` (default `False` — immutable) so that the common
-read-only path requires no annotation while builders opt in explicitly.
+"""Arrow-compatible memory buffers: immutable types and mutable builders.
 
 Lifecycle
 ---------
-1. **Allocate** a mutable buffer:  `Buffer.alloc[T](n)` → `Buffer[mut=True]`
-2. **Write** through gated methods:  `buffer.unsafe_set(i, v)`
-3. **Freeze** into an immutable buffer:  `buffer^.freeze()` → `Buffer`
+1. **Allocate** a mutable builder:  `BufferBuilder.alloc[T](n)`
+2. **Write** through builder methods:  `builder.unsafe_set(i, v)`
+3. **Freeze** into an immutable buffer:  `builder^.freeze()` → `Buffer`
 
-`freeze()` is a zero-cost type-level cast (via `rebind`) because `mut` only
-affects the pointer origin — both variants share the same in-memory layout.
-
-Mutability design
------------------
-The `mut` parameter flows into the pointer origin:
-
-    var ptr: UnsafePointer[UInt8, ExternalOrigin[mut=Self.mut]]
-
-Methods that write (unsafe_set, resize, extend, ...) are gated by requiring
-`mut self: Buffer[mut=True]` (the Span pattern from the Mojo stdlib). This
-makes `Self.mut` resolve to `True` inside the method body, allowing the
-compiler to prove the pointer is writable.
-
-In `__del__`, the pointer must be freed regardless of `mut`, so the pointer is
-rebound to `MutExternalOrigin` before calling `.free()`.
+`freeze()` is a zero-cost type-level cast (via `rebind`) because builders and
+immutable buffers share the same in-memory layout — only the pointer origin
+differs.
 
 Ownership
 ---------
-A Buffer either owns its memory (freed on drop) or holds an
-`ArcPointer[ForeignMemoryOwner]` that ties its lifetime to foreign memory
-(e.g. memory imported via the Arrow C Data Interface). When the last reference
-to the owner is dropped, the owner's release callback fires.
+Every Buffer/BufferBuilder holds an `ArcPointer[ForeignMemoryOwner]` that
+manages the lifetime of its memory. For Mojo-allocated buffers, the release
+callback frees the raw pointer. For foreign memory (e.g. Arrow C Data
+Interface), the release callback invokes the producer's cleanup.
+
+Immutable Buffers and Bitmaps are Copyable with O(1) shared semantics:
+copying bumps the internal ArcPointer ref count. When the last copy is
+dropped, the release callback fires. No data is ever deep-copied.
+
+Builders (BufferBuilder, BitmapBuilder) are Movable but NOT Copyable — they
+represent unique ownership of mutable memory.
 """
 
 from memory import (
@@ -80,6 +70,14 @@ comptime simd_width = simd_byte_width()
 comptime simd_widths = (simd_width, simd_width // 2, 1)
 
 
+fn _release_buffer(ptr: UnsafePointer[NoneType, MutAnyOrigin]) -> None:
+    """Release callback for Mojo-allocated buffers.
+
+    Frees the raw memory when the last Buffer sharing this allocation is dropped.
+    """
+    ptr.bitcast[UInt8]().free()
+
+
 struct ForeignMemoryOwner(Movable):
     """Keeps foreign memory alive by holding a typed release callback.
 
@@ -103,54 +101,131 @@ struct ForeignMemoryOwner(Movable):
         self.release(self.ptr)
 
 
-struct Buffer[*, mut: Bool = False](Movable):
-    """Contiguous memory region with 64-byte alignment, parameterized on mutability.
+# ---------------------------------------------------------------------------
+# BufferBuilder — mutable buffer for building arrays
+# ---------------------------------------------------------------------------
 
-    Immutable by default. Use `Buffer.alloc()` to create a mutable builder,
+
+struct BufferBuilder(Movable):
+    """Mutable contiguous memory region with 64-byte alignment.
+
+    Use `BufferBuilder.alloc()` to allocate, write with `unsafe_set()`,
     then call `freeze()` to obtain an immutable `Buffer`.
     """
 
-    var ptr: UnsafePointer[UInt8, ExternalOrigin[mut=Self.mut]]
+    var ptr: UnsafePointer[UInt8, MutExternalOrigin]
     var size: Int
     var offset: Int
-    # None  → this buffer owns the memory; ptr.free() is called on drop.
-    # Some  → a reference-counted ForeignMemoryOwner manages the lifetime;
-    #         ptr is NOT freed directly (the owner's release callback handles it).
     var _owner: Optional[ArcPointer[ForeignMemoryOwner]]
 
     fn __init__(
         out self,
-        ptr: UnsafePointer[UInt8, ExternalOrigin[mut=Self.mut]],
+        ptr: UnsafePointer[UInt8, MutExternalOrigin],
         size: Int,
-        offset: Int = 0
+        offset: Int = 0,
     ):
         self.ptr = ptr
         self.size = size
         self.offset = offset
         self._owner = None
 
-    fn freeze(deinit self: Buffer[mut=True]) -> Buffer[mut=False]:
-        """Consume a mutable buffer and return an immutable one."""
-        var ptr = rebind[UnsafePointer[UInt8, ExternalOrigin[mut=False]]](self.ptr)
-        var result = Buffer[mut=False](ptr, self.size, self.offset)
+    @staticmethod
+    fn alloc[
+        I: Intable, //, T: DType = DType.uint8
+    ](length: I) -> BufferBuilder:
+        var size = math.align_up(Int(length) * size_of[T](), 64)
+        var ptr = alloc[UInt8](size, alignment=64)
+        memset_zero(ptr, size)
+        var result = BufferBuilder(ptr, size)
+        result._owner = ArcPointer(
+            ForeignMemoryOwner(
+                ptr=ptr.bitcast[NoneType](), release=_release_buffer
+            )
+        )
+        return result^
+
+    fn freeze(deinit self) -> Buffer:
+        """Consume the mutable builder and return an immutable Buffer."""
+        var ptr = rebind[UnsafePointer[UInt8, ImmutExternalOrigin]](self.ptr)
+        var result = Buffer(ptr, self.size, self.offset)
         result._owner = self._owner^
         return result^
 
+    fn resize[I: Intable, //, T: DType = DType.uint8](mut self, length: I):
+        comptime elem_bytes = size_of[T]()
+        var new = BufferBuilder.alloc[T](length)
+        memcpy(
+            dest=new.ptr,
+            src=self.ptr + (self.offset * elem_bytes),
+            count=min(
+                self.size - self.offset * elem_bytes, Int(length) * elem_bytes
+            ),
+        )
+        swap(self, new)
+
+    fn __del__(deinit self):
+        pass
+
+    @always_inline
+    fn length[T: DType = DType.uint8](self) -> Int:
+        return self.size // size_of[T]()
+
+    @always_inline
+    fn unsafe_get[T: DType = DType.uint8](self, index: Int) -> Scalar[T]:
+        comptime output = Scalar[T]
+        return self.ptr.bitcast[output]()[index + self.offset]
+
+    @always_inline
+    fn unsafe_set[
+        T: DType = DType.uint8
+    ](mut self, index: Int, value: Scalar[T]):
+        comptime output = Scalar[T]
+        self.ptr.bitcast[output]()[index + self.offset] = value
+
+
+# ---------------------------------------------------------------------------
+# Buffer — immutable buffer for read-only array data
+# ---------------------------------------------------------------------------
+
+
+struct Buffer(ImplicitlyCopyable, Movable):
+    """Immutable contiguous memory region with 64-byte alignment.
+
+    Buffers are Copyable with O(1) shared semantics: copying bumps the
+    internal ArcPointer ref count without copying any data. The last copy
+    to be dropped triggers the release callback that frees the memory.
+    """
+
+    var ptr: UnsafePointer[UInt8, ImmutExternalOrigin]
+    var size: Int
+    var offset: Int
+    var _owner: Optional[ArcPointer[ForeignMemoryOwner]]
+
+    fn __init__(
+        out self,
+        ptr: UnsafePointer[UInt8, ImmutExternalOrigin],
+        size: Int,
+        offset: Int = 0,
+    ):
+        self.ptr = ptr
+        self.size = size
+        self.offset = offset
+        self._owner = None
+
+    fn __init__(out self, *, copy: Self):
+        self.ptr = copy.ptr
+        self.size = copy.size
+        self.offset = copy.offset
+        self._owner = copy._owner
+
     @implicit
-    fn __init__(out self, var bitmap: Bitmap[mut=Self.mut]):
-        """Implicitly convert a Bitmap to its underlying Buffer."""
+    fn __init__(out self, var bitmap: Bitmap):
+        """Implicitly convert an immutable Bitmap to its underlying Buffer."""
         self.ptr = bitmap.buffer.ptr
         self.size = bitmap.buffer.size
         self.offset = bitmap.buffer.offset
         self._owner = None
         swap(self._owner, bitmap.buffer._owner)
-
-    @staticmethod
-    fn alloc[I: Intable, //, T: DType = DType.uint8](length: I) -> Buffer[mut=True]:
-        var size = math.align_up(Int(length) * size_of[T](), 64)
-        var ptr = alloc[UInt8](size, alignment=64)
-        memset_zero(ptr, size)
-        return Buffer[mut=True](ptr, size)
 
     @staticmethod
     fn foreign_view[
@@ -169,27 +244,16 @@ struct Buffer[*, mut: Bool = False](Movable):
         release callback fires automatically.
         """
         var result = Buffer(
-            rebind[UnsafePointer[UInt8, ExternalOrigin[mut=False]]](ptr.bitcast[UInt8]()),
+            rebind[UnsafePointer[UInt8, ImmutExternalOrigin]](
+                ptr.bitcast[UInt8]()
+            ),
             math.align_up(Int(length) * dynamic_size_of(dtype), 64),
         )
         result._owner = Optional(owner)
         return result^
 
-    fn resize[I: Intable, //, T: DType = DType.uint8](mut self: Buffer[mut=True], length: I):
-        comptime elem_bytes = size_of[T]()
-        var new = Buffer.alloc[T](length)
-        memcpy(
-            dest=new.ptr,
-            src=self.ptr + (self.offset * elem_bytes),
-            count=min(
-                self.size - self.offset * elem_bytes, Int(length) * elem_bytes
-            ),
-        )
-        swap(self, new)
-
     fn __del__(deinit self):
-        if not self._owner:
-            rebind[UnsafePointer[UInt8, MutExternalOrigin]](self.ptr).free()
+        pass
 
     @always_inline
     fn length[T: DType = DType.uint8](self) -> Int:
@@ -200,50 +264,34 @@ struct Buffer[*, mut: Bool = False](Movable):
         comptime output = Scalar[T]
         return self.ptr.bitcast[output]()[index + self.offset]
 
-    @always_inline
-    fn unsafe_set[
-        T: DType = DType.uint8
-    ](mut self: Buffer[mut=True], index: Int, value: Scalar[T]):
-        comptime output = Scalar[T]
-        self.ptr.bitcast[output]()[index + self.offset] = value
+
+# ---------------------------------------------------------------------------
+# BitmapBuilder — mutable bit-packed validity bitmap
+# ---------------------------------------------------------------------------
 
 
-struct Bitmap[*, mut: Bool = False](Movable, Stringable):
-    """Bit-packed validity bitmap backed by a Buffer, parameterized on mutability.
+struct BitmapBuilder(Movable, Stringable):
+    """Mutable bit-packed validity bitmap backed by a BufferBuilder.
 
-    Immutable by default. Tracks which elements of an Arrow array are valid
-    (True) vs null (False). Use `Bitmap.alloc()` to create a mutable builder,
+    Use `BitmapBuilder.alloc()` to allocate, write with `unsafe_set()`,
     then call `freeze()` to obtain an immutable `Bitmap`.
     """
 
-    var buffer: Buffer[mut=Self.mut]
+    var buffer: BufferBuilder
     var offset: Int
 
     @staticmethod
-    fn alloc[I: Intable](length: I) -> Bitmap[mut=True]:
+    fn alloc[I: Intable](length: I) -> BitmapBuilder:
         var byte_length = math.ceildiv(Int(length), 8)
-        return Bitmap[mut=True](Buffer.alloc(byte_length))
+        return BitmapBuilder(BufferBuilder.alloc(byte_length))
 
-    @staticmethod
-    fn foreign_view[
-        I: Intable, //
-    ](
-        ptr: UnsafePointer[NoneType, MutAnyOrigin],
-        length: I,
-        owner: ArcPointer[ForeignMemoryOwner],
-    ) -> Bitmap:
-        """Create an immutable view into foreign memory."""
-        var byte_length = math.ceildiv(Int(length), 8)
-        var buffer = Buffer.foreign_view(ptr, byte_length, DType.uint8, owner)
-        return Bitmap(buffer^)
-
-    fn __init__(out self, var buffer: Buffer[mut=Self.mut], offset: Int = 0):
+    fn __init__(out self, var buffer: BufferBuilder, offset: Int = 0):
         self.buffer = buffer^
         self.offset = offset
 
-    fn freeze(deinit self: Bitmap[mut=True]) -> Bitmap[mut=False]:
-        """Consume a mutable bitmap and return an immutable one."""
-        return Bitmap[mut=False](self.buffer^.freeze(), self.offset)
+    fn freeze(deinit self) -> Bitmap:
+        """Consume the mutable builder and return an immutable Bitmap."""
+        return Bitmap(self.buffer^.freeze(), self.offset)
 
     fn __str__(self) -> String:
         var output = String()
@@ -262,7 +310,7 @@ struct Bitmap[*, mut: Bool = False](Movable, Stringable):
         var adjusted = index + self.offset
         return Bool((self.buffer.ptr[adjusted // 8] >> UInt8(adjusted % 8)) & 1)
 
-    fn unsafe_set(mut self: Bitmap[mut=True], index: Int, value: Bool) -> None:
+    fn unsafe_set(mut self, index: Int, value: Bool) -> None:
         var adjusted = index + self.offset
         var byte_index = adjusted // 8
         var bit_mask = UInt8(1 << (adjusted % 8))
@@ -281,11 +329,228 @@ struct Bitmap[*, mut: Bool = False](Movable, Stringable):
     fn size(self) -> Int:
         return self.buffer.size
 
-    fn resize[I: Intable](mut self: Bitmap[mut=True], length: I, start: Int = 0):
+    fn resize[I: Intable](mut self, length: I, start: Int = 0):
         var bit_start = start + self.offset
         self.buffer.offset = bit_start // 8
         self.buffer.resize(math.ceildiv(Int(length) + bit_start % 8, 8))
         self.offset = bit_start % 8
+
+    fn extend(
+        mut self,
+        other: Bitmap,
+        start: Int,
+        length: Int,
+    ) -> None:
+        """Extends the bitmap with the other's array's bitmap.
+
+        Args:
+            other: The bitmap to take content from.
+            start: The starting index in the destination array.
+            length: The number of elements to copy from the source array.
+        """
+        self.buffer.resize(math.ceildiv(start + length, 8))
+
+        for i in range(length):
+            self.unsafe_set(i + start, other.unsafe_get(i))
+
+    fn partial_byte_set(
+        mut self,
+        byte_index: Int,
+        bit_pos_start: Int,
+        bit_pos_end: Int,
+        value: Bool,
+    ) -> None:
+        """Set a range of bits in one specific byte of the bitmap to the specified value.
+        """
+
+        debug_assert(
+            bit_pos_start >= 0
+            and bit_pos_end <= 8
+            and bit_pos_start <= bit_pos_end,
+            "Invalid range: ",
+            bit_pos_start,
+            " to ",
+            bit_pos_end,
+        )
+
+        # Process the partial byte at the start, if appropriate.
+        var mask = (1 << (bit_pos_end - bit_pos_start)) - 1
+        mask = mask << bit_pos_start
+        var initial_value = self.buffer.unsafe_get[DType.uint8](byte_index)
+        var buffer_value = initial_value
+        if value:
+            buffer_value = buffer_value | UInt8(mask)
+        else:
+            buffer_value = buffer_value & ~UInt8(mask)
+        self.buffer.unsafe_set[DType.uint8](byte_index, buffer_value)
+
+    fn bit_count(self) -> Int:
+        """The number of bits with value 1 in the BitmapBuilder."""
+        var start = 0
+        var count = 0
+        while start < self.buffer.size:
+            if self.buffer.size - start > simd_width:
+                count += (
+                    (self.buffer.ptr + start)
+                    .load[width=simd_width]()
+                    .reduce_bit_count()
+                )
+                start += simd_width
+            else:
+                count += (
+                    (self.buffer.ptr + start).load[width=1]().reduce_bit_count()
+                )
+                start += 1
+        return count
+
+    fn count_leading_bits(self, start: Int = 0, value: Bool = False) -> Int:
+        """Count the number of leading bits with the given value."""
+        var count = 0
+        var index = start // 8
+        var bit_in_first_byte = start % 8
+
+        if bit_in_first_byte != 0:
+            var loaded = (self.buffer.ptr + index).load[width=1]()
+            if value:
+                loaded = ~loaded
+            var mask = (1 << bit_in_first_byte) - 1
+            loaded &= ~UInt8(mask)
+            leading_zeros = Int(count_trailing_zeros(loaded))
+            if leading_zeros == 0:
+                return count
+            count = leading_zeros - bit_in_first_byte
+            if leading_zeros != 8:
+                return count
+            index += 1
+
+        while index < self.size():
+
+            @parameter
+            for width_index in range(len(simd_widths)):
+                comptime width = simd_widths[width_index]
+                if self.size() - index >= width:
+                    var loaded = (self.buffer.ptr + index).load[width=width]()
+                    if value:
+                        loaded = ~loaded
+                    var leading_zeros = count_trailing_zeros(loaded)
+                    for i in range(width):
+                        count += Int(leading_zeros[i])
+                        if leading_zeros[i] != 8:
+                            return count
+                    index += width
+                    break
+        return count
+
+    fn count_leading_zeros(self, start: Int = 0) -> Int:
+        """Count the number of leading 0s in the bitmap."""
+        return self.count_leading_bits(start, value=False)
+
+    fn count_leading_ones(self, start: Int = 0) -> Int:
+        """Count the number of leading 1s in the bitmap."""
+        return self.count_leading_bits(start, value=True)
+
+    fn unsafe_range_set[
+        T: Intable, U: Intable, //
+    ](mut self, start: T, length: U, value: Bool) -> None:
+        """Set a range of bits in the bitmap to the specified value.
+
+        Args:
+            start: The starting index in the bitmap.
+            length: The number of bits to set.
+            value: The value to set the bits to.
+        """
+
+        # Process the partial byte at the ends.
+        var start_int = Int(start)
+        var end_int = start_int + Int(length)
+        var start_index = start_int // 8
+        var bit_pos_start = start_int % 8
+        var end_index = end_int // 8
+        var bit_pos_end = end_int % 8
+
+        if bit_pos_start != 0 or bit_pos_end != 0:
+            if start_index == end_index:
+                self.partial_byte_set(
+                    start_index, bit_pos_start, bit_pos_end, value
+                )
+            else:
+                if bit_pos_start != 0:
+                    self.partial_byte_set(start_index, bit_pos_start, 8, value)
+                    start_index += 1
+                if bit_pos_end != 0:
+                    self.partial_byte_set(end_index, 0, bit_pos_end, value)
+
+        # Now take care of the full bytes.
+        if end_index > start_index:
+            var byte_value = 255 if value else 0
+            memset(
+                self.buffer.ptr + start_index,
+                value=UInt8(byte_value),
+                count=end_index - start_index,
+            )
+
+
+# ---------------------------------------------------------------------------
+# Bitmap — immutable bit-packed validity bitmap
+# ---------------------------------------------------------------------------
+
+
+struct Bitmap(ImplicitlyCopyable, Movable, Stringable):
+    """Immutable bit-packed validity bitmap backed by a Buffer.
+
+    Tracks which elements of an Arrow array are valid (True) vs null (False).
+
+    Copyable with O(1) shared semantics (delegates to Buffer's copy).
+    """
+
+    var buffer: Buffer
+    var offset: Int
+
+    @staticmethod
+    fn foreign_view[
+        I: Intable, //
+    ](
+        ptr: UnsafePointer[NoneType, MutAnyOrigin],
+        length: I,
+        owner: ArcPointer[ForeignMemoryOwner],
+    ) -> Bitmap:
+        """Create an immutable view into foreign memory."""
+        var byte_length = math.ceildiv(Int(length), 8)
+        var buffer = Buffer.foreign_view(ptr, byte_length, DType.uint8, owner)
+        return Bitmap(buffer^)
+
+    fn __init__(out self, var buffer: Buffer, offset: Int = 0):
+        self.buffer = buffer^
+        self.offset = offset
+
+    fn __init__(out self, *, copy: Self):
+        self.buffer = Buffer(copy=copy.buffer)
+        self.offset = copy.offset
+
+    fn __str__(self) -> String:
+        var output = String()
+        for i in range(self.length()):
+            var value = self.unsafe_get(i)
+            if value:
+                output += "T"
+            else:
+                output += "f"
+            if i > 16:
+                output += "..."
+                break
+        return output
+
+    fn unsafe_get(self, index: Int) -> Bool:
+        var adjusted = index + self.offset
+        return Bool((self.buffer.ptr[adjusted // 8] >> UInt8(adjusted % 8)) & 1)
+
+    @always_inline
+    fn length(self) -> Int:
+        return self.buffer.size * 8
+
+    @always_inline
+    fn size(self) -> Int:
+        return self.buffer.size
 
     fn bit_count(self) -> Int:
         """The number of bits with value 1 in the Bitmap."""
@@ -301,9 +566,7 @@ struct Bitmap[*, mut: Bool = False](Movable, Stringable):
                 start += simd_width
             else:
                 count += (
-                    (self.buffer.ptr + start)
-                    .load[width=1]()
-                    .reduce_bit_count()
+                    (self.buffer.ptr + start).load[width=1]().reduce_bit_count()
                 )
                 start += 1
         return count
@@ -353,9 +616,7 @@ struct Bitmap[*, mut: Bool = False](Movable, Stringable):
             for width_index in range(len(simd_widths)):
                 comptime width = simd_widths[width_index]
                 if self.size() - index >= width:
-                    var loaded = (self.buffer.ptr + index).load[
-                        width=width
-                    ]()
+                    var loaded = (self.buffer.ptr + index).load[width=width]()
                     if value:
                         loaded = ~loaded
                     var leading_zeros = count_trailing_zeros(loaded)
@@ -397,92 +658,3 @@ struct Bitmap[*, mut: Bool = False](Movable, Stringable):
           The number of leading ones in the bitmap.
         """
         return self.count_leading_bits(start, value=True)
-
-    fn extend[*, other_mut: Bool = True](
-        mut self: Bitmap[mut=True],
-        other: Bitmap[mut=other_mut],
-        start: Int,
-        length: Int,
-    ) -> None:
-        """Extends the bitmap with the other's array's bitmap.
-
-        Args:
-            other: The bitmap to take content from.
-            start: The starting index in the destination array.
-            length: The number of elements to copy from the source array.
-        """
-        self.buffer.resize(math.ceildiv(start + length, 8))
-
-        for i in range(length):
-            self.unsafe_set(i + start, other.unsafe_get(i))
-
-    fn partial_byte_set(
-        mut self: Bitmap[mut=True],
-        byte_index: Int,
-        bit_pos_start: Int,
-        bit_pos_end: Int,
-        value: Bool,
-    ) -> None:
-        """Set a range of bits in one specific byte of the bitmap to the specified value.
-        """
-
-        debug_assert(
-            bit_pos_start >= 0
-            and bit_pos_end <= 8
-            and bit_pos_start <= bit_pos_end,
-            "Invalid range: ",
-            bit_pos_start,
-            " to ",
-            bit_pos_end,
-        )
-
-        # Process the partial byte at the start, if appropriate.
-        var mask = (1 << (bit_pos_end - bit_pos_start)) - 1
-        mask = mask << bit_pos_start
-        var initial_value = self.buffer.unsafe_get[DType.uint8](byte_index)
-        var buffer_value = initial_value
-        if value:
-            buffer_value = buffer_value | UInt8(mask)
-        else:
-            buffer_value = buffer_value & ~UInt8(mask)
-        self.buffer.unsafe_set[DType.uint8](byte_index, buffer_value)
-
-    fn unsafe_range_set[
-        T: Intable, U: Intable, //
-    ](mut self: Bitmap[mut=True], start: T, length: U, value: Bool) -> None:
-        """Set a range of bits in the bitmap to the specified value.
-
-        Args:
-            start: The starting index in the bitmap.
-            length: The number of bits to set.
-            value: The value to set the bits to.
-        """
-
-        # Process the partial byte at the ends.
-        var start_int = Int(start)
-        var end_int = start_int + Int(length)
-        var start_index = start_int // 8
-        var bit_pos_start = start_int % 8
-        var end_index = end_int // 8
-        var bit_pos_end = end_int % 8
-
-        if bit_pos_start != 0 or bit_pos_end != 0:
-            if start_index == end_index:
-                self.partial_byte_set(
-                    start_index, bit_pos_start, bit_pos_end, value
-                )
-            else:
-                if bit_pos_start != 0:
-                    self.partial_byte_set(start_index, bit_pos_start, 8, value)
-                    start_index += 1
-                if bit_pos_end != 0:
-                    self.partial_byte_set(end_index, 0, bit_pos_end, value)
-
-        # Now take care of the full bytes.
-        if end_index > start_index:
-            var byte_value = 255 if value else 0
-            memset(
-                self.buffer.ptr + start_index,
-                value=UInt8(byte_value),
-                count=end_index - start_index,
-            )

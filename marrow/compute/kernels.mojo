@@ -5,6 +5,7 @@ and iteration. Specific kernels (add, sum, etc.) are thin wrappers.
 """
 
 from marrow.arrays import PrimitiveArray
+from marrow.builders import PrimitiveBuilder
 from marrow.dtypes import DataType
 
 
@@ -29,7 +30,7 @@ fn unary[
         A new PrimitiveArray with the function applied to each valid element.
     """
     var length = len(array)
-    var result = PrimitiveArray[OutT, mut=True](length)
+    var result = PrimitiveBuilder[OutT](length)
     for i in range(length):
         if array.is_valid(i):
             result.unsafe_set(i, func(array.unsafe_get(i)))
@@ -69,7 +70,7 @@ fn binary[
             .format(len(left), len(right))
         )
     var length = len(left)
-    var result = PrimitiveArray[OutT, mut=True](length)
+    var result = PrimitiveBuilder[OutT](length)
     for i in range(length):
         if left.is_valid(i) and right.is_valid(i):
             result.unsafe_set(i, func(left.unsafe_get(i), right.unsafe_get(i)))

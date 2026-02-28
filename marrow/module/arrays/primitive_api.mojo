@@ -6,6 +6,7 @@ from marrow.dtypes import DataType
 from marrow.dtypes import *
 from marrow.arrays import Array
 from marrow.arrays import PrimitiveArray as _PrimitiveArray
+from marrow.builders import PrimitiveBuilder
 from python import Python
 
 
@@ -49,17 +50,16 @@ fn array(content: PythonObject) raises -> PythonObject:
         A PrimitiveArray wrapped in a PythonObject.
 
     """
-    var actual = _PrimitiveArray[int64, mut=True]()
+    var builder = PrimitiveBuilder[int64]()
 
     for v in content:
-        actual.append(Scalar[int64.native](Int(py=v)))
+        builder.append(Scalar[int64.native](Int(py=v)))
 
-    var offset = actual.offset
-    var capacity = actual.capacity
+    var actual = builder^.freeze()
     var result = PrimitiveArray(
         data=Array(actual^),
-        offset=offset,
-        capacity=capacity,
+        offset=0,
+        capacity=0,
     )
     return PythonObject(alloc=result^)
 

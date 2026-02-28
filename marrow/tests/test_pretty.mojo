@@ -1,6 +1,7 @@
 from testing import assert_equal, TestSuite
 
 from marrow.arrays import *
+from marrow.builders import PrimitiveBuilder, StringBuilder, StructBuilder
 from marrow.dtypes import *
 from marrow.pretty import ArrayPrinter
 from marrow.test_fixtures.arrays import (
@@ -47,11 +48,11 @@ def test_format_bool():
 
 
 def test_format_string():
-    var s = StringArray[mut=True]()
+    var s = StringBuilder(capacity=2)
     s.unsafe_append("hello")
     s.unsafe_append("world")
     assert_equal(
-        _fmt(Array(s^)),
+        _fmt(Array(s^.freeze())),
         "StringArray([hello, world])",
     )
 
@@ -101,8 +102,8 @@ def test_format_empty_struct():
         Field("name", materialize[string]()),
         Field("active", materialize[bool_]()),
     ]
-    var s = StructArray[mut=True](fields^, capacity=10)
-    assert_equal(_fmt(Array(s^)), "StructArray({})")
+    var s = StructBuilder(fields^, capacity=10)
+    assert_equal(_fmt(Array(s^.freeze())), "StructArray({})")
 
 
 def test_format_chunked():
@@ -137,7 +138,7 @@ def test_format_limits():
 
 
 def test_format_empty_array():
-    var arr = PrimitiveArray[int32, mut=True](0)
+    var arr = PrimitiveBuilder[int32](0).freeze()
     assert_equal(
         _fmt(Array(arr^)),
         "PrimitiveArray[int32]([])",
@@ -145,24 +146,24 @@ def test_format_empty_array():
 
 
 def test_format_all_nulls():
-    var arr = PrimitiveArray[int32, mut=True](3)
-    arr.length = 3
-    arr.bitmap[].unsafe_range_set(0, 3, False)
+    var b = PrimitiveBuilder[int32](3)
+    b.length = 3
+    b.bitmap.unsafe_range_set(0, 3, False)
     assert_equal(
-        _fmt(Array(arr^)),
+        _fmt(Array(b^.freeze())),
         "PrimitiveArray[int32]([NULL, NULL, NULL])",
     )
 
 
 def test_format_mixed_nulls():
-    var arr = PrimitiveArray[int32, mut=True](5)
-    arr.append(1)
-    arr.append(2)
-    arr.bitmap[].unsafe_set(2, False)
-    arr.length = 3
-    arr.append(4)
+    var b = PrimitiveBuilder[int32](5)
+    b.append(1)
+    b.append(2)
+    b.bitmap.unsafe_set(2, False)
+    b.length = 3
+    b.append(4)
     assert_equal(
-        _fmt(Array(arr^)),
+        _fmt(Array(b^.freeze())),
         "PrimitiveArray[int32]([1, 2, NULL, ...])",
     )
 

@@ -61,12 +61,10 @@ struct ArrayPrinter(ArrayVisitor):
                 break
             if array.is_valid(i):
                 var start = Int(
-                    array.offsets[].unsafe_get[DType.int32](array.offset + i)
+                    array.offsets.unsafe_get[DType.int32](array.offset + i)
                 )
                 var end = Int(
-                    array.offsets[].unsafe_get[DType.int32](
-                        array.offset + i + 1
-                    )
+                    array.offsets.unsafe_get[DType.int32](array.offset + i + 1)
                 )
                 ref first_child = array.values[]
                 self.visit(

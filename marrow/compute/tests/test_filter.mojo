@@ -6,13 +6,14 @@ from marrow.arrays import (
     PrimitiveArray,
     nulls,
 )
+from marrow.builders import PrimitiveBuilder
 from marrow.dtypes import int32, int64, uint8
 from marrow.compute.filter import drop_nulls
 
 
 def test_drop_nulls_typed():
     """Drop nulls removes null elements and compacts valid ones."""
-    var a = PrimitiveArray[int32, mut=True](4)
+    var a = PrimitiveBuilder[int32](4)
     a.unsafe_append(10)
     # index 1 is null
     a.unsafe_append(30)

@@ -1,7 +1,7 @@
 from ffi import external_call, c_char
 from memory import ArcPointer, memcpy
 from sys import size_of
-from .buffers import ForeignMemoryOwner
+from .buffers import ForeignMemoryOwner, BitmapBuilder
 
 import math
 from python import Python, PythonObject
@@ -249,19 +249,17 @@ struct CArrowArray(Movable):
         # raw C buffers start at element 0 regardless of the logical array offset.
         var length = self.length + self.offset
 
-        var bitmap: ArcPointer[Bitmap]
+        var bitmap: Bitmap
         if self.buffers[0]:
-            bitmap = ArcPointer(
-                Bitmap.foreign_view(self.buffers[0], length, keeper)
-            )
+            bitmap = Bitmap.foreign_view(self.buffers[0], length, keeper)
         else:
             # bitmaps are allowed to be nullptrs by the specification; in this
             # case we allocate a new owned buffer to hold the validity bitmap.
-            var bm = Bitmap.alloc(self.length)
+            var bm = BitmapBuilder.alloc(self.length)
             bm.unsafe_range_set(0, self.length, True)
-            bitmap = ArcPointer(bm^.freeze())
+            bitmap = bm^.freeze()
 
-        var buffers = List[ArcPointer[Buffer]]()
+        var buffers = List[Buffer]()
         var children = List[ArcPointer[Array]]()
 
         if dtype.is_bool():
@@ -278,7 +276,7 @@ struct CArrowArray(Movable):
                     )
                 )
             var values = Bitmap.foreign_view(self.buffers[1], length, keeper)
-            buffers.append(ArcPointer(Buffer(values^)))
+            buffers.append(Buffer(values^))
         elif dtype.is_primitive():
             if self.n_buffers != 2:
                 raise Error(
@@ -295,7 +293,7 @@ struct CArrowArray(Movable):
             var values = Buffer.foreign_view(
                 self.buffers[1], length, dtype.native, keeper
             )
-            buffers.append(ArcPointer(values^))
+            buffers.append(values^)
         elif dtype.is_list():
             if self.n_buffers != 2:
                 raise Error(
@@ -313,7 +311,7 @@ struct CArrowArray(Movable):
             var offsets = Buffer.foreign_view(
                 self.buffers[1], length + 1, DType.int32, keeper
             )
-            buffers.append(ArcPointer(offsets^))
+            buffers.append(offsets^)
             # add the single values child array
             var values_field = dtype.fields[0].copy()
             var values_array = self.children[0][]._to_array(
@@ -340,8 +338,8 @@ struct CArrowArray(Movable):
             var values = Buffer.foreign_view(
                 self.buffers[2], data_len, DType.uint8, keeper
             )
-            buffers.append(ArcPointer(offsets^))
-            buffers.append(ArcPointer(values^))
+            buffers.append(offsets^)
+            buffers.append(values^)
         elif dtype.is_struct():
             if self.n_buffers != 1:
                 raise Error(
@@ -367,7 +365,7 @@ struct CArrowArray(Movable):
         return Array(
             dtype=dtype.copy(),
             length=Int(self.length),
-            bitmap=bitmap,
+            bitmap=bitmap^,
             buffers=buffers^,
             children=children^,
             offset=Int(self.offset),

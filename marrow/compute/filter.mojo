@@ -1,6 +1,7 @@
 """Vector (shape-changing) kernels."""
 
 from marrow.arrays import PrimitiveArray, Array
+from marrow.builders import PrimitiveBuilder
 from marrow.dtypes import DataType, bool_, all_numeric_dtypes, materialize
 
 
@@ -15,7 +16,7 @@ fn drop_nulls[T: DataType](array: PrimitiveArray[T]) -> PrimitiveArray[T]:
         fully-valid bitmap.
     """
     var valid_count = len(array) - array.null_count()
-    var result = PrimitiveArray[T, mut=True](valid_count)
+    var result = PrimitiveBuilder[T](valid_count)
     var out_idx = 0
     for i in range(len(array)):
         if array.is_valid(i):
