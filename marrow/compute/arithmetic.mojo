@@ -4,6 +4,7 @@ from sys import size_of
 from sys.info import simd_byte_width
 
 from marrow.arrays import PrimitiveArray, Array
+from marrow.buffers import MemorySpace
 from marrow.builders import PrimitiveBuilder
 from marrow.dtypes import DataType, all_numeric_dtypes, materialize
 from .kernels import binary
@@ -82,7 +83,9 @@ fn add[
     return binary[T, T, T, _add[T.native]](left, right)
 
 
-fn add(left: Array, right: Array) raises -> Array:
+fn add(
+    left: Array[MemorySpace.CPU], right: Array[MemorySpace.CPU]
+) raises -> Array[MemorySpace.CPU]:
     """Runtime-typed add: dispatches to the correct typed add.
 
     Args:
@@ -104,8 +107,8 @@ fn add(left: Array, right: Array) raises -> Array:
         if left.dtype == materialize[dtype]():
             return Array(
                 add[dtype](
-                    left.as_primitive[dtype](),
-                    right.as_primitive[dtype](),
+                    PrimitiveArray[dtype](data=left),
+                    PrimitiveArray[dtype](data=right),
                 )
             )
 

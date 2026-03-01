@@ -1,4 +1,5 @@
 from .arrays import *
+from .buffers import MemorySpace
 from .visitor import ArrayVisitor
 
 
@@ -21,7 +22,9 @@ struct ArrayPrinter(ArrayVisitor):
     fn finish(deinit self) -> String:
         return self.output^
 
-    fn visit[T: DataType](mut self, array: PrimitiveArray[T]) raises:
+    fn visit[T: DataType, space: MemorySpace = MemorySpace.CPU](
+        mut self, array: PrimitiveArray[T, space]
+    ) raises:
         self.output.write("PrimitiveArray[")
         self.output.write(String(materialize[T]()))
         self.output.write("]([")
@@ -37,7 +40,9 @@ struct ArrayPrinter(ArrayVisitor):
                 self.output.write("NULL")
         self.output.write("])")
 
-    fn visit(mut self, array: StringArray) raises:
+    fn visit[space: MemorySpace = MemorySpace.CPU](
+        mut self, array: StringArray[space]
+    ) raises:
         self.output.write("StringArray([")
         for i in range(array.length):
             if i > 0:
@@ -51,7 +56,9 @@ struct ArrayPrinter(ArrayVisitor):
                 self.output.write("NULL")
         self.output.write("])")
 
-    fn visit(mut self, array: ListArray) raises:
+    fn visit[space: MemorySpace = MemorySpace.CPU](
+        mut self, array: ListArray[space]
+    ) raises:
         self.output.write("ListArray([")
         for i in range(array.length):
             if i > 0:
@@ -67,8 +74,8 @@ struct ArrayPrinter(ArrayVisitor):
                     array.offsets.unsafe_get[DType.int32](array.offset + i + 1)
                 )
                 ref first_child = array.values[]
-                self.visit(
-                    Array(
+                self.visit[space](
+                    Array[space](
                         dtype=first_child.dtype.copy(),
                         bitmap=first_child.bitmap,
                         buffers=first_child.buffers.copy(),
@@ -81,7 +88,9 @@ struct ArrayPrinter(ArrayVisitor):
                 self.output.write("NULL")
         self.output.write("])")
 
-    fn visit(mut self, array: FixedSizeListArray) raises:
+    fn visit[space: MemorySpace = MemorySpace.CPU](
+        mut self, array: FixedSizeListArray[space]
+    ) raises:
         self.output.write("FixedSizeListArray([")
         var list_size = array.dtype.size
         for i in range(array.length):
@@ -93,8 +102,8 @@ struct ArrayPrinter(ArrayVisitor):
             if array.is_valid(i):
                 var start = (array.offset + i) * list_size
                 ref child = array.values[]
-                self.visit(
-                    Array(
+                self.visit[space](
+                    Array[space](
                         dtype=child.dtype.copy(),
                         bitmap=child.bitmap,
                         buffers=child.buffers.copy(),
@@ -107,7 +116,9 @@ struct ArrayPrinter(ArrayVisitor):
                 self.output.write("NULL")
         self.output.write("])")
 
-    fn visit(mut self, array: StructArray) raises:
+    fn visit[space: MemorySpace = MemorySpace.CPU](
+        mut self, array: StructArray[space]
+    ) raises:
         self.output.write("StructArray({")
         if len(array.children) > 0:
             for i in range(len(array.dtype.fields)):
@@ -117,13 +128,15 @@ struct ArrayPrinter(ArrayVisitor):
                 self.output.write("'")
                 self.output.write(field.name)
                 self.output.write("': ")
-                self.visit(array.children[i][])
+                self.visit[space](array.children[i][])
         self.output.write("})")
 
-    fn visit(mut self, array: ChunkedArray) raises:
+    fn visit[space: MemorySpace = MemorySpace.CPU](
+        mut self, array: ChunkedArray[space]
+    ) raises:
         self.output.write("ChunkedArray([")
         for i in range(len(array.chunks)):
             if i > 0:
                 self.output.write(", ")
-            self.visit(array.chunks[i])
+            self.visit[space](array.chunks[i])
         self.output.write("])")

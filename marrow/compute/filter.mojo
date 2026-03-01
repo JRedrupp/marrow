@@ -1,6 +1,7 @@
 """Vector (shape-changing) kernels."""
 
 from marrow.arrays import PrimitiveArray, Array
+from marrow.buffers import MemorySpace
 from marrow.builders import PrimitiveBuilder
 from marrow.dtypes import DataType, bool_, all_numeric_dtypes, materialize
 
@@ -26,7 +27,7 @@ fn drop_nulls[T: DataType](array: PrimitiveArray[T]) -> PrimitiveArray[T]:
     return result^.freeze()
 
 
-fn drop_nulls(array: Array) raises -> Array:
+fn drop_nulls(array: Array[MemorySpace.CPU]) raises -> Array[MemorySpace.CPU]:
     """Runtime-typed drop_nulls: dispatches to the correct typed version.
 
     Args:
@@ -36,10 +37,10 @@ fn drop_nulls(array: Array) raises -> Array:
         A new Array with null elements removed.
     """
     if array.dtype == materialize[bool_]():
-        return Array(drop_nulls[bool_](array.as_primitive[bool_]()))
+        return Array(drop_nulls[bool_](PrimitiveArray[bool_](data=array)))
 
     comptime for dtype in all_numeric_dtypes:
         if array.dtype == materialize[dtype]():
-            return Array(drop_nulls[dtype](array.as_primitive[dtype]()))
+            return Array(drop_nulls[dtype](PrimitiveArray[dtype](data=array)))
 
     raise Error("drop_nulls: unsupported dtype " + String(array.dtype))

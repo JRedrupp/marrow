@@ -1,4 +1,5 @@
 from .arrays import *
+from .buffers import MemorySpace
 from .dtypes import *
 
 
@@ -19,26 +20,40 @@ trait ArrayVisitor:
     into nested arrays.
     """
 
-    fn visit[T: DataType](mut self, array: PrimitiveArray[T]) raises:
+    fn visit[T: DataType, space: MemorySpace = MemorySpace.CPU](
+        mut self, array: PrimitiveArray[T, space]
+    ) raises:
         pass
 
-    fn visit(mut self, array: StringArray) raises:
+    fn visit[space: MemorySpace = MemorySpace.CPU](
+        mut self, array: StringArray[space]
+    ) raises:
         pass
 
-    fn visit(mut self, array: ListArray) raises:
+    fn visit[space: MemorySpace = MemorySpace.CPU](
+        mut self, array: ListArray[space]
+    ) raises:
         pass
 
-    fn visit(mut self, array: FixedSizeListArray) raises:
+    fn visit[space: MemorySpace = MemorySpace.CPU](
+        mut self, array: FixedSizeListArray[space]
+    ) raises:
         pass
 
-    fn visit(mut self, array: StructArray) raises:
+    fn visit[space: MemorySpace = MemorySpace.CPU](
+        mut self, array: StructArray[space]
+    ) raises:
         pass
 
-    fn visit(mut self, array: ChunkedArray) raises:
+    fn visit[space: MemorySpace = MemorySpace.CPU](
+        mut self, array: ChunkedArray[space]
+    ) raises:
         for chunk in array.chunks:
-            self.visit(chunk)
+            self.visit[space](chunk)
 
-    fn visit(mut self, array: Array) raises:
+    fn visit[space: MemorySpace = MemorySpace.CPU](
+        mut self, array: Array[space]
+    ) raises:
         """Dispatch to the typed overload matching the runtime dtype."""
 
         comptime for dtype in [
@@ -56,16 +71,18 @@ trait ArrayVisitor:
             float64,
         ]:
             if array.dtype == materialize[dtype]():
-                self.visit[dtype](array.copy().as_primitive[dtype]())
+                self.visit[dtype, space](
+                    PrimitiveArray[dtype, space](data=array)
+                )
                 return
 
         if array.dtype.is_string():
-            self.visit(array.copy().as_string())
+            self.visit[space](StringArray[space](data=array))
         elif array.dtype.is_list():
-            self.visit(array.copy().as_list())
+            self.visit[space](ListArray[space](data=array))
         elif array.dtype.is_fixed_size_list():
-            self.visit(array.copy().as_fixed_size_list())
+            self.visit[space](FixedSizeListArray[space](data=array))
         elif array.dtype.is_struct():
-            self.visit(array.copy().as_struct())
+            self.visit[space](StructArray[space](data=array))
         else:
             raise Error("visit: unsupported dtype " + String(array.dtype))

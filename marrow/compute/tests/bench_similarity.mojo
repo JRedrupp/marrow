@@ -65,13 +65,17 @@ fn _bench_gpu(
     """GPU cosine similarity (includes upload), mean us/iter."""
     # Warmup
     for _ in range(3):
-        var r = cosine_similarity[float32](vectors, query, ctx)
+        var r = cosine_similarity[float32](
+            vectors.to_device(ctx), query.to_device(ctx), ctx
+        )
         keep(len(r))
     ctx.synchronize()
 
     var start = perf_counter_ns()
     for _ in range(iters):
-        var r = cosine_similarity[float32](vectors, query, ctx)
+        var r = cosine_similarity[float32](
+            vectors.to_device(ctx), query.to_device(ctx), ctx
+        )
         keep(len(r))
     ctx.synchronize()
     return Float64(perf_counter_ns() - start) / Float64(iters) / 1000.0

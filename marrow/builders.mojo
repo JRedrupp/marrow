@@ -21,7 +21,7 @@ Example
 
 from memory import ArcPointer, memcpy
 from sys import size_of
-from .buffers import Buffer, BufferBuilder, Bitmap, BitmapBuilder
+from .buffers import Buffer, BufferBuilder, Bitmap, BitmapBuilder, MemorySpace
 from .dtypes import *
 from .arrays import (
     Array,
@@ -234,7 +234,7 @@ struct StringBuilder(Movable, Sized):
     fn unsafe_append(mut self, value: String):
         """Append a string value without bounds checking."""
         var index = self.length
-        var last_offset = self.offsets.unsafe_get[DType.uint32](index)
+        var last_offset = self.offsets.ptr.bitcast[UInt32]()[index + self.offsets.offset]
         var next_offset = last_offset + UInt32(len(value))
         self.length += 1
         self.bitmap.unsafe_set(index, True)
@@ -243,26 +243,6 @@ struct StringBuilder(Movable, Sized):
         var dst_address = self.values.ptr + Int(last_offset)
         var src_address = value.unsafe_ptr()
         memcpy(dest=dst_address, src=src_address, count=len(value))
-
-    fn unsafe_set(mut self, index: Int, value: String) raises:
-        """Replace the string at the given index in place.
-
-        Raises:
-            If the new string length differs from the existing one.
-        """
-        var start_offset = self.offsets.unsafe_get[DType.int32](index)
-        var end_offset = self.offsets.unsafe_get[DType.int32](index + 1)
-        var length = Int(end_offset - start_offset)
-
-        if length != len(value):
-            raise Error(
-                "String length mismatch, inplace update must have the same"
-                " length"
-            )
-
-        var dst_address = self.values.ptr + Int(start_offset)
-        var src_address = value.unsafe_ptr()
-        memcpy(dest=dst_address, src=src_address, count=length)
 
     fn shrink_to_fit(mut self):
         """Shrink buffers to exact length and normalize offset to 0 in place."""
@@ -330,7 +310,9 @@ struct ListBuilder(Movable, Sized):
         self.values = values^
 
     @staticmethod
-    fn from_values(var values: Array, capacity: Int = 1) raises -> ListBuilder:
+    fn from_values(
+        var values: Array[MemorySpace.CPU], capacity: Int = 1
+    ) raises -> ListBuilder:
         """Create a ListBuilder wrapping the given values.
 
         Args:
@@ -418,7 +400,7 @@ struct FixedSizeListBuilder(Movable, Sized):
 
     @staticmethod
     fn from_values(
-        var values: Array, list_size: Int, capacity: Int = 1
+        var values: Array[MemorySpace.CPU], list_size: Int, capacity: Int = 1
     ) raises -> FixedSizeListBuilder:
         """Create a FixedSizeListBuilder wrapping the given values.
 

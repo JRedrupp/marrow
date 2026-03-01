@@ -7,6 +7,7 @@ from sys.info import simd_byte_width
 from gpu.host import DeviceContext
 
 from marrow.arrays import PrimitiveArray, FixedSizeListArray
+from marrow.buffers import MemorySpace
 from marrow.builders import PrimitiveBuilder
 from marrow.dtypes import DataType
 
@@ -89,14 +90,12 @@ fn cosine_similarity[
 ](
     vectors: FixedSizeListArray,
     query: PrimitiveArray[T],
-    ctx: Optional[DeviceContext] = None,
 ) raises -> PrimitiveArray[T]:
-    """Batch cosine similarity: N vectors vs one query → N scores.
+    """Batch cosine similarity on CPU: N vectors vs one query → N scores.
 
     Args:
         vectors: FixedSizeListArray of N vectors, each of dimension D.
         query: PrimitiveArray[T] of D elements (the query vector).
-        ctx: Optional GPU device context for acceleration.
 
     Returns:
         PrimitiveArray[T] of N cosine similarity scores in [-1, 1].
@@ -111,11 +110,39 @@ fn cosine_similarity[
             )
         )
 
-    if ctx:
-        from .gpu import _cosine_similarity_gpu
+    return _cosine_similarity_no_nulls[T](vectors, query, n_vectors, dim)
 
-        return _cosine_similarity_gpu[T](
-            vectors, query, n_vectors, dim, ctx.value()
+
+fn cosine_similarity[
+    T: DataType
+](
+    vectors: FixedSizeListArray[MemorySpace.DEVICE],
+    query: PrimitiveArray[T, MemorySpace.DEVICE],
+    ctx: DeviceContext,
+) raises -> PrimitiveArray[T, MemorySpace.DEVICE]:
+    """GPU-accelerated batch cosine similarity on device-resident data.
+
+    Args:
+        vectors: Device-resident FixedSizeListArray of N vectors.
+        query: Device-resident PrimitiveArray[T] of D elements.
+        ctx: GPU device context.
+
+    Returns:
+        Device-resident PrimitiveArray[T] of N cosine similarity scores.
+        Call `.to_host(ctx)` to download to CPU memory.
+    """
+    var dim = vectors.dtype.size
+    var n_vectors = len(vectors)
+
+    if len(query) != dim:
+        raise Error(
+            "cosine_similarity: query length {} != vector dim {}".format(
+                len(query), dim
+            )
         )
 
-    return _cosine_similarity_no_nulls[T](vectors, query, n_vectors, dim)
+    from .gpu import _cosine_similarity_gpu
+
+    return _cosine_similarity_gpu[T](
+        vectors, query, n_vectors, dim, ctx
+    )

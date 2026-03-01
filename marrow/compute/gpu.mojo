@@ -14,7 +14,7 @@ from gpu import global_idx
 from gpu.host import DeviceBuffer, DeviceContext
 
 from marrow.arrays import PrimitiveArray, FixedSizeListArray, Array
-from marrow.buffers import Buffer, BitmapBuilder
+from marrow.buffers import Buffer, BitmapBuilder, MemorySpace
 from marrow.dtypes import DataType, all_numeric_dtypes, materialize
 from .arithmetic import _add, _add_no_nulls
 from .kernels import binary
@@ -42,43 +42,21 @@ fn _add_gpu_kernel[
 fn _add_gpu[
     T: DataType
 ](
-    left: PrimitiveArray[T],
-    right: PrimitiveArray[T],
+    left: PrimitiveArray[T, MemorySpace.DEVICE],
+    right: PrimitiveArray[T, MemorySpace.DEVICE],
     length: Int,
     ctx: DeviceContext,
-) raises -> PrimitiveArray[T]:
-    """GPU-accelerated add, reusing device buffers when already resident."""
+) raises -> PrimitiveArray[T, MemorySpace.DEVICE]:
+    """GPU-accelerated add on device-resident arrays."""
     comptime native = T.native
     comptime BLOCK_SIZE = 256
 
-    # Reuse device buffers if already on GPU, otherwise upload
-    var lhs_dev: DeviceBuffer[native]
-    var rhs_dev: DeviceBuffer[native]
-    if left.buffer.has_device():
-        lhs_dev = left.buffer.device.value().create_sub_buffer[native](
-            0, length
-        )
-    else:
-        lhs_dev = ctx.enqueue_create_buffer[native](length)
-        var lhs_ptr = (
-            left.buffer.ptr.bitcast[Scalar[native]]()
-            + left.offset
-            + left.buffer.offset
-        )
-        ctx.enqueue_copy(lhs_dev, lhs_ptr)
-
-    if right.buffer.has_device():
-        rhs_dev = right.buffer.device.value().create_sub_buffer[native](
-            0, length
-        )
-    else:
-        rhs_dev = ctx.enqueue_create_buffer[native](length)
-        var rhs_ptr = (
-            right.buffer.ptr.bitcast[Scalar[native]]()
-            + right.offset
-            + right.buffer.offset
-        )
-        ctx.enqueue_copy(rhs_dev, rhs_ptr)
+    var lhs_dev = left.buffer.device_buffer().create_sub_buffer[native](
+        0, length
+    )
+    var rhs_dev = right.buffer.device_buffer().create_sub_buffer[native](
+        0, length
+    )
 
     # Allocate output on device
     var out_dev = ctx.enqueue_create_buffer[native](length)
@@ -95,14 +73,18 @@ fn _add_gpu[
         block_dim=BLOCK_SIZE,
     )
 
-    # Build device-only result (no host copy — call .to_host(ctx) to read)
+    # Build device-only result
     var bm = BitmapBuilder.alloc(length)
     bm.unsafe_range_set(0, length, True)
     var device_bytes = length * size_of[native]()
-    var buf = Buffer(UnsafePointer[UInt8, ImmutExternalOrigin](), device_bytes)
-    buf.device = out_dev.create_sub_buffer[DType.uint8](0, device_bytes)
-    return PrimitiveArray[T](
-        length=length, offset=0, bitmap=bm^.freeze(), buffer=buf^
+    var buf = Buffer[MemorySpace.DEVICE].device_only(
+        out_dev.create_sub_buffer[DType.uint8](0, device_bytes), device_bytes
+    )
+    return PrimitiveArray[T, MemorySpace.DEVICE](
+        length=length,
+        offset=0,
+        bitmap=bm^.freeze().to_device(ctx),
+        buffer=buf^,
     )
 
 
@@ -116,23 +98,15 @@ fn add[
 ](
     left: PrimitiveArray[T],
     right: PrimitiveArray[T],
-    ctx: Optional[DeviceContext] = None,
 ) raises -> PrimitiveArray[T]:
-    """Element-wise addition with optional GPU acceleration.
-
-    When a DeviceContext is provided, the result stays on device (GPU).
-    Call `.to_host(ctx)` on the result to download to CPU memory.
-    Without a context, dispatches to the SIMD-optimized CPU path.
+    """Element-wise addition on CPU arrays.
 
     Args:
         left: Left operand array.
         right: Right operand array.
-        ctx: Optional GPU device context for acceleration.
 
     Returns:
         A new PrimitiveArray where result[i] = left[i] + right[i].
-        With GPU: result is device-resident; chain ops or call to_host().
-        Without GPU: result is host-resident and immediately readable.
     """
     if len(left) != len(right):
         raise Error(
@@ -142,24 +116,46 @@ fn add[
         )
 
     var no_nulls = left.null_count() == 0 and right.null_count() == 0
-
     if no_nulls:
-        if ctx:
-            return _add_gpu[T](left, right, len(left), ctx.value())
         return _add_no_nulls[T](left, right, len(left))
-
     return binary[T, T, T, _add[T.native]](left, right)
 
 
+fn add[
+    T: DataType
+](
+    left: PrimitiveArray[T, MemorySpace.DEVICE],
+    right: PrimitiveArray[T, MemorySpace.DEVICE],
+    ctx: DeviceContext,
+) raises -> PrimitiveArray[T, MemorySpace.DEVICE]:
+    """Element-wise addition on device-resident arrays.
+
+    Args:
+        left: Left operand (device-resident).
+        right: Right operand (device-resident).
+        ctx: GPU device context.
+
+    Returns:
+        A new device-resident PrimitiveArray where result[i] = left[i] + right[i].
+        Call `.to_host(ctx)` to download to CPU memory.
+    """
+    if len(left) != len(right):
+        raise Error(
+            "add: arrays must have the same length, got {} and {}".format(
+                len(left), len(right)
+            )
+        )
+    return _add_gpu[T](left, right, len(left), ctx)
+
+
 fn add(
-    left: Array, right: Array, ctx: Optional[DeviceContext] = None
-) raises -> Array:
-    """Runtime-typed add with optional GPU acceleration.
+    left: Array[MemorySpace.CPU], right: Array[MemorySpace.CPU]
+) raises -> Array[MemorySpace.CPU]:
+    """Runtime-typed add on CPU arrays.
 
     Args:
         left: Left operand (runtime-typed Array).
         right: Right operand (runtime-typed Array).
-        ctx: Optional GPU device context for acceleration.
 
     Returns:
         A new Array with the element-wise sum.
@@ -176,9 +172,8 @@ fn add(
         if left.dtype == materialize[dtype]():
             return Array(
                 add[dtype](
-                    left.as_primitive[dtype](),
-                    right.as_primitive[dtype](),
-                    ctx,
+                    PrimitiveArray[dtype](data=left),
+                    PrimitiveArray[dtype](data=right),
                 )
             )
 
@@ -222,50 +217,26 @@ fn _cosine_similarity_gpu_kernel[
 fn _cosine_similarity_gpu[
     T: DataType
 ](
-    vectors: FixedSizeListArray,
-    query: PrimitiveArray[T],
+    vectors: FixedSizeListArray[MemorySpace.DEVICE],
+    query: PrimitiveArray[T, MemorySpace.DEVICE],
     n_vectors: Int,
     dim: Int,
     ctx: DeviceContext,
-) raises -> PrimitiveArray[T]:
-    """GPU-accelerated batch cosine similarity."""
+) raises -> PrimitiveArray[T, MemorySpace.DEVICE]:
+    """GPU-accelerated batch cosine similarity on device-resident data."""
     comptime native = T.native
     comptime BLOCK_SIZE = 256
 
     var n_values = n_vectors * dim
 
-    # Upload or reuse vectors (flat child values)
+    # Data is already on device — get handles directly
     ref child = vectors.values[]
-    var vec_dev: DeviceBuffer[native]
-    if child.buffers[0].has_device():
-        vec_dev = (
-            child.buffers[0]
-            .device.value()
-            .create_sub_buffer[native](0, n_values)
-        )
-    else:
-        vec_dev = ctx.enqueue_create_buffer[native](n_values)
-        var vp = (
-            child.buffers[0].ptr.bitcast[Scalar[native]]()
-            + child.offset
-            + child.buffers[0].offset
-        )
-        ctx.enqueue_copy(vec_dev, vp)
-
-    # Upload or reuse query
-    var query_dev: DeviceBuffer[native]
-    if query.buffer.has_device():
-        query_dev = query.buffer.device.value().create_sub_buffer[native](
-            0, dim
-        )
-    else:
-        query_dev = ctx.enqueue_create_buffer[native](dim)
-        var qp = (
-            query.buffer.ptr.bitcast[Scalar[native]]()
-            + query.offset
-            + query.buffer.offset
-        )
-        ctx.enqueue_copy(query_dev, qp)
+    var vec_dev = child.buffers[0].device_buffer().create_sub_buffer[native](
+        0, n_values
+    )
+    var query_dev = query.buffer.device_buffer().create_sub_buffer[native](
+        0, dim
+    )
 
     # Allocate output on device
     var out_dev = ctx.enqueue_create_buffer[native](n_vectors)
@@ -287,8 +258,12 @@ fn _cosine_similarity_gpu[
     var bm = BitmapBuilder.alloc(n_vectors)
     bm.unsafe_range_set(0, n_vectors, True)
     var device_bytes = n_vectors * size_of[native]()
-    var buf = Buffer(UnsafePointer[UInt8, ImmutExternalOrigin](), device_bytes)
-    buf.device = out_dev.create_sub_buffer[DType.uint8](0, device_bytes)
-    return PrimitiveArray[T](
-        length=n_vectors, offset=0, bitmap=bm^.freeze(), buffer=buf^
+    var buf = Buffer[MemorySpace.DEVICE].device_only(
+        out_dev.create_sub_buffer[DType.uint8](0, device_bytes), device_bytes
+    )
+    return PrimitiveArray[T, MemorySpace.DEVICE](
+        length=n_vectors,
+        offset=0,
+        bitmap=bm^.freeze().to_device(ctx),
+        buffer=buf^,
     )

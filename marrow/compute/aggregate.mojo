@@ -1,6 +1,7 @@
 """Aggregate (reduction) kernels."""
 
 from marrow.arrays import PrimitiveArray, Array
+from marrow.buffers import MemorySpace
 from marrow.dtypes import DataType, all_numeric_dtypes, materialize
 from .kernels import reduce
 
@@ -21,7 +22,7 @@ fn sum[T: DataType](array: PrimitiveArray[T]) -> Scalar[T.native]:
     return reduce[T, T, _accumulate[T.native]](array, Scalar[T.native](0))
 
 
-fn sum(array: Array) raises -> Scalar[DType.float64]:
+fn sum(array: Array[MemorySpace.CPU]) raises -> Scalar[DType.float64]:
     """Runtime-typed sum: dispatches to the correct typed sum.
 
     Returns the result as float64 to accommodate any numeric type.
@@ -35,7 +36,7 @@ fn sum(array: Array) raises -> Scalar[DType.float64]:
 
     comptime for dtype in all_numeric_dtypes:
         if array.dtype == materialize[dtype]():
-            var result = sum[dtype](array.as_primitive[dtype]())
+            var result = sum[dtype](PrimitiveArray[dtype](data=array))
             return result.cast[DType.float64]()
 
     raise Error("sum: unsupported dtype " + String(array.dtype))

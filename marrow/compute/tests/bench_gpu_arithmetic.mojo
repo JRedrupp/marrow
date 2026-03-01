@@ -47,11 +47,11 @@ fn _bench_gpu[
     var rhs = _make_array[T](size)
     # Warmup
     for _ in range(3):
-        _ = gpu_add[T](lhs, rhs, ctx)
+        _ = gpu_add[T](lhs.to_device(ctx), rhs.to_device(ctx), ctx)
     ctx.synchronize()
     var start = perf_counter_ns()
     for _ in range(iters):
-        var result = gpu_add[T](lhs, rhs, ctx)
+        var result = gpu_add[T](lhs.to_device(ctx), rhs.to_device(ctx), ctx)
         keep(len(result))
     ctx.synchronize()
     return Float64(perf_counter_ns() - start) / Float64(iters) / 1000.0
