@@ -28,6 +28,9 @@ trait ArrayVisitor:
     fn visit(mut self, array: ListArray) raises:
         pass
 
+    fn visit(mut self, array: FixedSizeListArray) raises:
+        pass
+
     fn visit(mut self, array: StructArray) raises:
         pass
 
@@ -60,6 +63,8 @@ trait ArrayVisitor:
             self.visit(array.copy().as_string())
         elif array.dtype.is_list():
             self.visit(array.copy().as_list())
+        elif array.dtype.is_fixed_size_list():
+            self.visit(array.copy().as_fixed_size_list())
         elif array.dtype.is_struct():
             self.visit(array.copy().as_struct())
         else:

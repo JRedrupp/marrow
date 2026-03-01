@@ -29,6 +29,7 @@ from .arrays import (
     PrimitiveArray,
     StringArray,
     ListArray,
+    FixedSizeListArray,
     StructArray,
 )
 
@@ -385,6 +386,90 @@ struct ListBuilder(Movable, Sized):
             offset=0,
             bitmap=self.bitmap^.freeze(),
             offsets=self.offsets^.freeze(),
+            values=self.values^,
+        )
+
+
+struct FixedSizeListBuilder(Movable, Sized):
+    """Builder for `FixedSizeListArray`.  Owns bitmap directly."""
+
+    var dtype: DataType
+    var length: Int
+    var offset: Int
+    var capacity: Int
+    var bitmap: BitmapBuilder
+    var values: ArcPointer[Array]
+
+    fn __init__(
+        out self,
+        var dtype: DataType,
+        length: Int,
+        offset: Int,
+        capacity: Int,
+        var bitmap: BitmapBuilder,
+        var values: ArcPointer[Array],
+    ):
+        self.dtype = dtype^
+        self.length = length
+        self.offset = offset
+        self.capacity = capacity
+        self.bitmap = bitmap^
+        self.values = values^
+
+    @staticmethod
+    fn from_values(
+        var values: Array, list_size: Int, capacity: Int = 1
+    ) raises -> FixedSizeListBuilder:
+        """Create a FixedSizeListBuilder wrapping the given values.
+
+        Args:
+            values: Array to use as the child values.
+            list_size: Fixed number of elements per list.
+            capacity: The capacity of the builder.
+        """
+        if values.length % list_size != 0:
+            raise Error(
+                "values length {} not divisible by list_size {}".format(
+                    values.length, list_size
+                )
+            )
+        var n_lists = values.length // list_size
+
+        var bitmap = BitmapBuilder.alloc(max(n_lists, capacity))
+        bitmap.unsafe_range_set(0, n_lists, True)
+
+        var fsl_dtype = fixed_size_list_(values.dtype.copy(), list_size)
+        return FixedSizeListBuilder(
+            dtype=fsl_dtype^,
+            length=n_lists,
+            offset=0,
+            capacity=max(n_lists, capacity),
+            bitmap=bitmap^,
+            values=ArcPointer(values^),
+        )
+
+    fn __len__(self) -> Int:
+        return self.length
+
+    fn unsafe_append(mut self, is_valid: Bool):
+        self.bitmap.unsafe_set(self.length, is_valid)
+        self.length += 1
+
+    fn shrink_to_fit(mut self):
+        if self.length == self.capacity and self.offset == 0:
+            return
+        self.bitmap.resize(self.length, self.offset)
+        self.offset = 0
+        self.capacity = self.length
+
+    fn freeze(deinit self) -> FixedSizeListArray:
+        """Shrink buffers to exact length and return as an immutable array."""
+        self.shrink_to_fit()
+        return FixedSizeListArray(
+            dtype=self.dtype^,
+            length=self.length,
+            offset=0,
+            bitmap=self.bitmap^.freeze(),
             values=self.values^,
         )
 

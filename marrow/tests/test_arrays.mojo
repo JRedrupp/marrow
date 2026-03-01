@@ -6,6 +6,7 @@ from marrow.builders import (
     PrimitiveBuilder,
     StringBuilder,
     ListBuilder,
+    FixedSizeListBuilder,
     StructBuilder,
 )
 from marrow.dtypes import *
@@ -455,6 +456,75 @@ def test_list_of_list():
     bottom = PrimitiveArray[int64](middle_1^)
     assert_equal(bottom.unsafe_get(0), 3)
     assert_equal(bottom.unsafe_get(1), 4)
+
+
+def test_fixed_size_list_int_array():
+    """Construct a FixedSizeListArray of int64 lists, size=3."""
+    var ints = array[int64]([1, 2, 3, 4, 5, 6])
+    var builder = FixedSizeListBuilder.from_values(Array(ints^), list_size=3)
+    assert_equal(builder.dtype, fixed_size_list_(materialize[int64](), 3))
+    assert_equal(len(builder), 2)
+    var fsl = builder^.freeze()
+    assert_equal(len(fsl), 2)
+    assert_equal(fsl.dtype.size, 3)
+
+    # First list: [1, 2, 3]
+    var first = fsl.unsafe_get(0).as_int64()
+    assert_equal(len(first), 3)
+    assert_equal(first.unsafe_get(0), 1)
+    assert_equal(first.unsafe_get(1), 2)
+    assert_equal(first.unsafe_get(2), 3)
+
+    # Second list: [4, 5, 6]
+    var second = fsl.unsafe_get(1).as_int64()
+    assert_equal(second.unsafe_get(0), 4)
+    assert_equal(second.unsafe_get(1), 5)
+    assert_equal(second.unsafe_get(2), 6)
+
+
+def test_fixed_size_list_roundtrip():
+    """FixedSizeListArray -> Array -> as_fixed_size_list() roundtrip."""
+    var ints = array[int32]([10, 20, 30, 40])
+    var builder = FixedSizeListBuilder.from_values(Array(ints^), list_size=2)
+    var fsl = builder^.freeze()
+
+    # Convert to Array and back
+    var data = Array(fsl^)
+    assert_true(data.dtype.is_fixed_size_list())
+    assert_equal(data.dtype.size, 2)
+    assert_equal(len(data.buffers), 0)
+    assert_equal(len(data.children), 1)
+
+    var fsl2 = data^.as_fixed_size_list()
+    assert_equal(len(fsl2), 2)
+    var first = fsl2.unsafe_get(0).as_int32()
+    assert_equal(first.unsafe_get(0), 10)
+    assert_equal(first.unsafe_get(1), 20)
+
+
+def test_fixed_size_list_with_nulls():
+    """FixedSizeListArray with null lists."""
+    var ints = array[int64]([1, 2, 3, 4, 5, 6])
+    var builder = FixedSizeListBuilder.from_values(
+        Array(ints^), list_size=3, capacity=3
+    )
+    # Append a null list (need to extend values first)
+    builder.unsafe_append(False)
+    assert_equal(len(builder), 3)
+
+    var fsl = builder^.freeze()
+    assert_true(fsl.is_valid(0))
+    assert_true(fsl.is_valid(1))
+    assert_false(fsl.is_valid(2))
+
+
+def test_fixed_size_list_pretty_print():
+    """Pretty printing FixedSizeListArray."""
+    var ints = array[int64]([1, 2, 3, 4])
+    var builder = FixedSizeListBuilder.from_values(Array(ints^), list_size=2)
+    var fsl = builder^.freeze()
+    var s = String(Array(fsl^))
+    assert_true("FixedSizeListArray" in s)
 
 
 def test_struct_array():

@@ -237,6 +237,60 @@ def test_list_dtype_conversion():
     assert_equal(dtype.fields[0].dtype, materialize[int32]())
 
 
+def test_fixed_size_list_dtype_conversion():
+    """Format string +w:3 roundtrip through CArrowSchema."""
+    var pa = Python.import_module("pyarrow")
+
+    var fsl_type = pa.list_(pa.float32(), 3)
+    var c_schema = CArrowSchema.from_pyarrow(fsl_type)
+    var dtype = c_schema.to_dtype()
+
+    assert_true(dtype.is_fixed_size_list())
+    assert_equal(dtype.size, 3)
+    assert_equal(dtype.fields[0].dtype, materialize[float32]())
+
+
+def test_fixed_size_list_from_pyarrow():
+    """Import a FixedSizeList array from PyArrow."""
+    var pa = Python.import_module("pyarrow")
+
+    # Create [[1,2,3], [4,5,6], [7,8,9]] as fixed_size_list(int32, 3)
+    var pyarr = pa.FixedSizeListArray.from_arrays(
+        pa.array(
+            Python.list(1, 2, 3, 4, 5, 6, 7, 8, 9),
+            type=pa.int32(),
+        ),
+        3,
+    )
+
+    var c_array = CArrowArray.from_pyarrow(pyarr)
+    var c_schema = CArrowSchema.from_pyarrow(pyarr.type)
+
+    var dtype = c_schema.to_dtype()
+    assert_true(dtype.is_fixed_size_list())
+    assert_equal(dtype.size, 3)
+
+    assert_equal(c_array.length, 3)
+    assert_equal(c_array.n_buffers, 1)
+    assert_equal(c_array.n_children, 1)
+
+    var data = c_array^.to_array(dtype)
+    var fsl = data^.as_fixed_size_list()
+    assert_equal(len(fsl), 3)
+
+    # First list: [1, 2, 3]
+    var first = fsl.unsafe_get(0).as_int32()
+    assert_equal(first.unsafe_get(0), 1)
+    assert_equal(first.unsafe_get(1), 2)
+    assert_equal(first.unsafe_get(2), 3)
+
+    # Second list: [4, 5, 6]
+    var second = fsl.unsafe_get(1).as_int32()
+    assert_equal(second.unsafe_get(0), 4)
+    assert_equal(second.unsafe_get(1), 5)
+    assert_equal(second.unsafe_get(2), 6)
+
+
 def test_numeric_dtypes():
     var pa = Python.import_module("pyarrow")
 

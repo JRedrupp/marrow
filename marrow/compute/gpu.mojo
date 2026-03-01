@@ -13,7 +13,7 @@ from sys import size_of
 from gpu import global_idx
 from gpu.host import DeviceBuffer, DeviceContext
 
-from marrow.arrays import PrimitiveArray, Array
+from marrow.arrays import PrimitiveArray, FixedSizeListArray, Array
 from marrow.buffers import Buffer, BitmapBuilder
 from marrow.dtypes import DataType, all_numeric_dtypes, materialize
 from .arithmetic import _add, _add_no_nulls
@@ -99,9 +99,7 @@ fn _add_gpu[
     var bm = BitmapBuilder.alloc(length)
     bm.unsafe_range_set(0, length, True)
     var device_bytes = length * size_of[native]()
-    var buf = Buffer(
-        UnsafePointer[UInt8, ImmutExternalOrigin](), device_bytes
-    )
+    var buf = Buffer(UnsafePointer[UInt8, ImmutExternalOrigin](), device_bytes)
     buf.device = out_dev.create_sub_buffer[DType.uint8](0, device_bytes)
     return PrimitiveArray[T](
         length=length, offset=0, bitmap=bm^.freeze(), buffer=buf^
@@ -185,3 +183,112 @@ fn add(
             )
 
     raise Error("add: unsupported dtype " + String(left.dtype))
+
+
+# ---------------------------------------------------------------------------
+# GPU cosine similarity kernel
+# ---------------------------------------------------------------------------
+
+
+fn _cosine_similarity_gpu_kernel[
+    dtype: DType
+](
+    vectors: UnsafePointer[Scalar[dtype], MutAnyOrigin],
+    query: UnsafePointer[Scalar[dtype], MutAnyOrigin],
+    result: UnsafePointer[Scalar[dtype], MutAnyOrigin],
+    n_vectors: Int,
+    dim: Int,
+):
+    """GPU kernel: each thread computes one vector's cosine similarity."""
+    var tid = global_idx.x
+    if tid < UInt(n_vectors):
+        var offset = Int(tid) * dim
+        var dot = Scalar[dtype](0)
+        var norm_v = Scalar[dtype](0)
+        var norm_q = Scalar[dtype](0)
+        for j in range(dim):
+            var v = vectors[offset + j]
+            var q = query[j]
+            dot += v * q
+            norm_v += v * v
+            norm_q += q * q
+        var denom = math.sqrt(norm_v) * math.sqrt(norm_q)
+        if denom > 0:
+            result[tid] = dot / denom
+        else:
+            result[tid] = Scalar[dtype](0)
+
+
+fn _cosine_similarity_gpu[
+    T: DataType
+](
+    vectors: FixedSizeListArray,
+    query: PrimitiveArray[T],
+    n_vectors: Int,
+    dim: Int,
+    ctx: DeviceContext,
+) raises -> PrimitiveArray[T]:
+    """GPU-accelerated batch cosine similarity."""
+    comptime native = T.native
+    comptime BLOCK_SIZE = 256
+
+    var n_values = n_vectors * dim
+
+    # Upload or reuse vectors (flat child values)
+    ref child = vectors.values[]
+    var vec_dev: DeviceBuffer[native]
+    if child.buffers[0].has_device():
+        vec_dev = (
+            child.buffers[0]
+            .device.value()
+            .create_sub_buffer[native](0, n_values)
+        )
+    else:
+        vec_dev = ctx.enqueue_create_buffer[native](n_values)
+        var vp = (
+            child.buffers[0].ptr.bitcast[Scalar[native]]()
+            + child.offset
+            + child.buffers[0].offset
+        )
+        ctx.enqueue_copy(vec_dev, vp)
+
+    # Upload or reuse query
+    var query_dev: DeviceBuffer[native]
+    if query.buffer.has_device():
+        query_dev = query.buffer.device.value().create_sub_buffer[native](
+            0, dim
+        )
+    else:
+        query_dev = ctx.enqueue_create_buffer[native](dim)
+        var qp = (
+            query.buffer.ptr.bitcast[Scalar[native]]()
+            + query.offset
+            + query.buffer.offset
+        )
+        ctx.enqueue_copy(query_dev, qp)
+
+    # Allocate output on device
+    var out_dev = ctx.enqueue_create_buffer[native](n_vectors)
+
+    # Launch kernel
+    var num_blocks = math.ceildiv(n_vectors, BLOCK_SIZE)
+    comptime kernel = _cosine_similarity_gpu_kernel[native]
+    ctx.enqueue_function_experimental[kernel](
+        vec_dev,
+        query_dev,
+        out_dev,
+        n_vectors,
+        dim,
+        grid_dim=num_blocks,
+        block_dim=BLOCK_SIZE,
+    )
+
+    # Build device-only result
+    var bm = BitmapBuilder.alloc(n_vectors)
+    bm.unsafe_range_set(0, n_vectors, True)
+    var device_bytes = n_vectors * size_of[native]()
+    var buf = Buffer(UnsafePointer[UInt8, ImmutExternalOrigin](), device_bytes)
+    buf.device = out_dev.create_sub_buffer[DType.uint8](0, device_bytes)
+    return PrimitiveArray[T](
+        length=n_vectors, offset=0, bitmap=bm^.freeze(), buffer=buf^
+    )

@@ -81,6 +81,32 @@ struct ArrayPrinter(ArrayVisitor):
                 self.output.write("NULL")
         self.output.write("])")
 
+    fn visit(mut self, array: FixedSizeListArray) raises:
+        self.output.write("FixedSizeListArray([")
+        var list_size = array.dtype.size
+        for i in range(array.length):
+            if i > 0:
+                self.output.write(", ")
+            if i >= self.limit:
+                self.output.write("...")
+                break
+            if array.is_valid(i):
+                var start = (array.offset + i) * list_size
+                ref child = array.values[]
+                self.visit(
+                    Array(
+                        dtype=child.dtype.copy(),
+                        bitmap=child.bitmap,
+                        buffers=child.buffers.copy(),
+                        offset=start,
+                        length=list_size,
+                        children=child.children.copy(),
+                    )
+                )
+            else:
+                self.output.write("NULL")
+        self.output.write("])")
+
     fn visit(mut self, array: StructArray) raises:
         self.output.write("StructArray({")
         if len(array.children) > 0:

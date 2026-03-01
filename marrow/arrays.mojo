@@ -91,6 +91,15 @@ struct Array(Copyable, Movable, Stringable):
         self.children = [array.values]
 
     @implicit
+    fn __init__(out self, array: FixedSizeListArray):
+        self.dtype = array.dtype.copy()
+        self.length = array.length
+        self.offset = array.offset
+        self.bitmap = array.bitmap
+        self.buffers = []
+        self.children = [array.values]
+
+    @implicit
     fn __init__(out self, array: StructArray):
         self.dtype = array.dtype.copy()
         self.length = array.length
@@ -169,6 +178,9 @@ struct Array(Copyable, Movable, Stringable):
 
     fn as_list(self) raises -> ListArray:
         return ListArray(self)
+
+    fn as_fixed_size_list(self) raises -> FixedSizeListArray:
+        return FixedSizeListArray(self)
 
     fn as_struct(self) raises -> StructArray:
         return StructArray(data=self)
@@ -441,6 +453,77 @@ struct ListArray(Movable, Sized):
             offset=start,
             length=end - start,
             children=first_child.children.copy(),
+        )
+
+
+@fieldwise_init
+struct FixedSizeListArray(Movable, Sized):
+    """An immutable Arrow array of fixed-size lists (each element is a sub-array of the same length).
+    """
+
+    var dtype: DataType
+    var length: Int
+    var offset: Int
+    var bitmap: Bitmap
+    var values: ArcPointer[Array]
+
+    fn __init__(out self, ref data: Array) raises:
+        if not data.dtype.is_fixed_size_list():
+            raise Error(
+                "Unexpected dtype "
+                + String(data.dtype)
+                + " instead of 'fixed_size_list'"
+            )
+        elif len(data.buffers) != 0:
+            raise Error("FixedSizeListArray requires zero buffers")
+        elif len(data.children) != 1:
+            raise Error("FixedSizeListArray requires exactly one child array")
+
+        self.dtype = data.dtype.copy()
+        self.length = data.length
+        self.offset = data.offset
+        self.bitmap = data.bitmap
+        self.values = data.children[0]
+
+    fn __len__(self) -> Int:
+        return self.length
+
+    fn is_valid(self, index: Int) -> Bool:
+        return self.bitmap.unsafe_get(index)
+
+    fn unsafe_get(self, index: Int, out array_data: Array) raises:
+        var list_size = self.dtype.size
+        var start = (self.offset + index) * list_size
+        ref child = self.values[]
+        return Array(
+            dtype=child.dtype.copy(),
+            bitmap=child.bitmap,
+            buffers=child.buffers.copy(),
+            offset=start,
+            length=list_size,
+            children=child.children.copy(),
+        )
+
+    fn to_device(self, ctx: DeviceContext) raises -> FixedSizeListArray:
+        """Upload child values to the GPU."""
+        ref child = self.values[]
+        var new_buffers = List[Buffer]()
+        for i in range(len(child.buffers)):
+            new_buffers.append(child.buffers[i].to_device(ctx))
+        var new_child = Array(
+            dtype=child.dtype.copy(),
+            bitmap=child.bitmap.to_device(ctx),
+            buffers=new_buffers^,
+            offset=child.offset,
+            length=child.length,
+            children=child.children.copy(),
+        )
+        return FixedSizeListArray(
+            dtype=self.dtype.copy(),
+            length=self.length,
+            offset=self.offset,
+            bitmap=self.bitmap.to_device(ctx),
+            values=ArcPointer(new_child^),
         )
 
 

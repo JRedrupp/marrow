@@ -283,7 +283,8 @@ struct Buffer(ImplicitlyCopyable, Movable):
         return result^
 
     fn to_host(self, ctx: DeviceContext) raises -> Buffer:
-        """Download buffer data from the GPU. Returns self if already on host."""
+        """Download buffer data from the GPU. Returns self if already on host.
+        """
         if self.dealloc:
             return self
         var builder = BufferBuilder.alloc(self.size)

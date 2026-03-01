@@ -85,6 +85,12 @@ struct CArrowSchema(Copyable, Stringable):
             fmt = "z"
         elif dtype.is_string():
             fmt = "u"
+        elif dtype.is_fixed_size_list():
+            fmt = "+w:" + String(dtype.size)
+            n_children = 1
+            children = alloc[UnsafePointer[CArrowSchema, MutAnyOrigin]](1)
+            var child = CArrowSchema.from_field(dtype.fields[0])
+            children[0].init_pointee_move(child^)
         elif dtype.is_struct():
             fmt = "+s"
             n_children = Int64(len(dtype.fields))
@@ -172,6 +178,10 @@ struct CArrowSchema(Copyable, Stringable):
         elif fmt == "+l":
             var field = self.children[0][].to_field()
             return list_(field.dtype.copy())
+        elif fmt.startswith("+w:"):
+            var size = Int(fmt[3:])
+            var field = self.children[0][].to_field()
+            return fixed_size_list_(field.dtype.copy(), size)
         elif fmt == "+s":
             var fields = List[Field]()
             for i in range(self.n_children):
@@ -340,6 +350,24 @@ struct CArrowArray(Movable):
             )
             buffers.append(offsets^)
             buffers.append(values^)
+        elif dtype.is_fixed_size_list():
+            if self.n_buffers != 1:
+                raise Error(
+                    "fixed_size_list array must have 1 buffer, got {}".format(
+                        self.n_buffers
+                    )
+                )
+            if self.n_children != 1:
+                raise Error(
+                    "fixed_size_list array must have 1 child, got {}".format(
+                        self.n_children
+                    )
+                )
+            var values_field = dtype.fields[0].copy()
+            var values_array = self.children[0][]._to_array(
+                values_field.dtype, keeper
+            )
+            children.append(ArcPointer(values_array^))
         elif dtype.is_struct():
             if self.n_buffers != 1:
                 raise Error(

@@ -173,11 +173,13 @@ struct DataType(Copyable, Equatable, Representable, Stringable):
     var code: UInt8
     var native: DType
     var fields: List[Field]
+    var size: Int
 
     fn __init__(out self, *, code: UInt8):
         self.code = code
         self.native = DType.invalid
         self.fields = []
+        self.size = 0
 
     fn __init__(out self, native: DType):
         if native == DType.bool:
@@ -206,27 +208,33 @@ struct DataType(Copyable, Equatable, Representable, Stringable):
             self.code = NA
         self.native = native
         self.fields = []
+        self.size = 0
 
     fn __init__(out self, *, code: UInt8, native: DType):
         self.code = code
         self.native = native
         self.fields = []
+        self.size = 0
 
     fn __init__(out self, *, code: UInt8, fields: List[Field]):
         self.code = code
         self.native = DType.invalid
         self.fields = fields.copy()
+        self.size = 0
 
     fn __init__(out self, *, copy: Self):
         self.code = copy.code
         self.native = copy.native
         self.fields = copy.fields.copy()
+        self.size = copy.size
 
     fn __is__(self, other: DataType) -> Bool:
         return self == other
 
     fn __eq__(self, other: DataType) -> Bool:
         if self.code != other.code:
+            return False
+        if self.size != other.size:
             return False
         if len(self.fields) != len(other.fields):
             return False
@@ -252,6 +260,8 @@ struct DataType(Copyable, Equatable, Representable, Stringable):
             return "int64"
         elif self.code == LIST:
             return "list"
+        elif self.code == FIXED_SIZE_LIST:
+            return "fixed_size_list"
         elif self.code == STRUCT:
             return "struct"
         else:
@@ -341,12 +351,24 @@ struct DataType(Copyable, Equatable, Representable, Stringable):
         return self.code == LIST
 
     @always_inline
+    fn is_fixed_size_list(self) -> Bool:
+        return self.code == FIXED_SIZE_LIST
+
+    @always_inline
     fn is_struct(self) -> Bool:
         return self.code == STRUCT
 
 
 fn list_(var value_type: DataType) -> DataType:
     return DataType(code=LIST, fields=[Field("value", value_type^)])
+
+
+fn fixed_size_list_(var value_type: DataType, size: Int) -> DataType:
+    var dt = DataType(
+        code=FIXED_SIZE_LIST, fields=[Field("value", value_type^)]
+    )
+    dt.size = size
+    return dt^
 
 
 fn struct_(fields: List[Field]) -> DataType:

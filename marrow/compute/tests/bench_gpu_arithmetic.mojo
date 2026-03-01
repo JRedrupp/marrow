@@ -41,7 +41,8 @@ fn _bench_cpu[T: DataType, size: Int](iters: Int) -> Float64:
 fn _bench_gpu[
     T: DataType, size: Int
 ](iters: Int, ctx: DeviceContext) raises -> Float64:
-    """GPU add, mean microseconds per iteration (includes upload, excludes download)."""
+    """GPU add, mean microseconds per iteration (includes upload, excludes download).
+    """
     var lhs = _make_array[T](size)
     var rhs = _make_array[T](size)
     # Warmup
