@@ -9,7 +9,7 @@ Array — the generic container
 `Array` is the low-level, type-erased container used for storage, exchange
 (C Data Interface), and visitor dispatch.  It holds immutable bitmaps and
 buffers directly (no ArcPointer wrapping — sharing is handled inside Buffer
-via its internal ArcPointer[ForeignMemoryOwner]).  Typed arrays convert
+via its internal ArcPointer[MemoryRegion]).  Typed arrays convert
 to/from `Array` via implicit constructors and `as_*()` accessors.
 """
 

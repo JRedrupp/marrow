@@ -38,8 +38,7 @@ trait ArrayVisitor:
     fn visit(mut self, array: Array) raises:
         """Dispatch to the typed overload matching the runtime dtype."""
 
-        @parameter
-        for dtype in [
+        comptime for dtype in [
             bool_,
             int8,
             int16,

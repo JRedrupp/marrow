@@ -38,8 +38,7 @@ fn drop_nulls(array: Array) raises -> Array:
     if array.dtype == materialize[bool_]():
         return Array(drop_nulls[bool_](array.as_primitive[bool_]()))
 
-    @parameter
-    for dtype in all_numeric_dtypes:
+    comptime for dtype in all_numeric_dtypes:
         if array.dtype == materialize[dtype]():
             return Array(drop_nulls[dtype](array.as_primitive[dtype]()))
 

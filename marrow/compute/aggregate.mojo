@@ -33,8 +33,7 @@ fn sum(array: Array) raises -> Scalar[DType.float64]:
         The sum as a float64 scalar.
     """
 
-    @parameter
-    for dtype in all_numeric_dtypes:
+    comptime for dtype in all_numeric_dtypes:
         if array.dtype == materialize[dtype]():
             var result = sum[dtype](array.as_primitive[dtype]())
             return result.cast[DType.float64]()
