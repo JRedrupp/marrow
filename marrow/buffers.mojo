@@ -168,7 +168,6 @@ struct BufferBuilder(Movable):
 
     var ptr: UnsafePointer[UInt8, MutExternalOrigin]
     var size: Int
-    var dealloc: Optional[ArcPointer[Allocation]]
 
     fn __init__(
         out self,
@@ -177,7 +176,6 @@ struct BufferBuilder(Movable):
     ):
         self.ptr = ptr
         self.size = size
-        self.dealloc = None
 
     @staticmethod
     fn alloc_bits[I: Intable](n_bits: I) -> BufferBuilder:
@@ -192,15 +190,19 @@ struct BufferBuilder(Movable):
         var byte_size = math.align_up(Int(length) * size_of[T](), 64)
         var ptr = alloc[UInt8](byte_size, alignment=64)
         memset_zero(ptr, byte_size)
-        var result = BufferBuilder(ptr, byte_size)
-        result.dealloc = ArcPointer(Allocation(ptr=ptr, release=_cpu_release))
-        return result^
+        return BufferBuilder(ptr, byte_size)
 
     fn freeze(deinit self) -> Buffer:
-        """Consume the mutable builder and return an immutable Buffer."""
-        var ptr = rebind[UnsafePointer[UInt8, ImmutExternalOrigin]](self.ptr)
-        var result = Buffer(ptr, self.size)
-        result.dealloc = self.dealloc^
+        """Consume the mutable builder and return an immutable Buffer.
+
+        Ownership of the allocation is transferred to an ArcPointer[Allocation]
+        inside the returned Buffer. BufferBuilder.__del__ is NOT called because
+        `self` is consumed via `deinit`.
+        """
+        var imm_ptr = rebind[UnsafePointer[UInt8, ImmutExternalOrigin]](self.ptr)
+        var alloc_ptr = rebind[UnsafePointer[UInt8, MutAnyOrigin]](self.ptr)
+        var result = Buffer(imm_ptr, self.size)
+        result.dealloc = ArcPointer(Allocation(ptr=alloc_ptr, release=_cpu_release))
         return result^
 
     fn resize_bits[I: Intable](mut self, bit_length: I, bit_start: Int = 0):
@@ -268,6 +270,9 @@ struct BufferBuilder(Movable):
     fn simd_store[T: DType, W: Int](mut self, index: Int, value: SIMD[T, W]):
         """Store W elements of type T at element index `index`."""
         (self.ptr.bitcast[Scalar[T]]() + index).store(value)
+
+    fn __del__(deinit self):
+        self.ptr.free()
 
 
 # ---------------------------------------------------------------------------
