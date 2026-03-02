@@ -1,40 +1,58 @@
 """Array builders for constructing Arrow arrays incrementally.
 
-`Builder` is the type-erased, ref-counted mutable core — the mutable counterpart
+`Builder` is the type-erased, ref-counted mutable handle — the mutable counterpart
 of `Array`.  Typed builders (`BoolBuilder`, `PrimitiveBuilder[T]`, `StringBuilder`,
-`ListBuilder`, `FixedSizeListBuilder`, `StructBuilder`) are thin wrappers that
-each hold an `ArcPointer[Builder]` and expose a type-safe `append` / `freeze` API
+`ListBuilder`, `FixedSizeListBuilder`, `StructBuilder`) each hold an
+`ArcPointer[BuilderData]` and expose a type-safe `append` / `freeze` API
 modelled after Arrow C++'s builder hierarchy.
+
+`BoolBuilder`, `PrimitiveBuilder[T]`, and `StringBuilder` implicitly convert to
+`Builder`, enabling them to be passed directly as child builders to composite types.
+The conversion clones the `ArcPointer`, so the typed builder remains usable after
+passing it to a composite builder.
 
 Example
 -------
     var b = PrimitiveBuilder[int64](capacity=1024)
     b.append(42)
-    b.unsafe_append_null()
-    var arr = b^.freeze()   # Array (int64)
+    b.append_null()
+    var arr = b.freeze()    # PrimitiveArray[int64]
+
+    # PrimitiveBuilder implicitly converts to Builder
+    var child = PrimitiveBuilder[float32](capacity=64)
+    var list_b = ListBuilder(child, capacity=10)
+    child.append(1.0)   # child still usable — shared ArcPointer
 """
 
 from memory import memcpy, ArcPointer
 from sys import size_of
 from .buffers import Buffer, BufferBuilder, bitmap_set
 from .dtypes import *
-from .arrays import Array
+from .arrays import (
+    Array,
+    BoolArray,
+    PrimitiveArray,
+    StringArray,
+    ListArray,
+    FixedSizeListArray,
+    StructArray,
+)
 
 
 # ---------------------------------------------------------------------------
-# Builder — type-erased mutable core
+# BuilderData — internal mutable core
 # ---------------------------------------------------------------------------
 
 
-struct Builder(Movable):
-    """Type-erased mutable builder — the mutable counterpart of `Array`.
+struct BuilderData(Movable):
+    """Internal mutable builder data — the mutable counterpart of `Array`.
 
     Layout mirrors `Array`:
       - `bitmap`   — null-validity bit-buffer (always directly owned)
       - `buffers`  — data buffers, each ref-counted via `ArcPointer[BufferBuilder]`
-      - `children` — child builders for nested types, each an `ArcPointer[Builder]`
+      - `children` — child builders for nested types, each an `ArcPointer[BuilderData]`
 
-    Wrap in `ArcPointer[Builder]` for shared ownership.
+    Wrap in `ArcPointer[BuilderData]` (or use the `Builder` wrapper) for shared ownership.
     Call `freeze()` to consume and produce an immutable `Array`.
     """
 
@@ -42,9 +60,9 @@ struct Builder(Movable):
     var length: Int
     var capacity: Int
     var bitmap: BufferBuilder
+    # TODO: only required arcpointer for bufferbuilders because List requires copyable elements
     var buffers: List[ArcPointer[BufferBuilder]]
-    var children: List[ArcPointer[Builder]]
-    var offset: Int
+    var children: List[ArcPointer[BuilderData]]
 
     fn __init__(
         out self,
@@ -53,8 +71,7 @@ struct Builder(Movable):
         capacity: Int,
         var bitmap: BufferBuilder,
         var buffers: List[ArcPointer[BufferBuilder]],
-        var children: List[ArcPointer[Builder]],
-        offset: Int = 0,
+        var children: List[ArcPointer[BuilderData]],
     ):
         self.dtype = dtype^
         self.length = length
@@ -62,35 +79,79 @@ struct Builder(Movable):
         self.bitmap = bitmap^
         self.buffers = buffers^
         self.children = children^
-        self.offset = offset
 
     fn __len__(self) -> Int:
         return self.length
 
-    fn freeze(deinit self) -> Array:
-        """Consume the builder and return an immutable `Array`.
+    fn freeze(mut self) -> Array:
+        """Snapshot the builder into an immutable `Array` and reset state.
 
-        Calls `steal_data()` on each child `ArcPointer` — panics if any
-        child still has more than one outstanding reference.
+        After this call the builder is reset to empty (length=0, capacity=0).
+        Each buffer and bitmap is transferred to the returned Array; fresh
+        empty allocations are installed so the builder can be reused.
         """
-        var frozen_bitmap = self.bitmap^.freeze()
-
-        var frozen_buffers = List[Buffer]()
-        while self.buffers:
-            frozen_buffers.append(self.buffers.pop(0).steal_data().freeze())
-
-        var frozen_children = List[Array]()
-        while self.children:
-            frozen_children.append(self.children.pop(0).steal_data().freeze())
-
-        return Array(
-            dtype=self.dtype^,
+        var result = Array(
+            dtype=self.dtype.copy(),
             length=self.length,
-            bitmap=frozen_bitmap^,
-            buffers=frozen_buffers^,
-            children=frozen_children^,
-            offset=self.offset,
+            bitmap=self.bitmap.freeze()^,
+            buffers=self._freeze_buffers()^,
+            children=self._freeze_children()^,
+            offset=0,
         )
+        self.length = 0
+        self.capacity = 0
+        return result^
+
+    fn _freeze_buffers(mut self) -> List[Buffer]:
+        # only to align with _freeze_children which is required to avoid recursion warning
+        var frozen_buffers = List[Buffer]()
+        for i in range(len(self.buffers)):
+            frozen_buffers.append(self.buffers[i][].freeze())
+        return frozen_buffers^
+
+    fn _freeze_children(mut self) -> List[Array]:
+        # indirect call to avoid "self recursive call will cause an infinite loop" warning
+        var result = List[Array]()
+        for i in range(len(self.children)):
+            result.append(self.children[i][].freeze())
+        return result^
+
+
+# ---------------------------------------------------------------------------
+# Builder — type-erased handle
+# ---------------------------------------------------------------------------
+
+
+struct Builder(Copyable, Movable):
+    """Type-erased ref-counted handle to `BuilderData` — the mutable counterpart of `Array`.
+
+    `BoolBuilder`, `PrimitiveBuilder[T]`, and `StringBuilder` implicitly convert to
+    `Builder` by cloning the shared `ArcPointer`, so the original typed builder
+    remains usable after the conversion.
+
+    Used as the child builder type for `ListBuilder`, `FixedSizeListBuilder`,
+    and `StructBuilder`.
+    """
+
+    var data: ArcPointer[BuilderData]
+
+    fn __init__(out self, var data: ArcPointer[BuilderData]):
+        self.data = data^
+
+    fn __copyinit__(out self, copy: Self):
+        self.data = copy.data
+
+    @implicit
+    fn __init__(out self, value: BoolBuilder):
+        self.data = value.data
+
+    @implicit
+    fn __init__[T: DataType](out self, value: PrimitiveBuilder[T]):
+        self.data = value.data
+
+    @implicit
+    fn __init__(out self, value: StringBuilder):
+        self.data = value.data
 
 
 # ---------------------------------------------------------------------------
@@ -102,48 +163,48 @@ struct BoolBuilder(Movable, Sized):
     """Builder for boolean arrays.
 
     buffers[0] — bit-packed boolean values
+    freeze() → BoolArray
     """
 
-    var data: ArcPointer[Builder]
+    var data: ArcPointer[BuilderData]
 
     fn __init__(out self, capacity: Int = 0):
         self.data = ArcPointer(
-            Builder(
+            BuilderData(
                 dtype=materialize[bool_](),
                 length=0,
                 capacity=capacity,
                 bitmap=BufferBuilder.alloc_bits(capacity),
                 buffers=[ArcPointer(BufferBuilder.alloc_bits(capacity))],
-                children=List[ArcPointer[Builder]](),
+                children=List[ArcPointer[BuilderData]](),
             )
         )
 
     fn __len__(self) -> Int:
         return self.data[].length
 
+    fn grow(mut self, capacity: Int):
+        self.data[].bitmap.resize_bits(capacity)
+        self.data[].buffers[0][].resize_bits(capacity)
+        self.data[].capacity = capacity
+
     @always_inline
-    fn unsafe_append(mut self, value: Bool):
+    fn append(mut self, value: Bool):
+        if self.data[].length >= self.data[].capacity:
+            self.grow(max(self.data[].capacity * 2, self.data[].length + 1))
         bitmap_set(self.data[].bitmap.ptr, self.data[].length, True)
         bitmap_set(self.data[].buffers[0][].ptr, self.data[].length, value)
         self.data[].length += 1
 
     @always_inline
-    fn unsafe_append_null(mut self):
+    fn append_null(mut self):
+        if self.data[].length >= self.data[].capacity:
+            self.grow(max(self.data[].capacity * 2, self.data[].length + 1))
         bitmap_set(self.data[].bitmap.ptr, self.data[].length, False)
         self.data[].length += 1
 
-    fn resize(mut self, capacity: Int):
-        self.data[].bitmap.resize_bits(capacity)
-        self.data[].buffers[0][].resize_bits(capacity)
-        self.data[].capacity = capacity
-
-    fn append(mut self, value: Bool):
-        if self.data[].length >= self.data[].capacity:
-            self.resize(max(self.data[].capacity * 2, self.data[].length + 1))
-        self.unsafe_append(value)
-
-    fn freeze(deinit self) -> Array:
-        return self.data.steal_data().freeze()
+    fn freeze(mut self) raises -> BoolArray:
+        return self.data[].freeze().as_bool()
 
 
 # ---------------------------------------------------------------------------
@@ -160,53 +221,56 @@ struct PrimitiveBuilder[T: DataType](Movable, Sized):
     comptime dtype = Self.T
     comptime scalar = Scalar[Self.T.native]
 
-    var data: ArcPointer[Builder]
+    var data: ArcPointer[BuilderData]
 
     fn __init__(out self, capacity: Int = 0):
         self.data = ArcPointer(
-            Builder(
-                dtype=materialize[T](),
+            BuilderData(
+                dtype=materialize[Self.T](),
                 length=0,
                 capacity=capacity,
                 bitmap=BufferBuilder.alloc_bits(capacity),
-                buffers=[ArcPointer(BufferBuilder.alloc[T.native](capacity))],
-                children=List[ArcPointer[Builder]](),
+                buffers=[
+                    ArcPointer(BufferBuilder.alloc[Self.T.native](capacity))
+                ],
+                children=List[ArcPointer[BuilderData]](),
             )
         )
 
     fn __len__(self) -> Int:
         return self.data[].length
 
-    @always_inline
-    fn unsafe_append(mut self, value: Self.scalar):
-        bitmap_set(self.data[].bitmap.ptr, self.data[].length, True)
-        self.data[].buffers[0][].unsafe_set[T.native](self.data[].length, value)
-        self.data[].length += 1
-
-    @always_inline
-    fn unsafe_append_null(mut self):
-        bitmap_set(self.data[].bitmap.ptr, self.data[].length, False)
-        self.data[].length += 1
-
-    fn resize(mut self, capacity: Int):
+    fn grow(mut self, capacity: Int):
         self.data[].bitmap.resize_bits(capacity)
-        self.data[].buffers[0][].resize[T.native](capacity)
+        self.data[].buffers[0][].resize[Self.T.native](capacity)
         self.data[].capacity = capacity
 
+    @always_inline
     fn append(mut self, value: Self.scalar):
         if self.data[].length >= self.data[].capacity:
-            self.resize(max(self.data[].capacity * 2, self.data[].length + 1))
-        self.unsafe_append(value)
+            self.grow(max(self.data[].capacity * 2, self.data[].length + 1))
+        bitmap_set(self.data[].bitmap.ptr, self.data[].length, True)
+        self.data[].buffers[0][].unsafe_set[Self.T.native](
+            self.data[].length, value
+        )
+        self.data[].length += 1
+
+    @always_inline
+    fn append_null(mut self):
+        if self.data[].length >= self.data[].capacity:
+            self.grow(max(self.data[].capacity * 2, self.data[].length + 1))
+        bitmap_set(self.data[].bitmap.ptr, self.data[].length, False)
+        self.data[].length += 1
 
     fn extend(mut self, values: List[Self.scalar]):
         var new_len = self.data[].length + len(values)
         if new_len >= self.data[].capacity:
-            self.resize(max(self.data[].capacity * 2, new_len))
+            self.grow(max(self.data[].capacity * 2, new_len))
         for value in values:
-            self.unsafe_append(value)
+            self.append(value)
 
-    fn freeze(deinit self) -> Array:
-        return self.data.steal_data().freeze()
+    fn freeze(mut self) raises -> PrimitiveArray[Self.T]:
+        return self.data[].freeze().as_primitive[Self.T]()
 
 
 # ---------------------------------------------------------------------------
@@ -221,13 +285,13 @@ struct StringBuilder(Movable, Sized):
     buffers[1] — utf-8 byte data (grown on demand)
     """
 
-    var data: ArcPointer[Builder]
+    var data: ArcPointer[BuilderData]
 
     fn __init__(out self, capacity: Int = 0):
         var offsets = BufferBuilder.alloc[DType.uint32](capacity + 1)
         offsets.unsafe_set[DType.uint32](0, 0)
         self.data = ArcPointer(
-            Builder(
+            BuilderData(
                 dtype=materialize[string](),
                 length=0,
                 capacity=capacity,
@@ -236,20 +300,29 @@ struct StringBuilder(Movable, Sized):
                     ArcPointer(offsets^),
                     ArcPointer(BufferBuilder.alloc[DType.uint8](capacity)),
                 ],
-                children=List[ArcPointer[Builder]](),
+                children=List[ArcPointer[BuilderData]](),
             )
         )
 
     fn __len__(self) -> Int:
         return self.data[].length
 
-    fn unsafe_append(mut self, value: String):
+    fn grow(mut self, capacity: Int):
+        self.data[].bitmap.resize_bits(capacity)
+        self.data[].buffers[0][].resize[DType.uint32](capacity + 1)
+        self.data[].capacity = capacity
+
+    fn append(mut self, value: String):
+        if self.data[].length >= self.data[].capacity:
+            self.grow(max(self.data[].capacity * 2, self.data[].length + 1))
         var index = self.data[].length
         var last_offset = self.data[].buffers[0][].ptr.bitcast[UInt32]()[index]
         var next_offset = last_offset + UInt32(len(value))
         self.data[].length += 1
         bitmap_set(self.data[].bitmap.ptr, index, True)
-        self.data[].buffers[0][].unsafe_set[DType.uint32](index + 1, next_offset)
+        self.data[].buffers[0][].unsafe_set[DType.uint32](
+            index + 1, next_offset
+        )
         self.data[].buffers[1][].resize[DType.uint8](next_offset)
         memcpy(
             dest=self.data[].buffers[1][].ptr + Int(last_offset),
@@ -257,25 +330,19 @@ struct StringBuilder(Movable, Sized):
             count=len(value),
         )
 
-    fn unsafe_append_null(mut self):
+    fn append_null(mut self):
+        if self.data[].length >= self.data[].capacity:
+            self.grow(max(self.data[].capacity * 2, self.data[].length + 1))
         var index = self.data[].length
         var last_offset = self.data[].buffers[0][].ptr.bitcast[UInt32]()[index]
         self.data[].length += 1
         bitmap_set(self.data[].bitmap.ptr, index, False)
-        self.data[].buffers[0][].unsafe_set[DType.uint32](index + 1, last_offset)
+        self.data[].buffers[0][].unsafe_set[DType.uint32](
+            index + 1, last_offset
+        )
 
-    fn resize(mut self, capacity: Int):
-        self.data[].bitmap.resize_bits(capacity)
-        self.data[].buffers[0][].resize[DType.uint32](capacity + 1)
-        self.data[].capacity = capacity
-
-    fn append(mut self, value: String):
-        if self.data[].length >= self.data[].capacity:
-            self.resize(max(self.data[].capacity * 2, self.data[].length + 1))
-        self.unsafe_append(value)
-
-    fn freeze(deinit self) -> Array:
-        return self.data.steal_data().freeze()
+    fn freeze(mut self) raises -> StringArray:
+        return self.data[].freeze().as_string()
 
 
 # ---------------------------------------------------------------------------
@@ -287,33 +354,40 @@ struct ListBuilder(Movable, Sized):
     """Builder for variable-length list arrays.
 
     buffers[0]  — uint32 offsets
-    children[0] — child element builder (ArcPointer[Builder])
+    children[0] — child element builder (Builder)
     """
 
-    var data: ArcPointer[Builder]
+    var data: ArcPointer[BuilderData]
 
-    fn __init__(out self, var child: ArcPointer[Builder], capacity: Int = 0):
+    fn __init__(out self, var child: Builder, capacity: Int = 0):
         var offsets = BufferBuilder.alloc[DType.uint32](capacity + 1)
         offsets.unsafe_set[DType.uint32](0, 0)
-        var child_dtype = child[].dtype.copy()
+        var child_dtype = child.data[].dtype.copy()
         self.data = ArcPointer(
-            Builder(
-                dtype=list_(child_dtype),
+            BuilderData(
+                dtype=list_(child_dtype^),
                 length=0,
                 capacity=capacity,
                 bitmap=BufferBuilder.alloc_bits(capacity),
                 buffers=[ArcPointer(offsets^)],
-                children=[child^],
+                children=[child.data],
             )
         )
 
     fn __len__(self) -> Int:
         return self.data[].length
 
-    fn child(self) -> ArcPointer[Builder]:
-        return self.data[].children[0]
+    fn child(self) -> Builder:
+        return Builder(self.data[].children[0])
 
-    fn unsafe_append(mut self, is_valid: Bool):
+    fn grow(mut self, capacity: Int):
+        self.data[].bitmap.resize_bits(capacity)
+        self.data[].buffers[0][].resize[DType.uint32](capacity + 1)
+        self.data[].capacity = capacity
+
+    fn append(mut self, is_valid: Bool):
+        if self.data[].length >= self.data[].capacity:
+            self.grow(max(self.data[].capacity * 2, self.data[].length + 1))
         bitmap_set(self.data[].bitmap.ptr, self.data[].length, is_valid)
         var child_length = self.data[].children[0][].length
         self.data[].buffers[0][].unsafe_set[DType.uint32](
@@ -321,11 +395,11 @@ struct ListBuilder(Movable, Sized):
         )
         self.data[].length += 1
 
-    fn unsafe_append_null(mut self):
-        self.unsafe_append(False)
+    fn append_null(mut self):
+        self.append(False)
 
-    fn freeze(deinit self) -> Array:
-        return self.data.steal_data().freeze()
+    fn freeze(mut self) raises -> ListArray:
+        return self.data[].freeze().as_list()
 
 
 # ---------------------------------------------------------------------------
@@ -336,41 +410,47 @@ struct ListBuilder(Movable, Sized):
 struct FixedSizeListBuilder(Movable, Sized):
     """Builder for fixed-size list arrays.
 
-    children[0] — child element builder (ArcPointer[Builder])
+    children[0] — child element builder (Builder)
     """
 
-    var data: ArcPointer[Builder]
+    var data: ArcPointer[BuilderData]
 
     fn __init__(
-        out self, var child: ArcPointer[Builder], list_size: Int, capacity: Int = 0
+        out self, var child: Builder, list_size: Int, capacity: Int = 0
     ):
-        var child_dtype = child[].dtype.copy()
+        var child_dtype = child.data[].dtype.copy()
         self.data = ArcPointer(
-            Builder(
-                dtype=fixed_size_list_(child_dtype, list_size),
+            BuilderData(
+                dtype=fixed_size_list_(child_dtype^, list_size),
                 length=0,
                 capacity=capacity,
                 bitmap=BufferBuilder.alloc_bits(capacity),
                 buffers=List[ArcPointer[BufferBuilder]](),
-                children=[child^],
+                children=[child.data],
             )
         )
 
     fn __len__(self) -> Int:
         return self.data[].length
 
-    fn child(self) -> ArcPointer[Builder]:
-        return self.data[].children[0]
+    fn child(self) -> Builder:
+        return Builder(self.data[].children[0])
 
-    fn unsafe_append(mut self, is_valid: Bool):
+    fn grow(mut self, capacity: Int):
+        self.data[].bitmap.resize_bits(capacity)
+        self.data[].capacity = capacity
+
+    fn append(mut self, is_valid: Bool):
+        if self.data[].length >= self.data[].capacity:
+            self.grow(max(self.data[].capacity * 2, self.data[].length + 1))
         bitmap_set(self.data[].bitmap.ptr, self.data[].length, is_valid)
         self.data[].length += 1
 
-    fn unsafe_append_null(mut self):
-        self.unsafe_append(False)
+    fn append_null(mut self):
+        self.append(False)
 
-    fn freeze(deinit self) -> Array:
-        return self.data.steal_data().freeze()
+    fn freeze(mut self) raises -> FixedSizeListArray:
+        return self.data[].freeze().as_fixed_size_list()
 
 
 # ---------------------------------------------------------------------------
@@ -381,43 +461,52 @@ struct FixedSizeListBuilder(Movable, Sized):
 struct StructBuilder(Movable, Sized):
     """Builder for struct arrays.
 
-    children[i] — field builder for field i (ArcPointer[Builder])
+    children[i] — field builder for field i (Builder)
     """
 
-    var data: ArcPointer[Builder]
+    var data: ArcPointer[BuilderData]
 
     fn __init__(
         out self,
         var fields: List[Field],
-        var field_builders: List[ArcPointer[Builder]],
+        var field_builders: List[Builder],
         capacity: Int = 0,
     ):
+        var children = List[ArcPointer[BuilderData]]()
+        for i in range(len(field_builders)):
+            children.append(field_builders[i].data)
         self.data = ArcPointer(
-            Builder(
+            BuilderData(
                 dtype=struct_(fields),
                 length=0,
                 capacity=capacity,
                 bitmap=BufferBuilder.alloc_bits(capacity),
                 buffers=List[ArcPointer[BufferBuilder]](),
-                children=field_builders^,
+                children=children^,
             )
         )
 
     fn __len__(self) -> Int:
         return self.data[].length
 
-    fn child(self, index: Int) -> ArcPointer[Builder]:
-        return self.data[].children[index]
+    fn child(self, index: Int) -> Builder:
+        return Builder(self.data[].children[index])
 
-    fn unsafe_append(mut self, is_valid: Bool):
+    fn grow(mut self, capacity: Int):
+        self.data[].bitmap.resize_bits(capacity)
+        self.data[].capacity = capacity
+
+    fn append(mut self, is_valid: Bool):
+        if self.data[].length >= self.data[].capacity:
+            self.grow(max(self.data[].capacity * 2, self.data[].length + 1))
         bitmap_set(self.data[].bitmap.ptr, self.data[].length, is_valid)
         self.data[].length += 1
 
-    fn unsafe_append_null(mut self):
-        self.unsafe_append(False)
+    fn append_null(mut self):
+        self.append(False)
 
-    fn freeze(deinit self) -> Array:
-        return self.data.steal_data().freeze()
+    fn freeze(mut self) raises -> StructArray:
+        return StructArray(data=self.data[].freeze())
 
 
 # ---------------------------------------------------------------------------
@@ -425,44 +514,45 @@ struct StructBuilder(Movable, Sized):
 # ---------------------------------------------------------------------------
 
 
-fn array[T: DataType]() -> Array:
+fn array[T: DataType]() raises -> PrimitiveArray[T]:
     """Create an empty primitive array."""
-    return PrimitiveBuilder[T](0).freeze()
+    var b = PrimitiveBuilder[T](0)
+    return b.freeze()
 
 
-fn array[T: DataType](values: List[Optional[Int]]) -> Array:
+fn array[T: DataType](values: List[Optional[Int]]) raises -> PrimitiveArray[T]:
     """Create a primitive array from optional ints (`None` → null)."""
     var b = PrimitiveBuilder[T](len(values))
     for value in values:
         if value:
-            b.unsafe_append(Scalar[T.native](value.value()))
+            b.append(Scalar[T.native](value.value()))
         else:
-            b.unsafe_append_null()
-    return b^.freeze()
+            b.append_null()
+    return b.freeze()
 
 
-fn array(values: List[Optional[Bool]]) -> Array:
+fn array(values: List[Optional[Bool]]) raises -> BoolArray:
     """Create a boolean array from optional bools (`None` → null)."""
     var b = BoolBuilder(len(values))
     for value in values:
         if value:
-            b.unsafe_append(value.value())
+            b.append(value.value())
         else:
-            b.unsafe_append_null()
-    return b^.freeze()
+            b.append_null()
+    return b.freeze()
 
 
-fn nulls[T: DataType](size: Int) -> Array:
+fn nulls[T: DataType](size: Int) raises -> PrimitiveArray[T]:
     """Create a primitive array of `size` null values."""
     var b = PrimitiveBuilder[T](capacity=size)
     b.data[].length = size
-    return b^.freeze()
+    return b.freeze()
 
 
-fn arange[T: DataType](start: Int, end: Int) -> Array:
+fn arange[T: DataType](start: Int, end: Int) raises -> PrimitiveArray[T]:
     """Create an integer array with values [start, end)."""
     comptime assert T.is_integer(), "arange() only supports integer DataTypes"
     var b = PrimitiveBuilder[T](end - start)
     for i in range(start, end):
-        b.unsafe_append(Scalar[T.native](i))
-    return b^.freeze()
+        b.append(Scalar[T.native](i))
+    return b.freeze()

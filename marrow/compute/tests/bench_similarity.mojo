@@ -24,7 +24,7 @@ fn _make_vectors(n_vectors: Int, dim: Int) raises -> FixedSizeListArray:
         b.unsafe_append(
             Scalar[float32.native](((i * 7 + 13) % 1000) / 1000.0 - 0.5)
         )
-    var arr = b^.freeze()
+    var arr = b.freeze()
     return FixedSizeListBuilder.from_values(Array(arr^), list_size=dim).freeze()
 
 
@@ -35,7 +35,7 @@ fn _make_query(dim: Int) -> PrimitiveArray[float32]:
         b.unsafe_append(
             Scalar[float32.native](((i * 11 + 17) % 1000) / 1000.0 - 0.5)
         )
-    return b^.freeze()
+    return b.freeze()
 
 
 fn _bench_cpu(
@@ -162,7 +162,5 @@ def main():
                     "gpu-preload",
                     n_values[ni],
                     dims[di],
-                    _bench_gpu_preloaded(
-                        vectors, query, iters_per_n[ni], ctx
-                    ),
+                    _bench_gpu_preloaded(vectors, query, iters_per_n[ni], ctx),
                 )

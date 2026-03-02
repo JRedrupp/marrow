@@ -6,7 +6,9 @@ from marrow.builders import PrimitiveBuilder
 from marrow.dtypes import DataType, bool_, all_numeric_dtypes, materialize
 
 
-fn drop_nulls[T: DataType](array: PrimitiveArray[T]) -> PrimitiveArray[T]:
+fn drop_nulls[
+    T: DataType
+](array: PrimitiveArray[T]) raises -> PrimitiveArray[T]:
     """Create a new array containing only the valid (non-null) elements.
 
     Args:
@@ -18,13 +20,10 @@ fn drop_nulls[T: DataType](array: PrimitiveArray[T]) -> PrimitiveArray[T]:
     """
     var valid_count = len(array) - array.null_count()
     var result = PrimitiveBuilder[T](valid_count)
-    var out_idx = 0
     for i in range(len(array)):
         if array.is_valid(i):
-            result.unsafe_set(out_idx, array.unsafe_get(i))
-            out_idx += 1
-    result.length = valid_count
-    return result^.freeze()
+            result.append(array.unsafe_get(i))
+    return result.freeze()
 
 
 fn drop_nulls(array: Array) raises -> Array:

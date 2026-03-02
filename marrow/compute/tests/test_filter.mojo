@@ -14,19 +14,15 @@ from marrow.compute.filter import drop_nulls
 def test_drop_nulls_typed():
     """Drop nulls removes null elements and compacts valid ones."""
     var a = PrimitiveBuilder[int32](4)
-    a.unsafe_append(10)
-    # index 1 is null
-    a.unsafe_append(30)
-    # Now length=2 with indices 0,1 valid. We need a gap.
-    # Build manually: append 2 values, set length to 4, set index 3
-    a.length = 4
-    a.unsafe_set(3, 40)
-    # Now: [10, 30, null, 40]
-    var result = drop_nulls[int32](a^.freeze())
-    assert_equal(len(result), 3)
+    a.append(10)
+    a.append_null()
+    a.append(30)
+    a.append_null()
+    # [10, null, 30, null]
+    var result = drop_nulls[int32](a.freeze())
+    assert_equal(len(result), 2)
     assert_equal(result.unsafe_get(0), 10)
     assert_equal(result.unsafe_get(1), 30)
-    assert_equal(result.unsafe_get(2), 40)
 
 
 def test_drop_nulls_no_nulls():

@@ -25,7 +25,7 @@ fn _cosine_similarity_no_nulls[
     query: PrimitiveArray[T],
     n_vectors: Int,
     dim: Int,
-) -> PrimitiveArray[T]:
+) raises -> PrimitiveArray[T]:
     """SIMD-vectorized batch cosine similarity.
 
     For each of n_vectors vectors of dimension dim, computes:
@@ -35,8 +35,8 @@ fn _cosine_similarity_no_nulls[
     comptime width = simd_byte_width() // size_of[native]()
 
     var result = PrimitiveBuilder[T](n_vectors)
-    bitmap_range_set(result.bitmap.ptr, 0, n_vectors, True)
-    var op = result.buffer.ptr.bitcast[Scalar[native]]()
+    bitmap_range_set(result.data[].bitmap.ptr, 0, n_vectors, True)
+    var op = result.data[].buffers[0][].ptr.bitcast[Scalar[native]]()
 
     # Flat values pointer from the child array
     ref child = vectors.values
@@ -79,8 +79,8 @@ fn _cosine_similarity_no_nulls[
         else:
             op[i] = Scalar[native](0)
 
-    result.length = n_vectors
-    return result^.freeze()
+    result.data[].length = n_vectors
+    return result.freeze()
 
 
 # ---------------------------------------------------------------------------
@@ -133,8 +133,8 @@ fn _cosine_similarity_gpu[
     var n_values = n_vectors * dim
 
     ref child = vectors.values
-    var vec_dev = child.buffers[0].device_buffer().create_sub_buffer[native](
-        0, n_values
+    var vec_dev = (
+        child.buffers[0].device_buffer().create_sub_buffer[native](0, n_values)
     )
     var query_dev = query.buffer.device_buffer().create_sub_buffer[native](
         0, dim
@@ -163,7 +163,7 @@ fn _cosine_similarity_gpu[
     return PrimitiveArray[T](
         length=n_vectors,
         offset=0,
-        bitmap=bm^.freeze().to_device(ctx),
+        bitmap=bm.freeze().to_device(ctx),
         buffer=buf^,
     )
 
@@ -203,7 +203,9 @@ fn cosine_similarity[
 
     if ctx:
         comptime if has_accelerator():
-            return _cosine_similarity_gpu[T](vectors, query, n_vectors, dim, ctx.value())
+            return _cosine_similarity_gpu[T](
+                vectors, query, n_vectors, dim, ctx.value()
+            )
         else:
             raise Error(
                 "cosine_similarity: no GPU accelerator available on this system"

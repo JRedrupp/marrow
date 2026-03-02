@@ -55,7 +55,7 @@ fn array(content: PythonObject) raises -> PythonObject:
     for v in content:
         builder.append(Scalar[int64.native](Int(py=v)))
 
-    var actual = builder^.freeze()
+    var actual = builder.freeze()
     var result = PrimitiveArray(
         data=Array(actual^),
         offset=0,

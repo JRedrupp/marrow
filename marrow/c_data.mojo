@@ -261,13 +261,18 @@ struct CArrowArray(Movable):
 
         var bitmap: Buffer
         if self.buffers[0]:
-            bitmap = Buffer.foreign_view(self.buffers[0], math.ceildiv(Int(length), 8), DType.uint8, keeper)
+            bitmap = Buffer.foreign_view(
+                self.buffers[0],
+                math.ceildiv(Int(length), 8),
+                DType.uint8,
+                keeper,
+            )
         else:
             # bitmaps are allowed to be nullptrs by the specification; in this
             # case we allocate a new owned buffer to hold the validity bitmap.
             var bm = BufferBuilder.alloc_bits(Int(self.length))
             bitmap_range_set(bm.ptr, 0, Int(self.length), True)
-            bitmap = bm^.freeze()
+            bitmap = bm.freeze()
 
         var buffers = List[Buffer]()
         var children = List[Array]()
@@ -285,7 +290,12 @@ struct CArrowArray(Movable):
                         self.n_children
                     )
                 )
-            var values = Buffer.foreign_view(self.buffers[1], math.ceildiv(Int(length), 8), DType.uint8, keeper)
+            var values = Buffer.foreign_view(
+                self.buffers[1],
+                math.ceildiv(Int(length), 8),
+                DType.uint8,
+                keeper,
+            )
             buffers.append(values^)
         elif dtype.is_primitive():
             if self.n_buffers != 2:

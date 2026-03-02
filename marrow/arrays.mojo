@@ -16,7 +16,14 @@ convert to/from `Array` via implicit constructors and `as_*()` accessors.
 from memory import memcpy
 from sys import size_of
 from gpu.host import DeviceContext
-from .buffers import Buffer, BufferBuilder, MemorySpace, bitmap_get, bitmap_extend, bitmap_count_ones
+from .buffers import (
+    Buffer,
+    BufferBuilder,
+    MemorySpace,
+    bitmap_get,
+    bitmap_extend,
+    bitmap_count_ones,
+)
 from .dtypes import *
 
 
@@ -218,14 +225,14 @@ struct BoolArray(Movable, Sized):
 
     fn null_count(self) -> Int:
         """Returns the number of null values in the array."""
-        var valid_count = bitmap_count_ones(self.bitmap.unsafe_ptr(), self.bitmap.size)
+        var valid_count = bitmap_count_ones(
+            self.bitmap.unsafe_ptr(), self.bitmap.size
+        )
         return self.length - valid_count
 
 
 @fieldwise_init
-struct PrimitiveArray[T: DataType](
-    Movable, Sized
-):
+struct PrimitiveArray[T: DataType](Movable, Sized):
     """An immutable Arrow array of fixed-size primitive values (integers, floats, etc.).
     """
 
@@ -278,7 +285,9 @@ struct PrimitiveArray[T: DataType](
 
     fn null_count(self) -> Int:
         """Returns the number of null values in the array."""
-        var valid_count = bitmap_count_ones(self.bitmap.unsafe_ptr(), self.bitmap.size)
+        var valid_count = bitmap_count_ones(
+            self.bitmap.unsafe_ptr(), self.bitmap.size
+        )
         return self.length - valid_count
 
     fn to_device(self, ctx: DeviceContext) raises -> PrimitiveArray[Self.T]:
@@ -596,7 +605,9 @@ struct ChunkedArray(Stringable):
         while self.chunks:
             var chunk = self.chunks.pop(0)
             var chunk_length = chunk.length
-            bitmap_extend(bitmap.ptr, chunk.bitmap.unsafe_ptr(), start, chunk_length)
+            bitmap_extend(
+                bitmap.ptr, chunk.bitmap.unsafe_ptr(), start, chunk_length
+            )
             for i in range(len(chunk.buffers)):
                 buffers.append(chunk.buffers[i])
             for i in range(len(chunk.children)):
@@ -605,7 +616,7 @@ struct ChunkedArray(Stringable):
         combined = Array(
             dtype=self.dtype.copy(),
             length=self.length,
-            bitmap=bitmap^.freeze(),
+            bitmap=bitmap.freeze(),
             buffers=buffers^,
             children=children^,
             offset=0,

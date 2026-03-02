@@ -17,7 +17,12 @@ import math
 
 from marrow.arrays import PrimitiveArray, Array
 
-from marrow.dtypes import DataType, all_numeric_dtypes, materialize, bool as bool_dt
+from marrow.dtypes import (
+    DataType,
+    all_numeric_dtypes,
+    materialize,
+    bool as bool_dt,
+)
 from . import reduce_simd
 
 
@@ -25,9 +30,11 @@ from . import reduce_simd
 # SIMD helpers — combine[W] and horizontal[W] pairs
 # ---------------------------------------------------------------------------
 
+
 # sum
 fn _add[T: DType, W: Int](a: SIMD[T, W], b: SIMD[T, W]) -> SIMD[T, W]:
     return a + b
+
 
 fn _horizontal_add[T: DType, W: Int](v: SIMD[T, W]) -> Scalar[T]:
     return v.reduce_add()
@@ -37,6 +44,7 @@ fn _horizontal_add[T: DType, W: Int](v: SIMD[T, W]) -> Scalar[T]:
 fn _mul[T: DType, W: Int](a: SIMD[T, W], b: SIMD[T, W]) -> SIMD[T, W]:
     return a * b
 
+
 fn _horizontal_mul[T: DType, W: Int](v: SIMD[T, W]) -> Scalar[T]:
     return v.reduce_mul()
 
@@ -44,6 +52,7 @@ fn _horizontal_mul[T: DType, W: Int](v: SIMD[T, W]) -> Scalar[T]:
 # min_
 fn _vmin[T: DType, W: Int](a: SIMD[T, W], b: SIMD[T, W]) -> SIMD[T, W]:
     return math.min(a, b)
+
 
 fn _horizontal_min[T: DType, W: Int](v: SIMD[T, W]) -> Scalar[T]:
     return v.reduce_min()
@@ -53,6 +62,7 @@ fn _horizontal_min[T: DType, W: Int](v: SIMD[T, W]) -> Scalar[T]:
 fn _vmax[T: DType, W: Int](a: SIMD[T, W], b: SIMD[T, W]) -> SIMD[T, W]:
     return math.max(a, b)
 
+
 fn _horizontal_max[T: DType, W: Int](v: SIMD[T, W]) -> Scalar[T]:
     return v.reduce_max()
 
@@ -61,11 +71,14 @@ fn _horizontal_max[T: DType, W: Int](v: SIMD[T, W]) -> Scalar[T]:
 fn _or[T: DType, W: Int](a: SIMD[T, W], b: SIMD[T, W]) -> SIMD[T, W]:
     return a | b
 
+
 fn _horizontal_or[T: DType, W: Int](v: SIMD[T, W]) -> Scalar[T]:
     return v.reduce_or()
 
+
 fn _and[T: DType, W: Int](a: SIMD[T, W], b: SIMD[T, W]) -> SIMD[T, W]:
     return a & b
+
 
 fn _horizontal_and[T: DType, W: Int](v: SIMD[T, W]) -> Scalar[T]:
     return v.reduce_and()
@@ -87,7 +100,9 @@ fn sum(array: Array) raises -> Scalar[DType.float64]:
     """Runtime-typed sum, returns float64."""
     comptime for dtype in all_numeric_dtypes:
         if array.dtype == materialize[dtype]():
-            return sum[dtype](PrimitiveArray[dtype](data=array)).cast[DType.float64]()
+            return sum[dtype](PrimitiveArray[dtype](data=array)).cast[
+                DType.float64
+            ]()
     raise Error("sum: unsupported dtype " + String(array.dtype))
 
 
@@ -97,7 +112,8 @@ fn sum(array: Array) raises -> Scalar[DType.float64]:
 
 
 fn product[T: DataType](array: PrimitiveArray[T]) -> Scalar[T.native]:
-    """Multiply all valid (non-null) elements. Returns 1 if empty or all null."""
+    """Multiply all valid (non-null) elements. Returns 1 if empty or all null.
+    """
     return reduce_simd[T, _mul[T.native], _horizontal_mul[T.native]](
         array, Scalar[T.native](1)
     )
@@ -107,7 +123,9 @@ fn product(array: Array) raises -> Scalar[DType.float64]:
     """Runtime-typed product, returns float64."""
     comptime for dtype in all_numeric_dtypes:
         if array.dtype == materialize[dtype]():
-            return product[dtype](PrimitiveArray[dtype](data=array)).cast[DType.float64]()
+            return product[dtype](PrimitiveArray[dtype](data=array)).cast[
+                DType.float64
+            ]()
     raise Error("product: unsupported dtype " + String(array.dtype))
 
 
@@ -130,7 +148,9 @@ fn min_(array: Array) raises -> Scalar[DType.float64]:
     """Runtime-typed min, returns float64."""
     comptime for dtype in all_numeric_dtypes:
         if array.dtype == materialize[dtype]():
-            return min_[dtype](PrimitiveArray[dtype](data=array)).cast[DType.float64]()
+            return min_[dtype](PrimitiveArray[dtype](data=array)).cast[
+                DType.float64
+            ]()
     raise Error("min_: unsupported dtype " + String(array.dtype))
 
 
@@ -153,7 +173,9 @@ fn max_(array: Array) raises -> Scalar[DType.float64]:
     """Runtime-typed max, returns float64."""
     comptime for dtype in all_numeric_dtypes:
         if array.dtype == materialize[dtype]():
-            return max_[dtype](PrimitiveArray[dtype](data=array)).cast[DType.float64]()
+            return max_[dtype](PrimitiveArray[dtype](data=array)).cast[
+                DType.float64
+            ]()
     raise Error("max_: unsupported dtype " + String(array.dtype))
 
 

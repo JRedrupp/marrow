@@ -3,10 +3,18 @@ from marrow.arrays import (
     ListArray,
     StructArray,
 )
-from marrow.buffers import Buffer, BufferBuilder, bitmap_get, bitmap_set, bitmap_range_set
+from marrow.buffers import (
+    Buffer,
+    BufferBuilder,
+    bitmap_get,
+    bitmap_set,
+    bitmap_range_set,
+)
 from marrow.dtypes import uint8, DataType, list_, int32, Field, struct_
 from testing import assert_equal
 from reflection import call_location
+
+# TODO: this entire file should be removed
 
 
 fn buffer_from[dtype: DType](*values: Scalar[dtype]) -> Buffer:
@@ -14,12 +22,15 @@ fn buffer_from[dtype: DType](*values: Scalar[dtype]) -> Buffer:
     var buffer = BufferBuilder.alloc[dtype](len(values))
     for i in range(len(values)):
         buffer.unsafe_set[dtype](i, values[i])
-    return buffer^.freeze()
+    return buffer.freeze()
 
 
 @always_inline
 def assert_bitmap_set(
-    ptr: UnsafePointer[UInt8, MutAnyOrigin], n_bits: Int, expected_true_pos: List[Int], message: StringLiteral
+    ptr: UnsafePointer[UInt8, MutAnyOrigin],
+    n_bits: Int,
+    expected_true_pos: List[Int],
+    message: StringLiteral,
 ) -> None:
     var list_pos = 0
     for i in range(n_bits):
@@ -41,7 +52,10 @@ def assert_bitmap_set(
 
 @always_inline
 def assert_bitmap_set(
-    buffer: Buffer, n_bits: Int, expected_true_pos: List[Int], message: StringLiteral
+    buffer: Buffer,
+    n_bits: Int,
+    expected_true_pos: List[Int],
+    message: StringLiteral,
 ) -> None:
     var list_pos = 0
     var ptr = buffer.unsafe_ptr()
@@ -72,11 +86,11 @@ fn build_list_of_int[data_type: DataType]() raises -> ListArray:
         buffer.unsafe_set[data_type.native](i, Scalar[data_type.native](i + 1))
 
     var value_buffers = List[Buffer]()
-    value_buffers.append(buffer^.freeze())
+    value_buffers.append(buffer.freeze())
     var value_data = Array(
         dtype=materialize[data_type](),
         length=10,
-        bitmap=bitmap^.freeze(),
+        bitmap=bitmap.freeze(),
         buffers=value_buffers^,
         children=List[Array](),
         offset=0,
@@ -97,7 +111,7 @@ fn build_list_of_int[data_type: DataType]() raises -> ListArray:
         length=6,
         buffers=list_buffers^,
         children=list_children^,
-        bitmap=list_bitmap^.freeze(),
+        bitmap=list_bitmap.freeze(),
         offset=0,
     )
     return ListArray(list_data^)
@@ -117,11 +131,11 @@ fn build_list_of_list[data_type: DataType]() raises -> ListArray:
         buffer.unsafe_set[data_type.native](i, Scalar[data_type.native](i + 1))
 
     var value_buffers = List[Buffer]()
-    value_buffers.append(buffer^.freeze())
+    value_buffers.append(buffer.freeze())
     var value_data = Array(
         dtype=materialize[data_type](),
         length=10,
-        bitmap=bitmap^.freeze(),
+        bitmap=bitmap.freeze(),
         buffers=value_buffers^,
         children=List[Array](),
         offset=0,
@@ -142,7 +156,7 @@ fn build_list_of_list[data_type: DataType]() raises -> ListArray:
         length=6,
         buffers=list_buffers^,
         children=list_children^,
-        bitmap=list_bitmap^.freeze(),
+        bitmap=list_bitmap.freeze(),
         offset=0,
     )
 
@@ -160,20 +174,38 @@ fn build_list_of_list[data_type: DataType]() raises -> ListArray:
             length=4,
             buffers=top_buffers^,
             children=top_children^,
-            bitmap=top_bitmap^.freeze(),
+            bitmap=top_bitmap.freeze(),
             offset=0,
         )
     )
 
 
 def build_struct() -> StructArray:
-    var int_data_a = Array.from_buffer[int32](
-        buffer_from[DType.int32](1, 2, 3, 4, 5), 5
+    var bitmap_a = BufferBuilder.alloc_bits(5)
+    bitmap_range_set(bitmap_a.ptr, 0, 5, True)
+    var buffers_a = List[Buffer]()
+    buffers_a.append(buffer_from[DType.int32](1, 2, 3, 4, 5))
+    var int_data_a = Array(
+        dtype=materialize[int32](),
+        length=5,
+        bitmap=bitmap_a.freeze(),
+        buffers=buffers_a^,
+        children=List[Array](),
+        offset=0,
     )
     var field_1 = Field("int_data_a", materialize[int32]())
 
-    var int_data_b = Array.from_buffer[int32](
-        buffer_from[DType.int32](10, 20, 30), 3
+    var bitmap_b = BufferBuilder.alloc_bits(3)
+    bitmap_range_set(bitmap_b.ptr, 0, 3, True)
+    var buffers_b = List[Buffer]()
+    buffers_b.append(buffer_from[DType.int32](10, 20, 30))
+    var int_data_b = Array(
+        dtype=materialize[int32](),
+        length=3,
+        bitmap=bitmap_b.freeze(),
+        buffers=buffers_b^,
+        children=List[Array](),
+        offset=0,
     )
     var field_2 = Field("int_data_b", materialize[int32]())
     var bitmap = BufferBuilder.alloc_bits(2)
@@ -184,7 +216,7 @@ def build_struct() -> StructArray:
     var struct_array_data = Array(
         dtype=struct_([field_1^, field_2^]),
         length=2,
-        bitmap=bitmap^.freeze(),
+        bitmap=bitmap.freeze(),
         offset=0,
         buffers=List[Buffer](),
         children=struct_children^,

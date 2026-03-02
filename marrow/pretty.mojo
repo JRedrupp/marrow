@@ -21,9 +21,7 @@ struct ArrayPrinter(ArrayVisitor):
     fn finish(deinit self) -> String:
         return self.output^
 
-    fn visit[T: DataType](
-        mut self, array: PrimitiveArray[T]
-    ) raises:
+    fn visit[T: DataType](mut self, array: PrimitiveArray[T]) raises:
         self.output.write("PrimitiveArray[")
         self.output.write(String(materialize[T]()))
         self.output.write("]([")
@@ -39,9 +37,7 @@ struct ArrayPrinter(ArrayVisitor):
                 self.output.write("NULL")
         self.output.write("])")
 
-    fn visit(
-        mut self, array: StringArray
-    ) raises:
+    fn visit(mut self, array: StringArray) raises:
         self.output.write("StringArray([")
         for i in range(array.length):
             if i > 0:
@@ -55,9 +51,7 @@ struct ArrayPrinter(ArrayVisitor):
                 self.output.write("NULL")
         self.output.write("])")
 
-    fn visit(
-        mut self, array: ListArray
-    ) raises:
+    fn visit(mut self, array: ListArray) raises:
         self.output.write("ListArray([")
         for i in range(array.length):
             if i > 0:
@@ -86,9 +80,7 @@ struct ArrayPrinter(ArrayVisitor):
                 self.output.write("NULL")
         self.output.write("])")
 
-    fn visit(
-        mut self, array: FixedSizeListArray
-    ) raises:
+    fn visit(mut self, array: FixedSizeListArray) raises:
         self.output.write("FixedSizeListArray([")
         var list_size = array.dtype.size
         for i in range(array.length):
@@ -113,9 +105,7 @@ struct ArrayPrinter(ArrayVisitor):
                 self.output.write("NULL")
         self.output.write("])")
 
-    fn visit(
-        mut self, array: StructArray
-    ) raises:
+    fn visit(mut self, array: StructArray) raises:
         self.output.write("StructArray({")
         if len(array.children) > 0:
             for i in range(len(array.dtype.fields)):
@@ -128,9 +118,7 @@ struct ArrayPrinter(ArrayVisitor):
                 self.visit(array.children[i])
         self.output.write("})")
 
-    fn visit(
-        mut self, array: ChunkedArray
-    ) raises:
+    fn visit(mut self, array: ChunkedArray) raises:
         self.output.write("ChunkedArray([")
         for i in range(len(array.chunks)):
             if i > 0:

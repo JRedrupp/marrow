@@ -81,13 +81,19 @@ fn bitmap_and(a: Buffer, b: Buffer, length: Int) -> Buffer:
     comptime width = simd_byte_width()
     var i = 0
     while i + width <= byte_count:
-        result.simd_store[DType.uint8, width](i, a.simd_load[DType.uint8, width](i) & b.simd_load[DType.uint8, width](i))
+        result.simd_store[DType.uint8, width](
+            i,
+            a.simd_load[DType.uint8, width](i)
+            & b.simd_load[DType.uint8, width](i),
+        )
         i += width
     while i < byte_count:
-        result.unsafe_set[DType.uint8](i, a.unsafe_get[DType.uint8](i) & b.unsafe_get[DType.uint8](i))
+        result.unsafe_set[DType.uint8](
+            i, a.unsafe_get[DType.uint8](i) & b.unsafe_get[DType.uint8](i)
+        )
         i += 1
 
-    return result^.freeze()
+    return result.freeze()
 
 
 # ---------------------------------------------------------------------------
@@ -121,7 +127,7 @@ fn unary[
         if array.is_valid(i):
             result.unsafe_set(i, func(array.unsafe_get(i)))
     result.length = length
-    return result^.freeze()
+    return result.freeze()
 
 
 fn unary_simd[
@@ -155,17 +161,24 @@ fn unary_simd[
 
     var i = 0
     while i + width <= length:
-        buf.simd_store[native, width](i, func[width](array.buffer.simd_load[native, width](array.offset + i)))
+        buf.simd_store[native, width](
+            i,
+            func[width](
+                array.buffer.simd_load[native, width](array.offset + i)
+            ),
+        )
         i += width
     while i < length:
-        buf.unsafe_set[native](i, func[1](array.buffer.unsafe_get[native](array.offset + i)))
+        buf.unsafe_set[native](
+            i, func[1](array.buffer.unsafe_get[native](array.offset + i))
+        )
         i += 1
 
     return PrimitiveArray[T](
         length=length,
         offset=0,
         bitmap=bm,
-        buffer=buf^.freeze(),
+        buffer=buf.freeze(),
     )
 
 
@@ -181,7 +194,9 @@ fn binary_simd[
 ](
     left: PrimitiveArray[T],
     right: PrimitiveArray[T],
-) raises -> PrimitiveArray[T]:
+) raises -> PrimitiveArray[
+    T
+]:
     """SIMD-vectorized binary kernel.
 
     Computes the output validity bitmap upfront via `bitmap_and`, then applies
@@ -221,23 +236,29 @@ fn binary_simd[
 
     var i = 0
     while i + width <= length:
-        buf.simd_store[native, width](i, func[width](
-            lb.simd_load[native, width](left.offset + i),
-            rb.simd_load[native, width](right.offset + i),
-        ))
+        buf.simd_store[native, width](
+            i,
+            func[width](
+                lb.simd_load[native, width](left.offset + i),
+                rb.simd_load[native, width](right.offset + i),
+            ),
+        )
         i += width
     while i < length:
-        buf.unsafe_set[native](i, func[1](
-            lb.unsafe_get[native](left.offset + i),
-            rb.unsafe_get[native](right.offset + i),
-        ))
+        buf.unsafe_set[native](
+            i,
+            func[1](
+                lb.unsafe_get[native](left.offset + i),
+                rb.unsafe_get[native](right.offset + i),
+            ),
+        )
         i += 1
 
     return PrimitiveArray[T](
         length=length,
         offset=0,
         bitmap=bm,
-        buffer=buf^.freeze(),
+        buffer=buf.freeze(),
     )
 
 
@@ -279,9 +300,9 @@ fn reduce[
 # ---------------------------------------------------------------------------
 
 
-fn _bitmap_mask[dtype: DType, W: Int](
-    bp: UnsafePointer[UInt8], abs_pos: Int
-) -> SIMD[DType.bool, W]:
+fn _bitmap_mask[
+    dtype: DType, W: Int
+](bp: UnsafePointer[UInt8], abs_pos: Int) -> SIMD[DType.bool, W]:
     """Expand W consecutive bitmap bits starting at abs_pos into a SIMD bool vector.
 
     Each lane j of the result is True iff bit (abs_pos + j) is set in the bitmap.
@@ -307,7 +328,9 @@ fn _bitmap_mask[dtype: DType, W: Int](
 
 fn reduce_simd[
     T: DataType,
-    combine: fn[W: Int](SIMD[T.native, W], SIMD[T.native, W]) -> SIMD[T.native, W],
+    combine: fn[W: Int](SIMD[T.native, W], SIMD[T.native, W]) -> SIMD[
+        T.native, W
+    ],
     horizontal: fn[W: Int](SIMD[T.native, W]) -> Scalar[T.native],
 ](array: PrimitiveArray[T], initial: Scalar[T.native]) -> Scalar[T.native]:
     """SIMD-vectorized reduction: accumulates over valid (non-null) elements.
@@ -360,7 +383,9 @@ fn reduce_simd[
 
     while i < length:
         if array.is_valid(i):
-            result = combine[1](result, array.buffer.unsafe_get[native](array.offset + i))
+            result = combine[1](
+                result, array.buffer.unsafe_get[native](array.offset + i)
+            )
         i += 1
 
     return result
@@ -380,7 +405,8 @@ fn binary_gpu_kernel[
     result: UnsafePointer[Scalar[dtype], MutAnyOrigin],
     length: Int,
 ):
-    """Generic GPU kernel: applies a binary SIMD function element-wise (W=1 per thread)."""
+    """Generic GPU kernel: applies a binary SIMD function element-wise (W=1 per thread).
+    """
     var tid = global_idx.x
     if tid < UInt(length):
         result[tid] = func[1](lhs[tid], rhs[tid])
@@ -412,7 +438,9 @@ fn binary_gpu[
         A new device-resident PrimitiveArray with func applied element-wise.
     """
     comptime if not has_accelerator():
-        raise Error(String(name) + ": no GPU accelerator available on this system")
+        raise Error(
+            String(name) + ": no GPU accelerator available on this system"
+        )
     if len(left) != len(right):
         raise Error(
             String(name)
@@ -454,7 +482,7 @@ fn binary_gpu[
     return PrimitiveArray[T](
         length=length,
         offset=0,
-        bitmap=bm^.freeze().to_device(ctx),
+        bitmap=bm.freeze().to_device(ctx),
         buffer=buf^,
     )
 
@@ -466,7 +494,9 @@ fn binary_gpu[
 
 fn binary_array_dispatch[
     name: StringLiteral,
-    func: fn[T: DataType](PrimitiveArray[T], PrimitiveArray[T], Optional[DeviceContext]) raises -> PrimitiveArray[T],
+    func: fn[T: DataType](
+        PrimitiveArray[T], PrimitiveArray[T], Optional[DeviceContext]
+    ) raises -> PrimitiveArray[T],
 ](
     left: Array,
     right: Array,

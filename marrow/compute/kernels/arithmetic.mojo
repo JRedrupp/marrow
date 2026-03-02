@@ -99,9 +99,7 @@ fn add[
         return binary_simd[T, _add[T.native], "add"](left, right)
 
 
-fn add(
-    left: Array, right: Array
-) raises -> Array:
+fn add(left: Array, right: Array) raises -> Array:
     """Runtime-typed add."""
     return binary_array_dispatch["add", add](left, right)
 
@@ -135,9 +133,7 @@ fn sub[
         return binary_simd[T, _sub[T.native], "sub"](left, right)
 
 
-fn sub(
-    left: Array, right: Array
-) raises -> Array:
+fn sub(left: Array, right: Array) raises -> Array:
     """Runtime-typed sub."""
     return binary_array_dispatch["sub", sub](left, right)
 
@@ -171,9 +167,7 @@ fn mul[
         return binary_simd[T, _mul[T.native], "mul"](left, right)
 
 
-fn mul(
-    left: Array, right: Array
-) raises -> Array:
+fn mul(left: Array, right: Array) raises -> Array:
     """Runtime-typed mul."""
     return binary_array_dispatch["mul", mul](left, right)
 
@@ -207,9 +201,7 @@ fn div[
         return binary_simd[T, _div[T.native], "div"](left, right)
 
 
-fn div(
-    left: Array, right: Array
-) raises -> Array:
+fn div(left: Array, right: Array) raises -> Array:
     """Runtime-typed div."""
     return binary_array_dispatch["div", div](left, right)
 
@@ -238,14 +230,14 @@ fn floordiv[
         Null if either input is null at that position.
     """
     if ctx:
-        return binary_gpu[T, _floordiv[T.native], "floordiv"](left, right, ctx.value())
+        return binary_gpu[T, _floordiv[T.native], "floordiv"](
+            left, right, ctx.value()
+        )
     else:
         return binary_simd[T, _floordiv[T.native], "floordiv"](left, right)
 
 
-fn floordiv(
-    left: Array, right: Array
-) raises -> Array:
+fn floordiv(left: Array, right: Array) raises -> Array:
     """Runtime-typed floordiv."""
     return binary_array_dispatch["floordiv", floordiv](left, right)
 
@@ -279,9 +271,7 @@ fn mod[
         return binary_simd[T, _mod[T.native], "mod"](left, right)
 
 
-fn mod(
-    left: Array, right: Array
-) raises -> Array:
+fn mod(left: Array, right: Array) raises -> Array:
     """Runtime-typed mod."""
     return binary_array_dispatch["mod", mod](left, right)
 
@@ -315,9 +305,7 @@ fn min_[
         return binary_simd[T, _min[T.native], "min_"](left, right)
 
 
-fn min_(
-    left: Array, right: Array
-) raises -> Array:
+fn min_(left: Array, right: Array) raises -> Array:
     """Runtime-typed min_."""
     return binary_array_dispatch["min_", min_](left, right)
 
@@ -351,9 +339,7 @@ fn max_[
         return binary_simd[T, _max[T.native], "max_"](left, right)
 
 
-fn max_(
-    left: Array, right: Array
-) raises -> Array:
+fn max_(left: Array, right: Array) raises -> Array:
     """Runtime-typed max_."""
     return binary_array_dispatch["max_", max_](left, right)
 

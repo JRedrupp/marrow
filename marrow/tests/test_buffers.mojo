@@ -81,7 +81,7 @@ def test_bitmap_get_set():
     bitmap_set(b.ptr, 1, True)
     assert_true(Bool((b.ptr[0] >> UInt8(1)) & 1))
 
-    var frozen = b^.freeze()
+    var frozen = b.freeze()
     assert_true(bitmap_get(frozen.unsafe_ptr(), 0))
     assert_true(bitmap_get(frozen.unsafe_ptr(), 1))
     assert_false(bitmap_get(frozen.unsafe_ptr(), 2))
@@ -99,7 +99,9 @@ def test_bitmap_range_set():
     var n_bits = 16
 
     bitmap_range_set(bitmap.ptr, 0, 10, True)
-    assert_bitmap_set(bitmap.ptr, n_bits, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], "range 0-10")
+    assert_bitmap_set(
+        bitmap.ptr, n_bits, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], "range 0-10"
+    )
     bitmap_range_set(bitmap.ptr, 0, 10, False)
     assert_bitmap_set(bitmap.ptr, n_bits, [], "reset")
 
@@ -115,7 +117,9 @@ def test_bitmap_range_set():
         if to_test[pos] < n_bits - 1:
             _reset(bitmap, n_bits)
             bitmap_range_set(bitmap.ptr, start_bit, 2, True)
-            assert_bitmap_set(bitmap.ptr, n_bits, [start_bit, start_bit + 1], "range 2")
+            assert_bitmap_set(
+                bitmap.ptr, n_bits, [start_bit, start_bit + 1], "range 2"
+            )
 
 
 def test_bitmap_extend():
@@ -125,7 +129,7 @@ def test_bitmap_extend():
 
     var dst = BufferBuilder.alloc_bits(8)
     bitmap_range_set(dst.ptr, 0, 8, False)
-    bitmap_extend(dst.ptr, src^.freeze().unsafe_ptr(), 0, 6)
+    bitmap_extend(dst.ptr, src.freeze().unsafe_ptr(), 0, 6)
     assert_bitmap_set(dst.ptr, 8, [0, 5], "after extend")
 
     # extend into offset position
@@ -133,7 +137,7 @@ def test_bitmap_extend():
     bitmap_range_set(dst2.ptr, 0, 8, False)
     var src2 = BufferBuilder.alloc_bits(2)
     bitmap_set(src2.ptr, 0, True)
-    bitmap_extend(dst2.ptr, src2^.freeze().unsafe_ptr(), 6, 2)
+    bitmap_extend(dst2.ptr, src2.freeze().unsafe_ptr(), 6, 2)
     assert_bitmap_set(dst2.ptr, 8, [6], "extend at offset 6")
 
 
@@ -142,7 +146,7 @@ def test_buffer_freeze():
     buf.unsafe_set(0, 42)
     buf.unsafe_set(1, 99)
 
-    var frozen = buf^.freeze()
+    var frozen = buf.freeze()
     # Reads still work on the frozen buffer.
     assert_equal(frozen.unsafe_get(0), 42)
     assert_equal(frozen.unsafe_get(1), 99)
@@ -153,7 +157,7 @@ def test_buffer_freeze():
 def test_buffer_no_device():
     # CPU-allocated buffers have no device buffer
     var buf = BufferBuilder.alloc(10)
-    var frozen = buf^.freeze()
+    var frozen = buf.freeze()
     assert_true(not frozen.has_device())
 
 

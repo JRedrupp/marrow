@@ -1,29 +1,30 @@
 """Tests for batch cosine similarity kernel."""
 
 from testing import assert_equal, assert_true, TestSuite
-from memory import ArcPointer
-
 from marrow.arrays import Array, PrimitiveArray, FixedSizeListArray
 from marrow.builders import PrimitiveBuilder, FixedSizeListBuilder
 from marrow.dtypes import float32, fixed_size_list_, materialize
 from marrow.compute.kernels.similarity import cosine_similarity
 
 
-fn _make_vectors(*values: Float64, dim: Int) raises -> FixedSizeListArray:
+def _make_vectors(*values: Float64, dim: Int) raises -> FixedSizeListArray:
     """Helper: build FixedSizeListArray from flat values."""
     var b = PrimitiveBuilder[float32](len(values))
     for v in values:
-        b.unsafe_append(Scalar[float32.native](v))
-    var arr = b^.freeze()
-    return FixedSizeListBuilder.from_values(Array(arr^), list_size=dim).freeze()
+        b.append(Scalar[float32.native](v))
+    var n_lists = len(values) // dim
+    var builder = FixedSizeListBuilder(b, list_size=dim)
+    for _ in range(n_lists):
+        builder.append(True)
+    return builder.freeze()
 
 
-fn _make_query(*values: Float64) -> PrimitiveArray[float32]:
+fn _make_query(*values: Float64) raises -> PrimitiveArray[float32]:
     """Helper: build query PrimitiveArray."""
     var b = PrimitiveBuilder[float32](len(values))
     for v in values:
-        b.unsafe_append(Scalar[float32.native](v))
-    return b^.freeze()
+        b.append(Scalar[float32.native](v))
+    return b.freeze()
 
 
 fn _approx_equal(a: Float64, b: Float64, tol: Float64 = 1e-5) -> Bool:

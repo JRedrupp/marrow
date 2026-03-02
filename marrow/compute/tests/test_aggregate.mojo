@@ -15,11 +15,10 @@ def test_sum_typed():
 def test_sum_with_nulls():
     """Sum skips null values."""
     var a = PrimitiveBuilder[int32](3)
-    a.unsafe_append(10)
-    a.unsafe_append(20)
-    # index 2 is null
-    a.length = 3
-    var result = sum[int32](a^.freeze())
+    a.append(10)
+    a.append(20)
+    a.append_null()  # index 2 is null
+    var result = sum[int32](a.freeze())
     assert_equal(result, 30)
 
 

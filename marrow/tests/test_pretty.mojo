@@ -2,7 +2,12 @@ from testing import assert_equal, TestSuite
 
 from marrow.arrays import *
 from marrow.buffers import bitmap_range_set, bitmap_set
-from marrow.builders import PrimitiveBuilder, StringBuilder, StructBuilder
+from marrow.builders import (
+    Builder,
+    PrimitiveBuilder,
+    StringBuilder,
+    StructBuilder,
+)
 from marrow.dtypes import *
 from marrow.pretty import ArrayPrinter
 from marrow.test_fixtures.arrays import (
@@ -50,10 +55,10 @@ def test_format_bool():
 
 def test_format_string():
     var s = StringBuilder(capacity=2)
-    s.unsafe_append("hello")
-    s.unsafe_append("world")
+    s.append("hello")
+    s.append("world")
     assert_equal(
-        _fmt(Array(s^.freeze())),
+        _fmt(Array(s.freeze())),
         "StringArray([hello, world])",
     )
 
@@ -103,8 +108,8 @@ def test_format_empty_struct():
         Field("name", materialize[string]()),
         Field("active", materialize[bool_]()),
     ]
-    var s = StructBuilder(fields^, capacity=10)
-    assert_equal(_fmt(Array(s^.freeze())), "StructArray({})")
+    var s = StructBuilder(fields^, List[Builder](), capacity=10)
+    assert_equal(_fmt(Array(s.freeze())), "StructArray({})")
 
 
 def test_format_chunked():
@@ -139,7 +144,8 @@ def test_format_limits():
 
 
 def test_format_empty_array():
-    var arr = PrimitiveBuilder[int32](0).freeze()
+    var b = PrimitiveBuilder[int32](0)
+    var arr = b.freeze()
     assert_equal(
         _fmt(Array(arr^)),
         "PrimitiveArray[int32]([])",
@@ -148,10 +154,10 @@ def test_format_empty_array():
 
 def test_format_all_nulls():
     var b = PrimitiveBuilder[int32](3)
-    b.length = 3
-    bitmap_range_set(b.bitmap.ptr, 0, 3, False)
+    b.data[].length = 3
+    bitmap_range_set(b.data[].bitmap.ptr, 0, 3, False)
     assert_equal(
-        _fmt(Array(b^.freeze())),
+        _fmt(Array(b.freeze())),
         "PrimitiveArray[int32]([NULL, NULL, NULL])",
     )
 
@@ -160,11 +166,11 @@ def test_format_mixed_nulls():
     var b = PrimitiveBuilder[int32](5)
     b.append(1)
     b.append(2)
-    bitmap_set(b.bitmap.ptr, 2, False)
-    b.length = 3
+    bitmap_set(b.data[].bitmap.ptr, 2, False)
+    b.data[].length = 3
     b.append(4)
     assert_equal(
-        _fmt(Array(b^.freeze())),
+        _fmt(Array(b.freeze())),
         "PrimitiveArray[int32]([1, 2, NULL, ...])",
     )
 

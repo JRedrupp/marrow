@@ -19,40 +19,26 @@ trait ArrayVisitor:
     into nested arrays.
     """
 
-    fn visit[T: DataType](
-        mut self, array: PrimitiveArray[T]
-    ) raises:
+    fn visit[T: DataType](mut self, array: PrimitiveArray[T]) raises:
         pass
 
-    fn visit(
-        mut self, array: StringArray
-    ) raises:
+    fn visit(mut self, array: StringArray) raises:
         pass
 
-    fn visit(
-        mut self, array: ListArray
-    ) raises:
+    fn visit(mut self, array: ListArray) raises:
         pass
 
-    fn visit(
-        mut self, array: FixedSizeListArray
-    ) raises:
+    fn visit(mut self, array: FixedSizeListArray) raises:
         pass
 
-    fn visit(
-        mut self, array: StructArray
-    ) raises:
+    fn visit(mut self, array: StructArray) raises:
         pass
 
-    fn visit(
-        mut self, array: ChunkedArray
-    ) raises:
+    fn visit(mut self, array: ChunkedArray) raises:
         for chunk in array.chunks:
             self.visit(chunk)
 
-    fn visit(
-        mut self, array: Array
-    ) raises:
+    fn visit(mut self, array: Array) raises:
         """Dispatch to the typed overload matching the runtime dtype."""
 
         comptime for dtype in [
@@ -70,9 +56,7 @@ trait ArrayVisitor:
             float64,
         ]:
             if array.dtype == materialize[dtype]():
-                self.visit[dtype](
-                    PrimitiveArray[dtype](data=array)
-                )
+                self.visit[dtype](PrimitiveArray[dtype](data=array))
                 return
 
         if array.dtype.is_string():

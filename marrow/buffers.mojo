@@ -4,7 +4,7 @@ Lifecycle
 ---------
 1. **Allocate** a mutable builder:  `BufferBuilder.alloc[T](n)`
 2. **Write** through builder methods:  `builder.unsafe_set(i, v)`
-3. **Freeze** into an immutable buffer:  `builder^.freeze()` → `Buffer`
+3. **Freeze** into an immutable buffer:  `builder.freeze()` → `Buffer`
 
 `freeze()` is a zero-cost type-level cast (via `rebind`) because builders and
 immutable buffers share the same in-memory layout — only the pointer origin
@@ -45,7 +45,9 @@ from gpu.host import DeviceBuffer, DeviceContext
 
 
 @fieldwise_init
-struct MemorySpace(ImplicitlyCopyable, Movable, Equatable, Stringable, Writable):
+struct MemorySpace(
+    Equatable, ImplicitlyCopyable, Movable, Stringable, Writable
+):
     """Identifies where a buffer's memory resides at runtime.
 
     Stored as a field on Buffer to enable device-aware dispatch without
@@ -179,7 +181,8 @@ struct BufferBuilder(Movable):
 
     @staticmethod
     fn alloc_bits[I: Intable](n_bits: I) -> BufferBuilder:
-        """Allocate a zeroed buffer large enough to hold n_bits bit-packed values."""
+        """Allocate a zeroed buffer large enough to hold n_bits bit-packed values.
+        """
         return BufferBuilder.alloc(math.ceildiv(Int(n_bits), 8))
 
     @staticmethod
@@ -192,28 +195,45 @@ struct BufferBuilder(Movable):
         memset_zero(ptr, byte_size)
         return BufferBuilder(ptr, byte_size)
 
-    fn freeze(deinit self) -> Buffer:
-        """Consume the mutable builder and return an immutable Buffer.
+    fn freeze(mut self) -> Buffer:
+        """Snapshot the mutable builder into an immutable Buffer and reset state.
 
-        Ownership of the allocation is transferred to an ArcPointer[Allocation]
-        inside the returned Buffer. BufferBuilder.__del__ is NOT called because
-        `self` is consumed via `deinit`.
+        The current allocation is transferred to the returned Buffer via an
+        ArcPointer[Allocation]. A fresh zero-capacity allocation is installed
+        on this builder so it can continue to be used after the call.
         """
-        var imm_ptr = rebind[UnsafePointer[UInt8, ImmutExternalOrigin]](self.ptr)
-        var alloc_ptr = rebind[UnsafePointer[UInt8, MutAnyOrigin]](self.ptr)
-        var result = Buffer(imm_ptr, self.size)
-        result.dealloc = ArcPointer(Allocation(ptr=alloc_ptr, release=_cpu_release))
+        var old_ptr = self.ptr
+        var old_size = self.size
+        # Reset self to a fresh empty allocation; field assignment avoids
+        # triggering __del__ on old_ptr (UnsafePointer has no destructor).
+        var new_ptr = alloc[UInt8](0, alignment=64)
+        self.ptr = rebind[UnsafePointer[UInt8, MutExternalOrigin]](new_ptr)
+        self.size = 0
+        var result = Buffer(
+            rebind[UnsafePointer[UInt8, ImmutExternalOrigin]](old_ptr), old_size
+        )
+        result.dealloc = ArcPointer(
+            Allocation(
+                ptr=rebind[UnsafePointer[UInt8, MutAnyOrigin]](old_ptr),
+                release=_cpu_release,
+            )
+        )
         return result^
 
     fn resize_bits[I: Intable](mut self, bit_length: I, bit_start: Int = 0):
-        """Resize as a bit-packed bitmap, shifting bits if bit_start is non-zero."""
+        """Resize as a bit-packed bitmap, shifting bits if bit_start is non-zero.
+        """
         var byte_start = bit_start // 8
         var sub_bit = bit_start % 8
         var new_byte_count = math.ceildiv(Int(bit_length), 8)
         var new = BufferBuilder.alloc(new_byte_count)
         if sub_bit == 0:
             var available = self.size - byte_start
-            memcpy(dest=new.ptr, src=self.ptr + byte_start, count=min(new_byte_count, available))
+            memcpy(
+                dest=new.ptr,
+                src=self.ptr + byte_start,
+                count=min(new_byte_count, available),
+            )
         else:
             for i in range(new_byte_count):
                 var src_idx = byte_start + i
@@ -226,27 +246,26 @@ struct BufferBuilder(Movable):
                 new.ptr[i] = lo | hi
         swap(self, new)
 
-    fn resize[I: Intable, //, T: DType = DType.uint8](mut self, length: I, start: Int = 0):
+    fn resize[
+        I: Intable, //, T: DType = DType.uint8
+    ](mut self, length: I, start: Int = 0):
         comptime elem_bytes = size_of[T]()
         var new = BufferBuilder.alloc[T](length)
         memcpy(
             dest=new.ptr,
             src=self.ptr + (start * elem_bytes),
-            count=min(
-                self.size - start * elem_bytes, Int(length) * elem_bytes
-            ),
+            count=min(self.size - start * elem_bytes, Int(length) * elem_bytes),
         )
         swap(self, new)
-
-    fn __del__(deinit self):
-        pass
 
     @always_inline
     fn length[T: DType = DType.uint8](self) -> Int:
         return self.size // size_of[T]()
 
     @always_inline
-    fn unsafe_ptr[T: DType = DType.uint8](self) -> UnsafePointer[Scalar[T], MutExternalOrigin]:
+    fn unsafe_ptr[
+        T: DType = DType.uint8
+    ](self) -> UnsafePointer[Scalar[T], MutExternalOrigin]:
         return self.ptr.bitcast[Scalar[T]]()
 
     @always_inline
@@ -320,8 +339,10 @@ struct Buffer(ImplicitlyCopyable, Movable):
 
     @staticmethod
     fn alloc_bits[I: Intable](n_bits: I) -> Buffer:
-        """Allocate a zeroed buffer large enough to hold n_bits bit-packed values."""
-        return BufferBuilder.alloc_bits(n_bits)^.freeze()
+        """Allocate a zeroed buffer large enough to hold n_bits bit-packed values.
+        """
+        var b = BufferBuilder.alloc_bits(n_bits)
+        return b.freeze()
 
     @staticmethod
     fn foreign_view[
@@ -349,17 +370,13 @@ struct Buffer(ImplicitlyCopyable, Movable):
         return result^
 
     @staticmethod
-    fn device_only(
-        dev: DeviceBuffer[DType.uint8], size: Int
-    ) -> Buffer:
+    fn device_only(dev: DeviceBuffer[DType.uint8], size: Int) -> Buffer:
         """Create a device-only buffer from a GPU DeviceBuffer handle.
 
         The resulting buffer is not CPU-accessible. Call `to_host()` to
         download to CPU memory.
         """
-        var result = Buffer(
-            UnsafePointer[UInt8, ImmutExternalOrigin](), size
-        )
+        var result = Buffer(UnsafePointer[UInt8, ImmutExternalOrigin](), size)
         result.space = MemorySpace.DEVICE
         result._device = dev
         return result^
@@ -402,28 +419,39 @@ struct Buffer(ImplicitlyCopyable, Movable):
         var builder = BufferBuilder.alloc(self.size)
         ctx.enqueue_copy(builder.ptr, self._device.value())
         ctx.synchronize()
-        return builder^.freeze()
+        return builder.freeze()
 
     @always_inline
     fn length[T: DType = DType.uint8](self) -> Int:
         return self.size // size_of[T]()
 
     @always_inline
-    fn unsafe_ptr[T: DType = DType.uint8](self, offset: Int = 0) -> UnsafePointer[Scalar[T], ImmutExternalOrigin]:
+    fn unsafe_ptr[
+        T: DType = DType.uint8
+    ](self, offset: Int = 0) -> UnsafePointer[Scalar[T], ImmutExternalOrigin]:
         """Return a typed pointer to the element at offset."""
-        debug_assert(self.space != MemorySpace.DEVICE, "cannot read device buffer, call to_host() first")
+        debug_assert(
+            self.space != MemorySpace.DEVICE,
+            "cannot read device buffer, call to_host() first",
+        )
         return self.ptr.bitcast[Scalar[T]]() + offset
 
     @always_inline
     fn unsafe_get[T: DType = DType.uint8](self, index: Int) -> Scalar[T]:
-        debug_assert(self.space != MemorySpace.DEVICE, "cannot read device buffer, call to_host() first")
+        debug_assert(
+            self.space != MemorySpace.DEVICE,
+            "cannot read device buffer, call to_host() first",
+        )
         comptime output = Scalar[T]
         return self.ptr.bitcast[output]()[index]
 
     @always_inline
     fn simd_load[T: DType, W: Int](self, index: Int) -> SIMD[T, W]:
         """Load W elements of type T at element index `index`."""
-        debug_assert(self.space != MemorySpace.DEVICE, "cannot read device buffer, call to_host() first")
+        debug_assert(
+            self.space != MemorySpace.DEVICE,
+            "cannot read device buffer, call to_host() first",
+        )
         return (self.ptr.bitcast[Scalar[T]]() + index).load[width=W]()
 
 
@@ -433,13 +461,17 @@ struct Buffer(ImplicitlyCopyable, Movable):
 
 
 @always_inline
-fn bitmap_get(ptr: UnsafePointer[UInt8, ImmutExternalOrigin], index: Int) -> Bool:
+fn bitmap_get(
+    ptr: UnsafePointer[UInt8, ImmutExternalOrigin], index: Int
+) -> Bool:
     """Read the bit at `index` from a bit-packed bitmap byte array."""
     return Bool((ptr[index // 8] >> UInt8(index % 8)) & 1)
 
 
 @always_inline
-fn bitmap_set(ptr: UnsafePointer[UInt8, MutExternalOrigin], index: Int, value: Bool):
+fn bitmap_set(
+    ptr: UnsafePointer[UInt8, MutExternalOrigin], index: Int, value: Bool
+):
     """Write `value` to bit `index` in a bit-packed bitmap byte array."""
     var byte_index = index // 8
     var bit_mask = UInt8(1 << (index % 8))
@@ -449,6 +481,7 @@ fn bitmap_set(ptr: UnsafePointer[UInt8, MutExternalOrigin], index: Int, value: B
         ptr[byte_index] = ptr[byte_index] & ~bit_mask
 
 
+# TODO: remove it
 fn _bitmap_partial_byte_set(
     ptr: UnsafePointer[UInt8, MutExternalOrigin],
     byte_index: Int,
@@ -458,23 +491,32 @@ fn _bitmap_partial_byte_set(
 ):
     """Set bits [bit_pos_start, bit_pos_end) within a single byte to `value`."""
     debug_assert(
-        bit_pos_start >= 0 and bit_pos_end <= 8 and bit_pos_start <= bit_pos_end,
-        "Invalid range: ", bit_pos_start, " to ", bit_pos_end,
+        bit_pos_start >= 0
+        and bit_pos_end <= 8
+        and bit_pos_start <= bit_pos_end,
+        "Invalid range: ",
+        bit_pos_start,
+        " to ",
+        bit_pos_end,
     )
-    var mask = UInt8((1 << (bit_pos_end - bit_pos_start)) - 1) << UInt8(bit_pos_start)
+    var mask = UInt8((1 << (bit_pos_end - bit_pos_start)) - 1) << UInt8(
+        bit_pos_start
+    )
     if value:
         ptr[byte_index] = ptr[byte_index] | mask
     else:
         ptr[byte_index] = ptr[byte_index] & ~mask
 
 
+# TODO: remove it
 fn bitmap_range_set(
     ptr: UnsafePointer[UInt8, MutExternalOrigin],
     start: Int,
     length: Int,
     value: Bool,
 ):
-    """Set `length` bits starting at `start` to `value` in a bit-packed bitmap."""
+    """Set `length` bits starting at `start` to `value` in a bit-packed bitmap.
+    """
     var end = start + length
     var start_byte = start // 8
     var bit_pos_start = start % 8
@@ -483,7 +525,9 @@ fn bitmap_range_set(
 
     if bit_pos_start != 0 or bit_pos_end != 0:
         if start_byte == end_byte:
-            _bitmap_partial_byte_set(ptr, start_byte, bit_pos_start, bit_pos_end, value)
+            _bitmap_partial_byte_set(
+                ptr, start_byte, bit_pos_start, bit_pos_end, value
+            )
             return
         if bit_pos_start != 0:
             _bitmap_partial_byte_set(ptr, start_byte, bit_pos_start, 8, value)
@@ -492,21 +536,30 @@ fn bitmap_range_set(
             _bitmap_partial_byte_set(ptr, end_byte, 0, bit_pos_end, value)
 
     if end_byte > start_byte:
-        memset(ptr + start_byte, value=UInt8(255 if value else 0), count=end_byte - start_byte)
+        memset(
+            ptr + start_byte,
+            value=UInt8(255 if value else 0),
+            count=end_byte - start_byte,
+        )
 
 
+# TODO: remove it
 fn bitmap_extend(
     dst: UnsafePointer[UInt8, MutExternalOrigin],
     src: UnsafePointer[UInt8, ImmutExternalOrigin],
     dst_start: Int,
     length: Int,
 ):
-    """Copy `length` bits from `src` (starting at bit 0) into `dst` at `dst_start`."""
+    """Copy `length` bits from `src` (starting at bit 0) into `dst` at `dst_start`.
+    """
     for i in range(length):
         bitmap_set(dst, dst_start + i, bitmap_get(src, i))
 
 
-fn bitmap_count_ones(ptr: UnsafePointer[UInt8, ImmutExternalOrigin], byte_count: Int) -> Int:
+# TODO: move it to kernels
+fn bitmap_count_ones(
+    ptr: UnsafePointer[UInt8, ImmutExternalOrigin], byte_count: Int
+) -> Int:
     """Count the number of set (1) bits across `byte_count` bytes."""
     comptime width = simd_byte_width()
     var count = 0

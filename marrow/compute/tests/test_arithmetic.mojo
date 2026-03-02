@@ -36,12 +36,12 @@ def test_add_typed():
 def test_add_with_nulls():
     """Nulls propagate: null + valid = null."""
     var a = PrimitiveBuilder[int32](3)
-    a.unsafe_append(1)
-    a.unsafe_append(2)
-    a.length = 3
+    a.append(1)
+    a.append(2)
+    a.append_null()
 
     var b = array[int32]([10, 20, 30])
-    var result = add[int32](a^.freeze(), b)
+    var result = add[int32](a.freeze(), b)
     assert_equal(len(result), 3)
     assert_true(result.is_valid(0))
     assert_true(result.is_valid(1))
@@ -117,12 +117,12 @@ def test_sub_typed():
 
 def test_sub_with_nulls():
     var a = PrimitiveBuilder[int32](3)
-    a.unsafe_append(10)
-    a.unsafe_append(20)
-    a.length = 3
+    a.append(10)
+    a.append(20)
+    a.append_null()
 
     var b = array[int32]([1, 2, 3])
-    var result = sub[int32](a^.freeze(), b)
+    var result = sub[int32](a.freeze(), b)
     assert_true(result.is_valid(0))
     assert_true(result.is_valid(1))
     assert_false(result.is_valid(2))
@@ -157,12 +157,12 @@ def test_mul_typed():
 
 def test_mul_with_nulls():
     var a = PrimitiveBuilder[int32](3)
-    a.unsafe_append(2)
-    a.unsafe_append(3)
-    a.length = 3
+    a.append(2)
+    a.append(3)
+    a.append_null()
 
     var b = array[int32]([10, 10, 10])
-    var result = mul[int32](a^.freeze(), b)
+    var result = mul[int32](a.freeze(), b)
     assert_true(result.is_valid(0))
     assert_true(result.is_valid(1))
     assert_false(result.is_valid(2))
@@ -195,12 +195,12 @@ def test_div_typed():
 
 def test_div_with_nulls():
     var a = PrimitiveBuilder[float64](3)
-    a.unsafe_append(10)
-    a.unsafe_append(20)
-    a.length = 3
+    a.append(10)
+    a.append(20)
+    a.append_null()
 
     var b = array[float64]([2, 4, 5])
-    var result = div[float64](a^.freeze(), b)
+    var result = div[float64](a.freeze(), b)
     assert_true(result.is_valid(0))
     assert_true(result.is_valid(1))
     assert_false(result.is_valid(2))
@@ -263,12 +263,12 @@ def test_max_typed():
 
 def test_min_with_nulls():
     var a = PrimitiveBuilder[int32](3)
-    a.unsafe_append(1)
-    a.unsafe_append(5)
-    a.length = 3
+    a.append(1)
+    a.append(5)
+    a.append_null()
 
     var b = array[int32]([4, 2, 3])
-    var result = min_[int32](a^.freeze(), b)
+    var result = min_[int32](a.freeze(), b)
     assert_true(result.is_valid(0))
     assert_true(result.is_valid(1))
     assert_false(result.is_valid(2))
@@ -292,11 +292,11 @@ def test_neg_typed():
 
 def test_neg_with_nulls():
     var a = PrimitiveBuilder[int32](3)
-    a.unsafe_append(1)
-    a.unsafe_append(-2)
-    a.length = 3
+    a.append(1)
+    a.append(-2)
+    a.append_null()
 
-    var result = neg[int32](a^.freeze())
+    var result = neg[int32](a.freeze())
     assert_true(result.is_valid(0))
     assert_true(result.is_valid(1))
     assert_false(result.is_valid(2))
@@ -329,11 +329,11 @@ def test_abs_typed():
 
 def test_abs_with_nulls():
     var a = PrimitiveBuilder[int32](3)
-    a.unsafe_append(-3)
-    a.unsafe_append(4)
-    a.length = 3
+    a.append(-3)
+    a.append(4)
+    a.append_null()
 
-    var result = abs_[int32](a^.freeze())
+    var result = abs_[int32](a.freeze())
     assert_true(result.is_valid(0))
     assert_true(result.is_valid(1))
     assert_false(result.is_valid(2))
