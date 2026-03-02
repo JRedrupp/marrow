@@ -14,8 +14,8 @@ from gpu.host import DeviceContext
 from marrow.arrays import PrimitiveArray
 from marrow.builders import PrimitiveBuilder
 from marrow.dtypes import int32, float32, DataType
-from marrow.compute.arithmetic import _add_no_nulls
-from marrow.compute.gpu import add as gpu_add
+from marrow.compute.kernels.add import _add_no_nulls
+from marrow.compute.kernels.add import add as gpu_add
 
 
 fn _make_array[T: DataType](size: Int) -> PrimitiveArray[T]:

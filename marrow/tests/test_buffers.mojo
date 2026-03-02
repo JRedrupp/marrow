@@ -186,88 +186,6 @@ def test_expand_bitmap() -> None:
     assert_bitmap_set(bitmap, [0, 5, 6], "after expand")
 
 
-def test_buffer_with_offset():
-    # Test Buffer with offset functionality
-    var buf = BufferBuilder.alloc(10)
-    assert_equal(buf.offset, 0)  # Default offset should be 0
-
-    # Set values in buffer without offset
-    buf.unsafe_set(0, 42)
-    buf.unsafe_set(1, 43)
-    buf.unsafe_set(2, 44)
-    buf.unsafe_set(3, 55)
-
-    # Shift the offset and test that get/set are adjusted
-    buf.offset = 2
-    assert_equal(buf.offset, 2)
-    assert_equal(buf.unsafe_get(0), 44)  # reads buf[2]
-    buf.unsafe_set(1, 99)  # writes buf[3]
-    buf.offset = 0
-    assert_equal(buf.unsafe_get(3), 99)
-
-
-def test_buffer_moveinit_with_offset():
-    # Test __moveinit__ preserves offset
-    var buf = BufferBuilder.alloc(5)
-    buf.offset = 3
-    buf.unsafe_set(0, 123)
-
-    var moved_buf = buf^
-    assert_equal(moved_buf.offset, 3)
-    assert_equal(moved_buf.unsafe_get(0), 123)
-
-
-def test_buffer_swap_with_offset():
-    # Test swap preserves offsets correctly
-    var buf1 = BufferBuilder.alloc(5)
-    buf1.offset = 2
-    buf1.unsafe_set(0, 111)
-
-    var buf2 = BufferBuilder.alloc(5)
-    buf2.offset = 4
-    buf2.unsafe_set(0, 222)
-
-    swap(buf1, buf2)
-
-    # After swap, buf1 should have buf2's original offset and data
-    assert_equal(buf1.offset, 4)
-    assert_equal(buf1.unsafe_get(0), 222)
-
-    # And buf2 should have buf1's original offset and data
-    assert_equal(buf2.offset, 2)
-    assert_equal(buf2.unsafe_get(0), 111)
-
-
-def test_bitmap_with_offset():
-    # Populate a Bitmap with known bits then test offset arithmetic in place.
-    var bm = BitmapBuilder.alloc(16)
-    bm.unsafe_set(3, True)
-    bm.unsafe_set(5, True)
-    bm.unsafe_set(6, True)
-
-    # Apply an offset directly and verify reads are shifted.
-    bm.offset = 3
-    assert_equal(bm.offset, 3)
-    assert_true(bm.unsafe_get(0))  # bit 3
-    assert_false(bm.unsafe_get(1))  # bit 4
-    assert_true(bm.unsafe_get(2))  # bit 5
-    assert_true(bm.unsafe_get(3))  # bit 6
-
-    # Writes are also shifted by the offset.
-    bm.unsafe_set(4, True)  # should set bit 7
-    bm.offset = 0
-    assert_true(bm.unsafe_get(7))
-
-
-def test_bitmap_moveinit_with_offset():
-    # Test __moveinit__ preserves offset
-    var bitmap = BitmapBuilder(BufferBuilder.alloc(1), offset=2)
-    bitmap.unsafe_set(0, True)
-
-    var moved_bitmap = bitmap^
-    assert_equal(moved_bitmap.offset, 2)
-    assert_true(moved_bitmap.unsafe_get(0))
-
 
 def test_buffer_freeze():
     var buf = BufferBuilder.alloc(10)
@@ -281,15 +199,6 @@ def test_buffer_freeze():
     assert_equal(frozen.size, 64)
     assert_equal(frozen.length(), 64)
 
-
-def test_buffer_freeze_preserves_offset():
-    var buf = BufferBuilder.alloc(10)
-    buf.unsafe_set(2, 77)
-    buf.offset = 2
-
-    var frozen = buf^.freeze()
-    assert_equal(frozen.offset, 2)
-    assert_equal(frozen.unsafe_get(0), 77)
 
 
 def test_bitmap_freeze():
@@ -306,15 +215,6 @@ def test_bitmap_freeze():
     assert_true(frozen.unsafe_get(7))
     assert_equal(frozen.bit_count(), 3)
 
-
-def test_bitmap_freeze_preserves_offset():
-    var bm = BitmapBuilder.alloc(16)
-    bm.unsafe_set(3, True)
-    bm.offset = 3
-
-    var frozen = bm^.freeze()
-    assert_equal(frozen.offset, 3)
-    assert_true(frozen.unsafe_get(0))  # bit 3
 
 
 def test_bitmap_to_buffer_implicit():

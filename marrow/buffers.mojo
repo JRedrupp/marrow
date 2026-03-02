@@ -162,18 +162,15 @@ struct BufferBuilder(Movable):
 
     var ptr: UnsafePointer[UInt8, MutExternalOrigin]
     var size: Int
-    var offset: Int
     var dealloc: Optional[ArcPointer[Allocation]]
 
     fn __init__(
         out self,
         ptr: UnsafePointer[UInt8, MutExternalOrigin],
         size: Int,
-        offset: Int = 0,
     ):
         self.ptr = ptr
         self.size = size
-        self.offset = offset
         self.dealloc = None
 
     @staticmethod
@@ -191,18 +188,18 @@ struct BufferBuilder(Movable):
     fn freeze(deinit self) -> Buffer:
         """Consume the mutable builder and return an immutable Buffer."""
         var ptr = rebind[UnsafePointer[UInt8, ImmutExternalOrigin]](self.ptr)
-        var result = Buffer(ptr, self.size, self.offset)
+        var result = Buffer(ptr, self.size)
         result.dealloc = self.dealloc^
         return result^
 
-    fn resize[I: Intable, //, T: DType = DType.uint8](mut self, length: I):
+    fn resize[I: Intable, //, T: DType = DType.uint8](mut self, length: I, start: Int = 0):
         comptime elem_bytes = size_of[T]()
         var new = BufferBuilder.alloc[T](length)
         memcpy(
             dest=new.ptr,
-            src=self.ptr + (self.offset * elem_bytes),
+            src=self.ptr + (start * elem_bytes),
             count=min(
-                self.size - self.offset * elem_bytes, Int(length) * elem_bytes
+                self.size - start * elem_bytes, Int(length) * elem_bytes
             ),
         )
         swap(self, new)
@@ -215,16 +212,20 @@ struct BufferBuilder(Movable):
         return self.size // size_of[T]()
 
     @always_inline
+    fn unsafe_ptr[T: DType = DType.uint8](self) -> UnsafePointer[Scalar[T], MutExternalOrigin]:
+        return self.ptr.bitcast[Scalar[T]]()
+
+    @always_inline
     fn unsafe_get[T: DType = DType.uint8](self, index: Int) -> Scalar[T]:
         comptime output = Scalar[T]
-        return self.ptr.bitcast[output]()[index + self.offset]
+        return self.ptr.bitcast[output]()[index]
 
     @always_inline
     fn unsafe_set[
         T: DType = DType.uint8
     ](mut self, index: Int, value: Scalar[T]):
         comptime output = Scalar[T]
-        self.ptr.bitcast[output]()[index + self.offset] = value
+        self.ptr.bitcast[output]()[index] = value
 
 
 # ---------------------------------------------------------------------------
@@ -248,7 +249,6 @@ struct Buffer[space: MemorySpace = MemorySpace.CPU](ImplicitlyCopyable, Movable)
 
     var ptr: UnsafePointer[UInt8, ImmutExternalOrigin]
     var size: Int
-    var offset: Int
     var dealloc: Optional[ArcPointer[Allocation]]
     var _device: Optional[DeviceBuffer[DType.uint8]]
 
@@ -256,18 +256,15 @@ struct Buffer[space: MemorySpace = MemorySpace.CPU](ImplicitlyCopyable, Movable)
         out self,
         ptr: UnsafePointer[UInt8, ImmutExternalOrigin],
         size: Int,
-        offset: Int = 0,
     ):
         self.ptr = ptr
         self.size = size
-        self.offset = offset
         self.dealloc = None
         self._device = None
 
     fn __init__(out self, *, copy: Self):
         self.ptr = copy.ptr
         self.size = copy.size
-        self.offset = copy.offset
         self.dealloc = copy.dealloc
         self._device = copy._device
 
@@ -276,7 +273,6 @@ struct Buffer[space: MemorySpace = MemorySpace.CPU](ImplicitlyCopyable, Movable)
         """Implicitly convert an immutable Bitmap to its underlying Buffer."""
         self.ptr = bitmap.buffer.ptr
         self.size = bitmap.buffer.size
-        self.offset = bitmap.buffer.offset
         self.dealloc = None
         self._device = bitmap.buffer._device
         swap(self.dealloc, bitmap.buffer.dealloc)
@@ -348,7 +344,7 @@ struct Buffer[space: MemorySpace = MemorySpace.CPU](ImplicitlyCopyable, Movable)
         """Upload buffer data to the GPU, returning a new device-only Buffer."""
         comptime assert Self.space == MemorySpace.CPU, "already on device"
         var dev = ctx.enqueue_create_buffer[DType.uint8](self.size)
-        ctx.enqueue_copy(dev, self.ptr + self.offset)
+        ctx.enqueue_copy(dev, self.ptr)
         return Buffer[MemorySpace.DEVICE].device_only(dev, self.size)
 
     fn to_host(self, ctx: DeviceContext) raises -> Buffer[MemorySpace.CPU]:
@@ -364,10 +360,16 @@ struct Buffer[space: MemorySpace = MemorySpace.CPU](ImplicitlyCopyable, Movable)
         return self.size // size_of[T]()
 
     @always_inline
+    fn unsafe_ptr[T: DType = DType.uint8](self, offset: Int = 0) -> UnsafePointer[Scalar[T], ImmutExternalOrigin]:
+        """Return a typed pointer to the element at offset."""
+        comptime assert Self.space != MemorySpace.DEVICE, "cannot read device buffer, call to_host() first"
+        return self.ptr.bitcast[Scalar[T]]() + offset
+
+    @always_inline
     fn unsafe_get[T: DType = DType.uint8](self, index: Int) -> Scalar[T]:
         comptime assert Self.space != MemorySpace.DEVICE, "cannot read device buffer, call to_host() first"
         comptime output = Scalar[T]
-        return self.ptr.bitcast[output]()[index + self.offset]
+        return self.ptr.bitcast[output]()[index]
 
 
 # ---------------------------------------------------------------------------
@@ -383,20 +385,18 @@ struct BitmapBuilder(Movable, Stringable):
     """
 
     var buffer: BufferBuilder
-    var offset: Int
 
     @staticmethod
     fn alloc[I: Intable](length: I) -> BitmapBuilder:
         var byte_length = math.ceildiv(Int(length), 8)
         return BitmapBuilder(BufferBuilder.alloc(byte_length))
 
-    fn __init__(out self, var buffer: BufferBuilder, offset: Int = 0):
+    fn __init__(out self, var buffer: BufferBuilder):
         self.buffer = buffer^
-        self.offset = offset
 
     fn freeze(deinit self) -> Bitmap:
         """Consume the mutable builder and return an immutable Bitmap."""
-        return Bitmap(self.buffer^.freeze(), self.offset)
+        return Bitmap(self.buffer^.freeze())
 
     fn __str__(self) -> String:
         var output = String()
@@ -412,13 +412,11 @@ struct BitmapBuilder(Movable, Stringable):
         return output
 
     fn unsafe_get(self, index: Int) -> Bool:
-        var adjusted = index + self.offset
-        return Bool((self.buffer.ptr[adjusted // 8] >> UInt8(adjusted % 8)) & 1)
+        return Bool((self.buffer.ptr[index // 8] >> UInt8(index % 8)) & 1)
 
     fn unsafe_set(mut self, index: Int, value: Bool) -> None:
-        var adjusted = index + self.offset
-        var byte_index = adjusted // 8
-        var bit_mask = UInt8(1 << (adjusted % 8))
+        var byte_index = index // 8
+        var bit_mask = UInt8(1 << (index % 8))
         if value:
             self.buffer.ptr[byte_index] = self.buffer.ptr[byte_index] | bit_mask
         else:
@@ -435,10 +433,24 @@ struct BitmapBuilder(Movable, Stringable):
         return self.buffer.size
 
     fn resize[I: Intable](mut self, length: I, start: Int = 0):
-        var bit_start = start + self.offset
-        self.buffer.offset = bit_start // 8
-        self.buffer.resize(math.ceildiv(Int(length) + bit_start % 8, 8))
-        self.offset = bit_start % 8
+        var byte_start = start // 8
+        var sub_bit = start % 8
+        var new_byte_count = math.ceildiv(Int(length), 8)
+        var new = BufferBuilder.alloc(new_byte_count)
+        if sub_bit == 0:
+            var available = self.buffer.size - byte_start
+            memcpy(dest=new.ptr, src=self.buffer.ptr + byte_start, count=min(new_byte_count, available))
+        else:
+            for i in range(new_byte_count):
+                var src_idx = byte_start + i
+                var lo = UInt8(0)
+                var hi = UInt8(0)
+                if src_idx < self.buffer.size:
+                    lo = self.buffer.ptr[src_idx] >> UInt8(sub_bit)
+                if src_idx + 1 < self.buffer.size:
+                    hi = self.buffer.ptr[src_idx + 1] << UInt8(8 - sub_bit)
+                new.ptr[i] = lo | hi
+        swap(self.buffer, new)
 
     fn extend(
         mut self,
@@ -609,7 +621,6 @@ struct Bitmap[space: MemorySpace = MemorySpace.CPU](
     """
 
     var buffer: Buffer[Self.space]
-    var offset: Int
 
     @staticmethod
     fn foreign_view[
@@ -624,13 +635,11 @@ struct Bitmap[space: MemorySpace = MemorySpace.CPU](
         var buffer = Buffer.foreign_view(ptr, byte_length, DType.uint8, owner)
         return Bitmap[MemorySpace.CPU](buffer^)
 
-    fn __init__(out self, var buffer: Buffer[Self.space], offset: Int = 0):
+    fn __init__(out self, var buffer: Buffer[Self.space]):
         self.buffer = buffer^
-        self.offset = offset
 
     fn __init__(out self, *, copy: Self):
         self.buffer = Buffer[Self.space](copy=copy.buffer)
-        self.offset = copy.offset
 
     fn __str__(self) -> String:
         comptime assert Self.space != MemorySpace.DEVICE, "cannot stringify device bitmap"
@@ -646,10 +655,20 @@ struct Bitmap[space: MemorySpace = MemorySpace.CPU](
                 break
         return output
 
+    @always_inline
+    fn unsafe_ptr(self, offset: Int = 0) -> UnsafePointer[UInt8, ImmutExternalOrigin]:
+        """Return a byte pointer to the byte at bit offset.
+
+        Requires offset to be byte-aligned (offset % 8 == 0).
+        Use this for SIMD bitmap operations.
+        """
+        comptime assert Self.space != MemorySpace.DEVICE, "cannot read device bitmap, call to_host() first"
+        debug_assert(offset % 8 == 0, "bitmap offset is not byte-aligned")
+        return self.buffer.ptr + (offset // 8)
+
     fn unsafe_get(self, index: Int) -> Bool:
         comptime assert Self.space != MemorySpace.DEVICE, "cannot read device bitmap, call to_host() first"
-        var adjusted = index + self.offset
-        return Bool((self.buffer.ptr[adjusted // 8] >> UInt8(adjusted % 8)) & 1)
+        return Bool((self.buffer.ptr[index // 8] >> UInt8(index % 8)) & 1)
 
     @always_inline
     fn length(self) -> Int:
@@ -666,16 +685,12 @@ struct Bitmap[space: MemorySpace = MemorySpace.CPU](
     fn to_device(self, ctx: DeviceContext) raises -> Bitmap[MemorySpace.DEVICE]:
         """Upload bitmap data to the GPU."""
         comptime assert Self.space == MemorySpace.CPU
-        return Bitmap[MemorySpace.DEVICE](
-            self.buffer.to_device(ctx), offset=0
-        )
+        return Bitmap[MemorySpace.DEVICE](self.buffer.to_device(ctx))
 
     fn to_host(self, ctx: DeviceContext) raises -> Bitmap[MemorySpace.CPU]:
         """Download bitmap data from the GPU."""
         comptime assert Self.space == MemorySpace.DEVICE
-        return Bitmap[MemorySpace.CPU](
-            self.buffer.to_host(ctx), self.offset
-        )
+        return Bitmap[MemorySpace.CPU](self.buffer.to_host(ctx))
 
     fn device_buffer(self) -> DeviceBuffer[DType.uint8]:
         """Return the underlying DeviceBuffer handle."""

@@ -1,9 +1,9 @@
 """Benchmarks for arithmetic kernel variants.
 
 Compares:
-  - simd: SIMD-vectorized add (no-null fast path via _add_no_nulls)
-  - dispatch: Public add() with runtime null-check dispatch (no nulls)
-  - nulls: Public add() where inputs have 10% nulls (forces scalar path)
+  - simd: SIMD-vectorized add via binary_simd helper
+  - dispatch: Public add() with runtime dispatch (no nulls)
+  - nulls: Public add() where inputs have 10% nulls
 
 Across array sizes (1k-1M) and dtypes (int32, float64).
 
@@ -20,7 +20,8 @@ from time import perf_counter_ns
 from marrow.arrays import PrimitiveArray
 from marrow.builders import PrimitiveBuilder
 from marrow.dtypes import int32, float64, DataType
-from marrow.compute.arithmetic import _add_no_nulls, add
+from marrow.compute.kernels.add import _add_simd, add
+from marrow.compute.kernels import binary_simd
 
 
 # ---------------------------------------------------------------------------
@@ -57,10 +58,10 @@ fn _bench_simd[T: DataType, size: Int](iters: Int) -> Float64:
     var lhs = _make_array[T](size)
     var rhs = _make_array[T](size)
     for _ in range(3):
-        _ = _add_no_nulls[T](lhs, rhs, size)
+        _ = binary_simd[T, _add_simd[T.native]](lhs, rhs, size)
     var start = perf_counter_ns()
     for _ in range(iters):
-        var result = _add_no_nulls[T](lhs, rhs, size)
+        var result = binary_simd[T, _add_simd[T.native]](lhs, rhs, size)
         keep(result.unsafe_get(0))
     return Float64(perf_counter_ns() - start) / Float64(iters) / 1000.0
 
@@ -99,14 +100,14 @@ fn _bench_nulls[T: DataType, size: Int](iters: Int) raises -> Float64:
 
 @parameter
 fn bench_add_simd[T: DataType, size: Int](mut b: Bencher) raises:
-    """SIMD-vectorized add (no-null fast path)."""
+    """SIMD-vectorized add via binary_simd helper."""
     var lhs = _make_array[T](size)
     var rhs = _make_array[T](size)
 
     @always_inline
     @parameter
     fn call_fn() raises:
-        var result = _add_no_nulls[T](lhs, rhs, size)
+        var result = binary_simd[T, _add_simd[T.native]](lhs, rhs, size)
         keep(result.unsafe_get(0))
 
     b.iter[call_fn]()

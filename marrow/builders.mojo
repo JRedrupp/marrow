@@ -174,8 +174,7 @@ struct PrimitiveBuilder[T: DataType](Movable, Sized):
         if self.length == self.capacity and self.offset == 0:
             return
 
-        self.buffer.offset = self.offset
-        self.buffer.resize[Self.T.native](self.length)
+        self.buffer.resize[Self.T.native](self.length, self.offset)
         self.bitmap.resize(self.length, self.offset)
         self.offset = 0
         self.capacity = self.length
@@ -234,7 +233,7 @@ struct StringBuilder(Movable, Sized):
     fn unsafe_append(mut self, value: String):
         """Append a string value without bounds checking."""
         var index = self.length
-        var last_offset = self.offsets.ptr.bitcast[UInt32]()[index + self.offsets.offset]
+        var last_offset = self.offsets.ptr.bitcast[UInt32]()[index]
         var next_offset = last_offset + UInt32(len(value))
         self.length += 1
         self.bitmap.unsafe_set(index, True)
@@ -255,14 +254,12 @@ struct StringBuilder(Movable, Sized):
         )
 
         # Compact offsets, then rebase by subtracting start_byte
-        self.offsets.offset = self.offset
-        self.offsets.resize[DType.uint32](self.length + 1)
+        self.offsets.resize[DType.uint32](self.length + 1, self.offset)
         for i in range(self.length + 1):
             var off = Int(self.offsets.unsafe_get[DType.uint32](i))
             self.offsets.unsafe_set[DType.uint32](i, UInt32(off - start_byte))
 
-        self.values.offset = start_byte
-        self.values.resize(end_byte - start_byte)
+        self.values.resize(end_byte - start_byte, start_byte)
         self.bitmap.resize(self.length, self.offset)
         self.offset = 0
         self.capacity = self.length
@@ -353,8 +350,7 @@ struct ListBuilder(Movable, Sized):
         if self.length == self.capacity and self.offset == 0:
             return
 
-        self.offsets.offset = self.offset
-        self.offsets.resize[DType.uint32](self.length + 1)
+        self.offsets.resize[DType.uint32](self.length + 1, self.offset)
         self.bitmap.resize(self.length, self.offset)
         self.offset = 0
         self.capacity = self.length

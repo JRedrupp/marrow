@@ -3,7 +3,7 @@
 from marrow.arrays import PrimitiveArray, Array
 from marrow.buffers import MemorySpace
 from marrow.dtypes import DataType, all_numeric_dtypes, materialize
-from .kernels import reduce
+from . import reduce
 
 
 fn _accumulate[T: DType](acc: Scalar[T], val: Scalar[T]) -> Scalar[T]:

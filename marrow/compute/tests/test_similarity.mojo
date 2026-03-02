@@ -6,7 +6,7 @@ from memory import ArcPointer
 from marrow.arrays import Array, PrimitiveArray, FixedSizeListArray
 from marrow.builders import PrimitiveBuilder, FixedSizeListBuilder
 from marrow.dtypes import float32, fixed_size_list_, materialize
-from marrow.compute.similarity import cosine_similarity
+from marrow.compute.kernels.similarity import cosine_similarity
 
 
 fn _make_vectors(*values: Float64, dim: Int) raises -> FixedSizeListArray:

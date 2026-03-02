@@ -1,15 +1,21 @@
-"""Batch cosine similarity kernel — CPU SIMD + optional GPU."""
+"""Batch cosine similarity kernel — CPU SIMD and GPU specializations."""
 
 import math
-from sys import size_of
+from sys import size_of, has_accelerator
 from sys.info import simd_byte_width
 
-from gpu.host import DeviceContext
+from gpu import global_idx
+from gpu.host import DeviceBuffer, DeviceContext
 
 from marrow.arrays import PrimitiveArray, FixedSizeListArray
-from marrow.buffers import MemorySpace
+from marrow.buffers import Buffer, BitmapBuilder, MemorySpace
 from marrow.builders import PrimitiveBuilder
 from marrow.dtypes import DataType
+
+
+# ---------------------------------------------------------------------------
+# CPU SIMD helper
+# ---------------------------------------------------------------------------
 
 
 fn _cosine_similarity_no_nulls[
@@ -34,16 +40,8 @@ fn _cosine_similarity_no_nulls[
 
     # Flat values pointer from the child array
     ref child = vectors.values
-    var vp = (
-        child.buffers[0].ptr.bitcast[Scalar[native]]()
-        + child.offset
-        + child.buffers[0].offset
-    )
-    var qp = (
-        query.buffer.ptr.bitcast[Scalar[native]]()
-        + query.offset
-        + query.buffer.offset
-    )
+    var vp = child.buffers[0].unsafe_ptr[native](child.offset)
+    var qp = query.buffer.unsafe_ptr[native](query.offset)
 
     # Pre-compute query norm
     var norm_q = Scalar[native](0)
@@ -83,6 +81,96 @@ fn _cosine_similarity_no_nulls[
 
     result.length = n_vectors
     return result^.freeze()
+
+
+# ---------------------------------------------------------------------------
+# GPU kernel
+# ---------------------------------------------------------------------------
+
+
+fn _cosine_similarity_gpu_kernel[
+    dtype: DType
+](
+    vectors: UnsafePointer[Scalar[dtype], MutAnyOrigin],
+    query: UnsafePointer[Scalar[dtype], MutAnyOrigin],
+    result: UnsafePointer[Scalar[dtype], MutAnyOrigin],
+    n_vectors: Int,
+    dim: Int,
+):
+    """GPU kernel: each thread computes one vector's cosine similarity."""
+    var tid = global_idx.x
+    if tid < UInt(n_vectors):
+        var offset = Int(tid) * dim
+        var dot = Scalar[dtype](0)
+        var norm_v = Scalar[dtype](0)
+        var norm_q = Scalar[dtype](0)
+        for j in range(dim):
+            var v = vectors[offset + j]
+            var q = query[j]
+            dot += v * q
+            norm_v += v * v
+            norm_q += q * q
+        var denom = math.sqrt(norm_v) * math.sqrt(norm_q)
+        if denom > 0:
+            result[tid] = dot / denom
+        else:
+            result[tid] = Scalar[dtype](0)
+
+
+fn _cosine_similarity_gpu[
+    T: DataType
+](
+    vectors: FixedSizeListArray[MemorySpace.DEVICE],
+    query: PrimitiveArray[T, MemorySpace.DEVICE],
+    n_vectors: Int,
+    dim: Int,
+    ctx: DeviceContext,
+) raises -> PrimitiveArray[T, MemorySpace.DEVICE]:
+    """GPU-accelerated batch cosine similarity on device-resident data."""
+    comptime native = T.native
+    comptime BLOCK_SIZE = 256
+
+    var n_values = n_vectors * dim
+
+    ref child = vectors.values
+    var vec_dev = child.buffers[0].device_buffer().create_sub_buffer[native](
+        0, n_values
+    )
+    var query_dev = query.buffer.device_buffer().create_sub_buffer[native](
+        0, dim
+    )
+
+    var out_dev = ctx.enqueue_create_buffer[native](n_vectors)
+
+    var num_blocks = math.ceildiv(n_vectors, BLOCK_SIZE)
+    comptime kernel = _cosine_similarity_gpu_kernel[native]
+    ctx.enqueue_function_experimental[kernel](
+        vec_dev,
+        query_dev,
+        out_dev,
+        n_vectors,
+        dim,
+        grid_dim=num_blocks,
+        block_dim=BLOCK_SIZE,
+    )
+
+    var bm = BitmapBuilder.alloc(n_vectors)
+    bm.unsafe_range_set(0, n_vectors, True)
+    var device_bytes = n_vectors * size_of[native]()
+    var buf = Buffer[MemorySpace.DEVICE].device_only(
+        out_dev.create_sub_buffer[DType.uint8](0, device_bytes), device_bytes
+    )
+    return PrimitiveArray[T, MemorySpace.DEVICE](
+        length=n_vectors,
+        offset=0,
+        bitmap=bm^.freeze().to_device(ctx),
+        buffer=buf^,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
 
 
 fn cosine_similarity[
@@ -141,8 +229,10 @@ fn cosine_similarity[
             )
         )
 
-    from .gpu import _cosine_similarity_gpu
-
-    return _cosine_similarity_gpu[T](
-        vectors, query, n_vectors, dim, ctx
-    )
+    @parameter
+    if has_accelerator():
+        return _cosine_similarity_gpu[T](vectors, query, n_vectors, dim, ctx)
+    else:
+        raise Error(
+            "cosine_similarity: no GPU accelerator available on this system"
+        )
