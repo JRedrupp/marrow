@@ -227,6 +227,16 @@ struct BufferBuilder(Movable):
         comptime output = Scalar[T]
         self.ptr.bitcast[output]()[index] = value
 
+    @always_inline
+    fn simd_load[T: DType, W: Int](self, index: Int) -> SIMD[T, W]:
+        """Load W elements of type T at element index `index`."""
+        return (self.ptr.bitcast[Scalar[T]]() + index).load[width=W]()
+
+    @always_inline
+    fn simd_store[T: DType, W: Int](mut self, index: Int, value: SIMD[T, W]):
+        """Store W elements of type T at element index `index`."""
+        (self.ptr.bitcast[Scalar[T]]() + index).store(value)
+
 
 # ---------------------------------------------------------------------------
 # Buffer — immutable buffer for read-only array data
@@ -371,6 +381,12 @@ struct Buffer[space: MemorySpace = MemorySpace.CPU](ImplicitlyCopyable, Movable)
         comptime output = Scalar[T]
         return self.ptr.bitcast[output]()[index]
 
+    @always_inline
+    fn simd_load[T: DType, W: Int](self, index: Int) -> SIMD[T, W]:
+        """Load W elements of type T at element index `index`."""
+        comptime assert Self.space != MemorySpace.DEVICE, "cannot read device buffer, call to_host() first"
+        return (self.ptr.bitcast[Scalar[T]]() + index).load[width=W]()
+
 
 # ---------------------------------------------------------------------------
 # BitmapBuilder — mutable bit-packed validity bitmap
@@ -423,6 +439,16 @@ struct BitmapBuilder(Movable, Stringable):
             self.buffer.ptr[byte_index] = (
                 self.buffer.ptr[byte_index] & ~bit_mask
             )
+
+    @always_inline
+    fn simd_load[W: Int](self, byte_offset: Int) -> SIMD[DType.uint8, W]:
+        """Load W bytes from the bitmap at byte offset `byte_offset`."""
+        return (self.buffer.ptr + byte_offset).load[width=W]()
+
+    @always_inline
+    fn simd_store[W: Int](mut self, byte_offset: Int, value: SIMD[DType.uint8, W]):
+        """Store W bytes to the bitmap at byte offset `byte_offset`."""
+        (self.buffer.ptr + byte_offset).store(value)
 
     @always_inline
     fn length(self) -> Int:
@@ -669,6 +695,12 @@ struct Bitmap[space: MemorySpace = MemorySpace.CPU](
     fn unsafe_get(self, index: Int) -> Bool:
         comptime assert Self.space != MemorySpace.DEVICE, "cannot read device bitmap, call to_host() first"
         return Bool((self.buffer.ptr[index // 8] >> UInt8(index % 8)) & 1)
+
+    @always_inline
+    fn simd_load[W: Int](self, byte_offset: Int) -> SIMD[DType.uint8, W]:
+        """Load W bytes from the bitmap at byte offset `byte_offset`."""
+        comptime assert Self.space != MemorySpace.DEVICE, "cannot read device bitmap, call to_host() first"
+        return (self.buffer.ptr + byte_offset).load[width=W]()
 
     @always_inline
     fn length(self) -> Int:

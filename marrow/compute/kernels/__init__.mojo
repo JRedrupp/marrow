@@ -77,19 +77,14 @@ fn bitmap_and(a: Bitmap, b: Bitmap, length: Int) -> Bitmap:
     """
     var byte_count = math.ceildiv(length, 8)
     var result = BitmapBuilder.alloc(length)
-    var rp = result.buffer.ptr
-    var ap = a.unsafe_ptr()
-    var bp = b.unsafe_ptr()
 
     comptime width = simd_byte_width()
     var i = 0
     while i + width <= byte_count:
-        (rp + i).store(
-            (ap + i).load[width=width]() & (bp + i).load[width=width]()
-        )
+        result.simd_store[width](i, a.simd_load[width](i) & b.simd_load[width](i))
         i += width
     while i < byte_count:
-        rp[i] = ap[i] & bp[i]
+        result.buffer.unsafe_set(i, a.buffer.unsafe_get(i) & b.buffer.unsafe_get(i))
         i += 1
 
     return result^.freeze()
@@ -158,15 +153,12 @@ fn unary_simd[
     var bm = Bitmap(copy=array.bitmap)
     var buf = BufferBuilder.alloc[native](length)
 
-    var ap = array.buffer.unsafe_ptr[native](array.offset)
-    var op = buf.unsafe_ptr[native]()
-
     var i = 0
     while i + width <= length:
-        (op + i).store(func[width]((ap + i).load[width=width]()))
+        buf.simd_store[native, width](i, func[width](array.buffer.simd_load[native, width](array.offset + i)))
         i += width
     while i < length:
-        op[i] = func[1](ap[i])
+        buf.unsafe_set[native](i, func[1](array.buffer.unsafe_get[native](array.offset + i)))
         i += 1
 
     return PrimitiveArray[T](
@@ -224,21 +216,21 @@ fn binary_simd[
 
     var bm = bitmap_and(left.bitmap, right.bitmap, length)
     var buf = BufferBuilder.alloc[native](length)
-
-    var lp = left.buffer.unsafe_ptr[native](left.offset)
-    var rp = right.buffer.unsafe_ptr[native](right.offset)
-    var op = buf.unsafe_ptr[native]()
+    ref lb = left.buffer
+    ref rb = right.buffer
 
     var i = 0
     while i + width <= length:
-        (op + i).store(
-            func[width](
-                (lp + i).load[width=width](), (rp + i).load[width=width]()
-            )
-        )
+        buf.simd_store[native, width](i, func[width](
+            lb.simd_load[native, width](left.offset + i),
+            rb.simd_load[native, width](right.offset + i),
+        ))
         i += width
     while i < length:
-        op[i] = func[1](lp[i], rp[i])
+        buf.unsafe_set[native](i, func[1](
+            lb.unsafe_get[native](left.offset + i),
+            rb.unsafe_get[native](right.offset + i),
+        ))
         i += 1
 
     return PrimitiveArray[T](
@@ -352,7 +344,6 @@ fn reduce_simd[
     comptime native = T.native
     comptime width = simd_byte_width() // size_of[native]()
     var length = len(array)
-    var ap = array.buffer.unsafe_ptr[native](array.offset)
     var bp = array.bitmap.unsafe_ptr()
 
     var acc = SIMD[native, width](initial)
@@ -360,7 +351,7 @@ fn reduce_simd[
     var i = 0
 
     while i + width <= length:
-        var vec = (ap + i).load[width=width]()
+        var vec = array.buffer.simd_load[native, width](array.offset + i)
         var mask = _bitmap_mask[native, width](bp, array.offset + i)
         acc = combine[width](acc, mask.select(vec, identity_vec))
         i += width
@@ -369,7 +360,7 @@ fn reduce_simd[
 
     while i < length:
         if array.is_valid(i):
-            result = combine[1](result, ap[i])
+            result = combine[1](result, array.buffer.unsafe_get[native](array.offset + i))
         i += 1
 
     return result
