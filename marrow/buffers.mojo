@@ -28,8 +28,9 @@ Bitmap operations
 -----------------
 Validity bitmaps are stored as plain `Buffer` / `BufferBuilder` with bit-packed
 bytes (1 bit per element, LSB first, matching the Arrow specification). Free
-functions `bitmap_get`, `bitmap_set`, `bitmap_range_set`, `bitmap_extend`, and
-`bitmap_count_ones` operate directly on raw `UnsafePointer[UInt8]`.
+functions `bitmap_range_set`, `bitmap_extend`, and `bitmap_count_ones` operate
+directly on raw `UnsafePointer[UInt8]`. `Buffer.unsafe_get[DType.bool]` and
+`BufferBuilder.unsafe_set[DType.bool]` handle bit-packed values.
 """
 
 from memory import (
@@ -179,19 +180,19 @@ struct BufferBuilder(Movable):
         self.ptr = ptr
         self.size = size
 
-    # TODO: remove this, use alloc[Dtype.bool] instead
-    @staticmethod
-    fn alloc_bits[I: Intable](n_bits: I) -> BufferBuilder:
-        """Allocate a zeroed buffer large enough to hold n_bits bit-packed values.
-        """
-        return BufferBuilder.alloc(math.ceildiv(Int(n_bits), 8))
-
     @staticmethod
     fn alloc[
         I: Intable, //, T: DType = DType.uint8
     ](length: I) -> BufferBuilder:
-        """Allocate a 64-byte-aligned buffer for `length` elements of type T."""
-        var byte_size = math.align_up(Int(length) * size_of[T](), 64)
+        """Allocate a 64-byte-aligned buffer for `length` elements of type T.
+
+        For DType.bool, `length` is the number of bits; the buffer will hold
+        ceildiv(length, 8) bytes, zero-padded to a 64-byte boundary.
+        """
+        comptime if T == DType.bool:
+            var byte_size = math.align_up(math.ceildiv(Int(length), 8), 64)
+        else:
+            var byte_size = math.align_up(Int(length) * size_of[T](), 64)
         var ptr = alloc[UInt8](byte_size, alignment=64)
         memset_zero(ptr, byte_size)
         return BufferBuilder(ptr, byte_size)
@@ -221,49 +222,21 @@ struct BufferBuilder(Movable):
         )
         return result^
 
-    # TODO: remove it in favor of resize[Dtype.bool]
-    fn resize_bits[I: Intable](mut self, bit_length: I, bit_start: Int = 0):
-        """Resize as a bit-packed bitmap, shifting bits if bit_start is non-zero.
+    fn resize[I: Intable, //, T: DType = DType.uint8](mut self, length: I):
+        """Resize the buffer to hold `length` elements of type T.
+
+        For DType.bool, `length` is the number of bits.
         """
-        var byte_start = bit_start // 8
-        var sub_bit = bit_start % 8
-        var new_byte_count = math.ceildiv(Int(bit_length), 8)
-        var new = BufferBuilder.alloc(new_byte_count)
-        if sub_bit == 0:
-            var available = self.size - byte_start
-            memcpy(
-                dest=new.ptr,
-                src=self.ptr + byte_start,
-                count=min(new_byte_count, available),
-            )
-        else:
-            for i in range(new_byte_count):
-                var src_idx = byte_start + i
-                var lo = UInt8(0)
-                var hi = UInt8(0)
-                if src_idx < self.size:
-                    lo = self.ptr[src_idx] >> UInt8(sub_bit)
-                if src_idx + 1 < self.size:
-                    hi = self.ptr[src_idx + 1] << UInt8(8 - sub_bit)
-                new.ptr[i] = lo | hi
-        swap(self, new)
-
-    fn resize[
-        I: Intable, //, T: DType = DType.uint8
-    ](mut self, length: I, start: Int = 0):
-        comptime elem_bytes = size_of[T]()
         var new = BufferBuilder.alloc[T](length)
-        memcpy(
-            dest=new.ptr,
-            src=self.ptr + (start * elem_bytes),
-            count=min(self.size - start * elem_bytes, Int(length) * elem_bytes),
-        )
+        memcpy(dest=new.ptr, src=self.ptr, count=min(new.size, self.size))
         swap(self, new)
 
-    # TODO: add special case for Dtype.bool
     @always_inline
     fn length[T: DType = DType.uint8](self) -> Int:
-        return self.size // size_of[T]()
+        comptime if T == DType.bool:
+            return self.size * 8
+        else:
+            return self.size // size_of[T]()
 
     @always_inline
     fn unsafe_ptr[
@@ -271,18 +244,27 @@ struct BufferBuilder(Movable):
     ](self) -> UnsafePointer[Scalar[T], MutExternalOrigin]:
         return self.ptr.bitcast[Scalar[T]]()
 
-    # TODO: would be nice to remove
     @always_inline
     fn unsafe_get[T: DType = DType.uint8](self, index: Int) -> Scalar[T]:
-        comptime output = Scalar[T]
-        return self.ptr.bitcast[output]()[index]
+        comptime if T == DType.bool:
+            var byte = self.ptr[index // 8]
+            return Scalar[DType.bool]((byte >> UInt8(index % 8)) & 1)
+        else:
+            comptime output = Scalar[T]
+            return self.ptr.bitcast[output]()[index]
 
     @always_inline
-    fn unsafe_set[
-        T: DType = DType.uint8
-    ](mut self, index: Int, value: Scalar[T]):
-        comptime output = Scalar[T]
-        self.ptr.bitcast[output]()[index] = value
+    fn unsafe_set[T: DType = DType.uint8](mut self, index: Int, value: Scalar[T]):
+        comptime if T == DType.bool:
+            var byte_index = index // 8
+            var bit_mask = UInt8(1 << (index % 8))
+            if value:
+                self.ptr[byte_index] = self.ptr[byte_index] | bit_mask
+            else:
+                self.ptr[byte_index] = self.ptr[byte_index] & ~bit_mask
+        else:
+            comptime output = Scalar[T]
+            self.ptr.bitcast[output]()[index] = value
 
     # TODO: would be nice to remove
     @always_inline
@@ -341,13 +323,6 @@ struct Buffer(ImplicitlyCopyable, Movable):
         self.space = copy.space
         self.dealloc = copy.dealloc
         self._device = copy._device
-
-    @staticmethod
-    fn alloc_bits[I: Intable](n_bits: I) -> Buffer:
-        """Allocate a zeroed buffer large enough to hold n_bits bit-packed values.
-        """
-        var b = BufferBuilder.alloc_bits(n_bits)
-        return b.finish()
 
     @staticmethod
     fn foreign_view[
@@ -426,10 +401,12 @@ struct Buffer(ImplicitlyCopyable, Movable):
         ctx.synchronize()
         return builder.finish()
 
-    # TODO: use Dtype.bool specialization
     @always_inline
     fn length[T: DType = DType.uint8](self) -> Int:
-        return self.size // size_of[T]()
+        comptime if T == DType.bool:
+            return self.size * 8
+        else:
+            return self.size // size_of[T]()
 
     @always_inline
     fn unsafe_ptr[
@@ -448,8 +425,12 @@ struct Buffer(ImplicitlyCopyable, Movable):
             self.space != MemorySpace.DEVICE,
             "cannot read device buffer, call to_host() first",
         )
-        comptime output = Scalar[T]
-        return self.ptr.bitcast[output]()[index]
+        comptime if T == DType.bool:
+            var byte = self.ptr[index // 8]
+            return Scalar[DType.bool]((byte >> UInt8(index % 8)) & 1)
+        else:
+            comptime output = Scalar[T]
+            return self.ptr.bitcast[output]()[index]
 
     @always_inline
     fn simd_load[T: DType, W: Int](self, index: Int) -> SIMD[T, W]:
@@ -465,28 +446,6 @@ struct Buffer(ImplicitlyCopyable, Movable):
 # Bitmap free functions — operate on raw UnsafePointer[UInt8]
 # ---------------------------------------------------------------------------
 
-
-# TODO: move it to unsafe_get with Dtype.bool specialization
-@always_inline
-fn bitmap_get(
-    ptr: UnsafePointer[UInt8, ImmutExternalOrigin], index: Int
-) -> Bool:
-    """Read the bit at `index` from a bit-packed bitmap byte array."""
-    return Bool((ptr[index // 8] >> UInt8(index % 8)) & 1)
-
-
-# TODO: move it to unsafe_set with Dtype.bool specialization
-@always_inline
-fn bitmap_set(
-    ptr: UnsafePointer[UInt8, MutExternalOrigin], index: Int, value: Bool
-):
-    """Write `value` to bit `index` in a bit-packed bitmap byte array."""
-    var byte_index = index // 8
-    var bit_mask = UInt8(1 << (index % 8))
-    if value:
-        ptr[byte_index] = ptr[byte_index] | bit_mask
-    else:
-        ptr[byte_index] = ptr[byte_index] & ~bit_mask
 
 
 # TODO: remove it
@@ -561,7 +520,13 @@ fn bitmap_extend(
     """Copy `length` bits from `src` (starting at bit 0) into `dst` at `dst_start`.
     """
     for i in range(length):
-        bitmap_set(dst, dst_start + i, bitmap_get(src, i))
+        var bit = Bool((src[i // 8] >> UInt8(i % 8)) & 1)
+        var byte_index = (dst_start + i) // 8
+        var bit_mask = UInt8(1 << ((dst_start + i) % 8))
+        if bit:
+            dst[byte_index] = dst[byte_index] | bit_mask
+        else:
+            dst[byte_index] = dst[byte_index] & ~bit_mask
 
 
 # TODO: move it to kernels

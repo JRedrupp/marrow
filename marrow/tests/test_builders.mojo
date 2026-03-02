@@ -23,7 +23,6 @@ from marrow.builders import (
     nulls,
     arange,
 )
-from marrow.buffers import bitmap_get
 from marrow.dtypes import *
 
 
@@ -510,7 +509,7 @@ def test_struct_builder_append_valid():
     assert_equal(frozen.dtype.fields[1].name, "score")
     # All entries valid
     for i in range(3):
-        assert_true(bitmap_get(frozen.bitmap.unsafe_ptr(), i))
+        assert_true(frozen.bitmap.unsafe_get[DType.bool](i))
 
 
 def test_struct_builder_append_null():
@@ -528,8 +527,8 @@ def test_struct_builder_append_null():
     sb.append_null()
     var frozen = sb.finish()
     assert_equal(frozen.length, 2)
-    assert_true(bitmap_get(frozen.bitmap.unsafe_ptr(), 0))
-    assert_false(bitmap_get(frozen.bitmap.unsafe_ptr(), 1))
+    assert_true(frozen.bitmap.unsafe_get[DType.bool](0))
+    assert_false(frozen.bitmap.unsafe_get[DType.bool](1))
 
 
 def test_struct_builder_field_values_accessible():

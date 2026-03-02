@@ -20,7 +20,6 @@ from .buffers import (
     Buffer,
     BufferBuilder,
     MemorySpace,
-    bitmap_get,
     bitmap_extend,
     bitmap_count_ones,
 )
@@ -125,7 +124,7 @@ struct Array(Copyable, Movable, Stringable):
         self.offset = take.offset
 
     fn is_valid(self, index: Int) -> Bool:
-        return bitmap_get(self.bitmap.unsafe_ptr(), index + self.offset)
+        return self.bitmap.unsafe_get[DType.bool](index + self.offset)
 
     fn __str__(self) -> String:
         from .pretty import ArrayPrinter
@@ -218,11 +217,11 @@ struct BoolArray(Movable, Sized):
 
     @always_inline
     fn is_valid(self, index: Int) -> Bool:
-        return bitmap_get(self.bitmap.unsafe_ptr(), index + self.offset)
+        return self.bitmap.unsafe_get[DType.bool](index + self.offset)
 
     @always_inline
     fn unsafe_get(self, index: Int) -> Bool:
-        return bitmap_get(self.values.unsafe_ptr(), index + self.offset)
+        return self.values.unsafe_get[DType.bool](index + self.offset)
 
     fn __getitem__(self, index: Int) raises -> Bool:
         if index < 0 or index >= self.length:
@@ -276,7 +275,7 @@ struct PrimitiveArray[T: DataType](Movable, Sized):
 
     @always_inline
     fn is_valid(self, index: Int) -> Bool:
-        return bitmap_get(self.bitmap.unsafe_ptr(), index + self.offset)
+        return self.bitmap.unsafe_get[DType.bool](index + self.offset)
 
     @always_inline
     fn unsafe_get(self, index: Int) -> Self.scalar:
@@ -367,7 +366,7 @@ struct StringArray(Movable, Sized):
 
     fn is_valid(self, index: Int) -> Bool:
         """Return True if the element at the given index is not null."""
-        return bitmap_get(self.bitmap.unsafe_ptr(), index + self.offset)
+        return self.bitmap.unsafe_get[DType.bool](index + self.offset)
 
     fn unsafe_get[
         self_origin: Origin[mut=False], //
@@ -438,7 +437,7 @@ struct ListArray(Movable, Sized):
         return self.length
 
     fn is_valid(self, index: Int) -> Bool:
-        return bitmap_get(self.bitmap.unsafe_ptr(), index + self.offset)
+        return self.bitmap.unsafe_get[DType.bool](index + self.offset)
 
     fn unsafe_get(self, index: Int, out array_data: Array) raises:
         """Access the value at a given index in the list array.
@@ -497,7 +496,7 @@ struct FixedSizeListArray(Movable, Sized):
         return self.length
 
     fn is_valid(self, index: Int) -> Bool:
-        return bitmap_get(self.bitmap.unsafe_ptr(), index + self.offset)
+        return self.bitmap.unsafe_get[DType.bool](index + self.offset)
 
     fn unsafe_get(self, index: Int, out array_data: Array) raises:
         var list_size = self.dtype.size
@@ -617,7 +616,7 @@ struct ChunkedArray(Stringable):
 
     fn combine_chunks(var self, out combined: Array):
         """Combines all chunks into a single array."""
-        var bitmap = BufferBuilder.alloc_bits(self.length)
+        var bitmap = BufferBuilder.alloc[DType.bool](self.length)
         var buffers = List[Buffer]()
         var children = List[Array]()
         var start = 0

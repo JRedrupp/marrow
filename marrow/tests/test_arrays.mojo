@@ -13,9 +13,7 @@ from marrow.dtypes import *
 from marrow.buffers import (
     Buffer,
     BufferBuilder,
-    bitmap_set,
     bitmap_range_set,
-    bitmap_get,
 )
 from marrow.compute.filter import drop_nulls
 from reflection import call_location
@@ -35,7 +33,7 @@ def assert_bitmap_set(
             if expected_true_pos[list_pos] == i:
                 expected_value = True
                 list_pos += 1
-        var current_value = bitmap_get(ptr, i)
+        var current_value = Bool((ptr[i // 8] >> UInt8(i % 8)) & 1)
         assert_equal(
             current_value,
             expected_value,
@@ -52,7 +50,7 @@ def assert_bitmap_set(
 def test_array_data_with_offset():
     """Test ArrayData with offset functionality."""
     # Create ArrayData with offset
-    var bitmap = BufferBuilder.alloc_bits(10)
+    var bitmap = BufferBuilder.alloc[DType.bool](10)
     var buffer = BufferBuilder.alloc[int8.native](10)
 
     # Set some data in the buffer
@@ -61,9 +59,9 @@ def test_array_data_with_offset():
     buffer.unsafe_set[int8.native](4, 300)
 
     # Set validity bits
-    bitmap_set(bitmap.ptr, 2, True)
-    bitmap_set(bitmap.ptr, 3, True)
-    bitmap_set(bitmap.ptr, 4, True)
+    bitmap.unsafe_set[DType.bool](2, True)
+    bitmap.unsafe_set[DType.bool](3, True)
+    bitmap.unsafe_set[DType.bool](4, True)
 
     # Create ArrayData with offset=2
     var buffers = List[Buffer]()
@@ -88,7 +86,7 @@ def test_array_data_with_offset():
 
 def test_array_data_fieldwise_init():
     """Test that @fieldwise_init decorator works with offset field."""
-    var bitmap_b = BufferBuilder.alloc_bits(5)
+    var bitmap_b = BufferBuilder.alloc[DType.bool](5)
     var bitmap = bitmap_b.finish()
     var buffer_b = BufferBuilder.alloc[int8.native](5)
     var buffer = buffer_b.finish()
@@ -142,7 +140,7 @@ def test_array_copy():
     var src_buffers = List[Buffer]()
     var _sb = BufferBuilder.alloc[int8.native](3)
     src_buffers.append(_sb.finish())
-    var _bb = BufferBuilder.alloc_bits(3)
+    var _bb = BufferBuilder.alloc[DType.bool](3)
     var src = Array(
         dtype=materialize[int8](),
         length=3,
@@ -165,7 +163,7 @@ def test_array_move():
     var a_buffers = List[Buffer]()
     var _ab = BufferBuilder.alloc[int8.native](5)
     a_buffers.append(_ab.finish())
-    var _bb2 = BufferBuilder.alloc_bits(5)
+    var _bb2 = BufferBuilder.alloc[DType.bool](5)
     var a = Array(
         dtype=materialize[int8](),
         length=5,

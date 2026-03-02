@@ -76,7 +76,7 @@ fn bitmap_and(a: Buffer, b: Buffer, length: Int) -> Buffer:
         A new Buffer where result[i] = a[i] AND b[i] (bit-packed).
     """
     var byte_count = math.ceildiv(length, 8)
-    var result = BufferBuilder.alloc_bits(length)
+    var result = BufferBuilder.alloc[DType.bool](length)
 
     comptime width = simd_byte_width()
     var i = 0
@@ -475,7 +475,7 @@ fn binary_gpu[
         block_dim=BLOCK_SIZE,
     )
 
-    var bm = BufferBuilder.alloc_bits(length)
+    var bm = BufferBuilder.alloc[DType.bool](length)
     bitmap_range_set(bm.ptr, 0, length, True)
     var device_bytes = length * size_of[native]()
     var buf = Buffer.device_only(

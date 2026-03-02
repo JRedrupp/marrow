@@ -26,7 +26,7 @@ Example
 
 from memory import memcpy, ArcPointer
 from sys import size_of
-from .buffers import Buffer, BufferBuilder, bitmap_set, bitmap_count_ones
+from .buffers import Buffer, BufferBuilder, bitmap_count_ones
 from .dtypes import *
 from .arrays import (
     Array,
@@ -183,8 +183,8 @@ struct BoolBuilder(Movable, Sized):
                 dtype=materialize[bool_](),
                 length=0,
                 capacity=capacity,
-                bitmap=BufferBuilder.alloc_bits(capacity),
-                buffers=[ArcPointer(BufferBuilder.alloc_bits(capacity))],
+                bitmap=BufferBuilder.alloc[DType.bool](capacity),
+                buffers=[ArcPointer(BufferBuilder.alloc[DType.bool](capacity))],
                 children=List[ArcPointer[BuilderData]](),
             )
         )
@@ -193,23 +193,23 @@ struct BoolBuilder(Movable, Sized):
         return self.data[].length
 
     fn grow(mut self, capacity: Int):
-        self.data[].bitmap.resize_bits(capacity)
-        self.data[].buffers[0][].resize_bits(capacity)
+        self.data[].bitmap.resize[DType.bool](capacity)
+        self.data[].buffers[0][].resize[DType.bool](capacity)
         self.data[].capacity = capacity
 
     @always_inline
     fn append(mut self, value: Bool):
         if self.data[].length >= self.data[].capacity:
             self.grow(max(self.data[].capacity * 2, self.data[].length + 1))
-        bitmap_set(self.data[].bitmap.ptr, self.data[].length, True)
-        bitmap_set(self.data[].buffers[0][].ptr, self.data[].length, value)
+        self.data[].bitmap.unsafe_set[DType.bool](self.data[].length, True)
+        self.data[].buffers[0][].unsafe_set[DType.bool](self.data[].length, value)
         self.data[].length += 1
 
     @always_inline
     fn append_null(mut self):
         if self.data[].length >= self.data[].capacity:
             self.grow(max(self.data[].capacity * 2, self.data[].length + 1))
-        bitmap_set(self.data[].bitmap.ptr, self.data[].length, False)
+        self.data[].bitmap.unsafe_set[DType.bool](self.data[].length, False)
         self.data[].length += 1
 
     fn finish(mut self) raises -> BoolArray:
@@ -238,7 +238,7 @@ struct PrimitiveBuilder[T: DataType](Movable, Sized):
                 dtype=materialize[Self.T](),
                 length=0,
                 capacity=capacity,
-                bitmap=BufferBuilder.alloc_bits(capacity),
+                bitmap=BufferBuilder.alloc[DType.bool](capacity),
                 buffers=[
                     ArcPointer(BufferBuilder.alloc[Self.T.native](capacity))
                 ],
@@ -250,7 +250,7 @@ struct PrimitiveBuilder[T: DataType](Movable, Sized):
         return self.data[].length
 
     fn grow(mut self, capacity: Int):
-        self.data[].bitmap.resize_bits(capacity)
+        self.data[].bitmap.resize[DType.bool](capacity)
         self.data[].buffers[0][].resize[Self.T.native](capacity)
         self.data[].capacity = capacity
 
@@ -258,7 +258,7 @@ struct PrimitiveBuilder[T: DataType](Movable, Sized):
     fn append(mut self, value: Self.scalar):
         if self.data[].length >= self.data[].capacity:
             self.grow(max(self.data[].capacity * 2, self.data[].length + 1))
-        bitmap_set(self.data[].bitmap.ptr, self.data[].length, True)
+        self.data[].bitmap.unsafe_set[DType.bool](self.data[].length, True)
         self.data[].buffers[0][].unsafe_set[Self.T.native](
             self.data[].length, value
         )
@@ -268,7 +268,7 @@ struct PrimitiveBuilder[T: DataType](Movable, Sized):
     fn append_null(mut self):
         if self.data[].length >= self.data[].capacity:
             self.grow(max(self.data[].capacity * 2, self.data[].length + 1))
-        bitmap_set(self.data[].bitmap.ptr, self.data[].length, False)
+        self.data[].bitmap.unsafe_set[DType.bool](self.data[].length, False)
         self.data[].length += 1
 
     fn extend(mut self, values: List[Self.scalar]):
@@ -304,7 +304,7 @@ struct StringBuilder(Movable, Sized):
                 dtype=materialize[string](),
                 length=0,
                 capacity=capacity,
-                bitmap=BufferBuilder.alloc_bits(capacity),
+                bitmap=BufferBuilder.alloc[DType.bool](capacity),
                 buffers=[
                     ArcPointer(offsets^),
                     ArcPointer(BufferBuilder.alloc[DType.uint8](capacity)),
@@ -317,7 +317,7 @@ struct StringBuilder(Movable, Sized):
         return self.data[].length
 
     fn grow(mut self, capacity: Int):
-        self.data[].bitmap.resize_bits(capacity)
+        self.data[].bitmap.resize[DType.bool](capacity)
         self.data[].buffers[0][].resize[DType.uint32](capacity + 1)
         self.data[].capacity = capacity
 
@@ -328,7 +328,7 @@ struct StringBuilder(Movable, Sized):
         var last_offset = self.data[].buffers[0][].ptr.bitcast[UInt32]()[index]
         var next_offset = last_offset + UInt32(len(value))
         self.data[].length += 1
-        bitmap_set(self.data[].bitmap.ptr, index, True)
+        self.data[].bitmap.unsafe_set[DType.bool](index, True)
         self.data[].buffers[0][].unsafe_set[DType.uint32](
             index + 1, next_offset
         )
@@ -345,7 +345,7 @@ struct StringBuilder(Movable, Sized):
         var index = self.data[].length
         var last_offset = self.data[].buffers[0][].ptr.bitcast[UInt32]()[index]
         self.data[].length += 1
-        bitmap_set(self.data[].bitmap.ptr, index, False)
+        self.data[].bitmap.unsafe_set[DType.bool](index, False)
         self.data[].buffers[0][].unsafe_set[DType.uint32](
             index + 1, last_offset
         )
@@ -377,7 +377,7 @@ struct ListBuilder(Movable, Sized):
                 dtype=list_(child_dtype^),
                 length=0,
                 capacity=capacity,
-                bitmap=BufferBuilder.alloc_bits(capacity),
+                bitmap=BufferBuilder.alloc[DType.bool](capacity),
                 buffers=[ArcPointer(offsets^)],
                 children=[child.data],
             )
@@ -390,14 +390,14 @@ struct ListBuilder(Movable, Sized):
         return Builder(self.data[].children[0])
 
     fn grow(mut self, capacity: Int):
-        self.data[].bitmap.resize_bits(capacity)
+        self.data[].bitmap.resize[DType.bool](capacity)
         self.data[].buffers[0][].resize[DType.uint32](capacity + 1)
         self.data[].capacity = capacity
 
     fn append(mut self, is_valid: Bool):
         if self.data[].length >= self.data[].capacity:
             self.grow(max(self.data[].capacity * 2, self.data[].length + 1))
-        bitmap_set(self.data[].bitmap.ptr, self.data[].length, is_valid)
+        self.data[].bitmap.unsafe_set[DType.bool](self.data[].length, is_valid)
         var child_length = self.data[].children[0][].length
         self.data[].buffers[0][].unsafe_set[DType.uint32](
             self.data[].length + 1, UInt32(child_length)
@@ -433,7 +433,7 @@ struct FixedSizeListBuilder(Movable, Sized):
                 dtype=fixed_size_list_(child_dtype^, list_size),
                 length=0,
                 capacity=capacity,
-                bitmap=BufferBuilder.alloc_bits(capacity),
+                bitmap=BufferBuilder.alloc[DType.bool](capacity),
                 buffers=List[ArcPointer[BufferBuilder]](),
                 children=[child.data],
             )
@@ -446,13 +446,13 @@ struct FixedSizeListBuilder(Movable, Sized):
         return Builder(self.data[].children[0])
 
     fn grow(mut self, capacity: Int):
-        self.data[].bitmap.resize_bits(capacity)
+        self.data[].bitmap.resize[DType.bool](capacity)
         self.data[].capacity = capacity
 
     fn append(mut self, is_valid: Bool):
         if self.data[].length >= self.data[].capacity:
             self.grow(max(self.data[].capacity * 2, self.data[].length + 1))
-        bitmap_set(self.data[].bitmap.ptr, self.data[].length, is_valid)
+        self.data[].bitmap.unsafe_set[DType.bool](self.data[].length, is_valid)
         self.data[].length += 1
 
     fn append_null(mut self):
@@ -489,7 +489,7 @@ struct StructBuilder(Movable, Sized):
                 dtype=struct_(fields),
                 length=0,
                 capacity=capacity,
-                bitmap=BufferBuilder.alloc_bits(capacity),
+                bitmap=BufferBuilder.alloc[DType.bool](capacity),
                 buffers=List[ArcPointer[BufferBuilder]](),
                 children=children^,
             )
@@ -502,13 +502,13 @@ struct StructBuilder(Movable, Sized):
         return Builder(self.data[].children[index])
 
     fn grow(mut self, capacity: Int):
-        self.data[].bitmap.resize_bits(capacity)
+        self.data[].bitmap.resize[DType.bool](capacity)
         self.data[].capacity = capacity
 
     fn append(mut self, is_valid: Bool):
         if self.data[].length >= self.data[].capacity:
             self.grow(max(self.data[].capacity * 2, self.data[].length + 1))
-        bitmap_set(self.data[].bitmap.ptr, self.data[].length, is_valid)
+        self.data[].bitmap.unsafe_set[DType.bool](self.data[].length, is_valid)
         self.data[].length += 1
 
     fn append_null(mut self):

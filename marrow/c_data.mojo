@@ -270,7 +270,7 @@ struct CArrowArray(Movable):
         else:
             # bitmaps are allowed to be nullptrs by the specification; in this
             # case we allocate a new owned buffer to hold the validity bitmap.
-            var bm = BufferBuilder.alloc_bits(Int(self.length))
+            var bm = BufferBuilder.alloc[DType.bool](Int(self.length))
             bitmap_range_set(bm.ptr, 0, Int(self.length), True)
             bitmap = bm.finish()
 

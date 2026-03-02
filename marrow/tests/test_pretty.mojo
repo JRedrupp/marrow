@@ -1,7 +1,7 @@
 from testing import assert_equal, TestSuite
 
 from marrow.arrays import *
-from marrow.buffers import bitmap_range_set, bitmap_set
+from marrow.buffers import bitmap_range_set
 from marrow.builders import (
     Builder,
     ListBuilder,
@@ -221,7 +221,7 @@ def test_format_mixed_nulls():
     var b = PrimitiveBuilder[int32](5)
     b.append(1)
     b.append(2)
-    bitmap_set(b.data[].bitmap.ptr, 2, False)
+    b.data[].bitmap.unsafe_set[DType.bool](2, False)
     b.data[].length = 3
     b.append(4)
     assert_equal(

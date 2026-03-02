@@ -154,7 +154,7 @@ fn _cosine_similarity_gpu[
         block_dim=BLOCK_SIZE,
     )
 
-    var bm = BufferBuilder.alloc_bits(n_vectors)
+    var bm = BufferBuilder.alloc[DType.bool](n_vectors)
     bitmap_range_set(bm.ptr, 0, n_vectors, True)
     var device_bytes = n_vectors * size_of[native]()
     var buf = Buffer.device_only(
