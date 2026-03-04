@@ -1,4 +1,4 @@
-from testing import assert_equal, TestSuite
+from std.testing import assert_equal, TestSuite
 
 from marrow.arrays import array, Array, PrimitiveArray, nulls
 from marrow.builders import PrimitiveBuilder

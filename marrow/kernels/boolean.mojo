@@ -1,6 +1,6 @@
 """Boolean and bitwise kernels."""
 
-import math
+import std.math as math
 
 from marrow.arrays import PrimitiveArray
 from marrow.buffers import bitmap_count_ones

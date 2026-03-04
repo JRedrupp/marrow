@@ -3,7 +3,7 @@
 Run with: pixi run bench_similarity
 """
 
-from sys import has_accelerator
+from std.sys import has_accelerator
 from time import perf_counter_ns
 
 from benchmark import keep

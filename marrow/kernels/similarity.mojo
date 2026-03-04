@@ -1,8 +1,8 @@
 """Batch cosine similarity kernel — CPU SIMD and GPU specializations."""
 
-import math
-from sys import size_of, has_accelerator
-from sys.info import simd_byte_width
+import std.math as math
+from std.sys import size_of, has_accelerator
+from std.sys.info import simd_byte_width
 
 from gpu import global_idx
 from gpu.host import DeviceBuffer, DeviceContext

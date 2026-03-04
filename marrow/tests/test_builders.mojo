@@ -1,7 +1,7 @@
 """Tests for array builders (BoolBuilder, PrimitiveBuilder, StringBuilder,
 ListBuilder, FixedSizeListBuilder, StructBuilder) and factory functions."""
 
-from testing import assert_equal, assert_true, assert_false, TestSuite
+from std.testing import assert_equal, assert_true, assert_false, TestSuite
 from marrow.arrays import (
     Array,
     BoolArray,

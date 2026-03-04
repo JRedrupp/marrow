@@ -15,8 +15,8 @@ handled inside Buffer via its internal ArcPointer[Allocation]).  Typed arrays
 convert to/from `Array` via implicit constructors and `as_*()` accessors.
 """
 
-from memory import memcpy
-from sys import size_of
+from std.memory import memcpy
+from std.sys import size_of
 from gpu.host import DeviceContext
 from .buffers import (
     Buffer,

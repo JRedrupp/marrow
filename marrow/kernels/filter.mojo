@@ -45,9 +45,9 @@ String filter composition
 Assumes `array.offset == 0` throughout (no slice support yet).
 """
 
-import math
-from bit import count_trailing_zeros
-from memory import memcpy
+import std.math as math
+from std.bit import count_trailing_zeros
+from std.memory import memcpy
 
 from marrow.arrays import PrimitiveArray, StringArray, Array
 from marrow.buffers import Buffer, BufferBuilder, bitmap_range_set, bitmap_count_ones

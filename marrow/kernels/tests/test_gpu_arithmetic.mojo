@@ -4,8 +4,8 @@ Requires GPU compilation tools (Xcode with Metal on macOS, CUDA on Linux).
 Skipped by the default test runner — run with: pixi run test_gpu
 """
 
-from testing import assert_equal, assert_true, TestSuite
-from sys import has_accelerator
+from std.testing import assert_equal, assert_true, TestSuite
+from std.sys import has_accelerator
 
 from gpu.host import DeviceContext
 

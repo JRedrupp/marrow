@@ -41,10 +41,10 @@ TODO: binary_gpu does not propagate null bitmaps; GPU-side bitmap_and is not
       yet implemented. All GPU kernel outputs are marked all-valid.
 """
 
-import math
-from math import iota
-from sys import size_of, has_accelerator
-from sys.info import simd_byte_width
+import std.math as math
+from std.math import iota
+from std.sys import size_of, has_accelerator
+from std.sys.info import simd_byte_width
 
 from gpu import global_idx
 from gpu.host import DeviceContext

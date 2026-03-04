@@ -1,11 +1,11 @@
-from ffi import external_call, c_char
-from memory import ArcPointer, memcpy
-from sys import size_of
+from std.ffi import external_call, c_char
+from std.memory import ArcPointer, memcpy
+from std.sys import size_of
 from .buffers import Allocation, Buffer, BufferBuilder, DeviceType, bitmap_range_set
 
-import math
-from python import Python, PythonObject
-from python._cpython import CPython, PyObjectPtr
+import std.math as math
+from std.python import Python, PythonObject
+from std.python._cpython import CPython, PyObjectPtr
 
 from .dtypes import *
 from .arrays import *

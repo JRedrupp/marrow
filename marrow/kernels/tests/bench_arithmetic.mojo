@@ -38,7 +38,7 @@ from benchmark import (
     keep,
 )
 
-from sys import has_accelerator
+from std.sys import has_accelerator
 from time import perf_counter_ns
 
 from gpu.host import DeviceContext

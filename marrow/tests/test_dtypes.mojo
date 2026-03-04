@@ -1,4 +1,4 @@
-from testing import assert_equal, assert_true, assert_false, TestSuite
+from std.testing import assert_equal, assert_true, assert_false, TestSuite
 import marrow.dtypes as dt
 
 

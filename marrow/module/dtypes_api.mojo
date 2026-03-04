@@ -1,6 +1,6 @@
 """Python interface for dtypes."""
 
-from python.bindings import PythonModuleBuilder, PythonObject
+from std.python.bindings import PythonModuleBuilder, PythonObject
 from marrow import dtypes
 
 

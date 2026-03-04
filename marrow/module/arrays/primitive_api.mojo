@@ -1,13 +1,13 @@
 """Python interface for primitive array."""
 
 from os import abort
-from python.bindings import PythonModuleBuilder, PythonObject
+from std.python.bindings import PythonModuleBuilder, PythonObject
 from marrow.dtypes import DataType
 from marrow.dtypes import *
 from marrow.arrays import Array
 from marrow.arrays import PrimitiveArray as _PrimitiveArray
 from marrow.builders import PrimitiveBuilder
-from python import Python
+from std.python import Python
 
 
 @fieldwise_init

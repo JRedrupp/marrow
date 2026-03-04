@@ -88,15 +88,15 @@ Validity bitmaps are plain `Buffer` / `BufferBuilder` with bit-packed bytes
 handle bit-packed access transparently.
 """
 
-from memory import (
+from std.memory import (
     memset_zero,
     memcpy,
     memset,
     ArcPointer,
 )
-from sys.info import simd_byte_width
-from sys import size_of
-import math
+from std.sys.info import simd_byte_width
+from std.sys import size_of
+import std.math as math
 from gpu.host import DeviceBuffer, DeviceContext, HostBuffer
 
 

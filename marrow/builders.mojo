@@ -26,8 +26,8 @@ Example
     child.append(1.0)   # child still usable — shared ArcPointer
 """
 
-from memory import memcpy, ArcPointer
-from sys import size_of
+from std.memory import memcpy, ArcPointer
+from std.sys import size_of
 from .buffers import Buffer, BufferBuilder, bitmap_range_set
 from .dtypes import *
 from .arrays import (

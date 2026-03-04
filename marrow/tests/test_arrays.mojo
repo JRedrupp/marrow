@@ -1,4 +1,4 @@
-from testing import assert_equal, assert_true, assert_false, TestSuite
+from std.testing import assert_equal, assert_true, assert_false, TestSuite
 from marrow.arrays import *
 from marrow.builders import (
     Builder,
@@ -16,7 +16,7 @@ from marrow.buffers import (
     bitmap_range_set,
 )
 from marrow.kernels.filter import drop_nulls
-from reflection import call_location
+from std.reflection import call_location
 
 
 @always_inline

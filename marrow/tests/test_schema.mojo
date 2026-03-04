@@ -1,6 +1,6 @@
 """Test the schema.mojo file."""
-from testing import assert_equal, assert_true, TestSuite
-from python import Python, PythonObject
+from std.testing import assert_equal, assert_true, TestSuite
+from std.python import Python, PythonObject
 from marrow.schema import Schema
 from marrow.dtypes import (
     int8,

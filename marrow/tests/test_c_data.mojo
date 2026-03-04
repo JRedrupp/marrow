@@ -1,5 +1,5 @@
-from testing import assert_equal, assert_true, assert_false, TestSuite
-from python import Python, PythonObject
+from std.testing import assert_equal, assert_true, assert_false, TestSuite
+from std.python import Python, PythonObject
 from marrow.c_data import *
 
 

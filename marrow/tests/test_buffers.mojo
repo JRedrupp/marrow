@@ -1,8 +1,8 @@
-import math
-from sys import has_accelerator
-from testing import assert_equal, assert_true, assert_false, TestSuite
-from reflection import call_location
-from memory import ArcPointer
+import std.math as math
+from std.sys import has_accelerator
+from std.testing import assert_equal, assert_true, assert_false, TestSuite
+from std.reflection import call_location
+from std.memory import ArcPointer
 from gpu.host import DeviceContext
 
 from marrow.buffers import *

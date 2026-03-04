@@ -13,7 +13,7 @@ Available reductions and their SIMD horizontal method:
   all_     — reduce_and,  identity = True   (bool arrays only)
 """
 
-import math
+import std.math as math
 
 from marrow.arrays import PrimitiveArray, Array
 

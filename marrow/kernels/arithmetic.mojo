@@ -9,7 +9,7 @@ between CPU and GPU paths. Since Scalar[T] = SIMD[T, 1], the GPU kernel calls
 each helper with W=1 per thread.
 """
 
-import math
+import std.math as math
 from gpu.host import DeviceContext
 
 from marrow.arrays import PrimitiveArray, Array
