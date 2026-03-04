@@ -64,7 +64,7 @@ def test_array_data_with_offset():
     var buffers = List[Buffer]()
     buffers.append(buffer.finish())
     var array_data = Array(
-        dtype=materialize[int8](),
+        dtype=int8,
         length=3,
         nulls=0,
         bitmap=bitmap.finish(),
@@ -92,7 +92,7 @@ def test_array_data_fieldwise_init():
     var buffers = List[Buffer]()
     buffers.append(buffer)
     var array_data = Array(
-        dtype=materialize[int8](),
+        dtype=int8,
         length=5,
         nulls=0,
         bitmap=bitmap,
@@ -101,7 +101,7 @@ def test_array_data_fieldwise_init():
         offset=3,
     )
 
-    assert_equal(array_data.dtype, materialize[int8]())
+    assert_equal(array_data.dtype, int8)
     assert_equal(array_data.length, 5)
     assert_equal(array_data.offset, 3)
 
@@ -127,7 +127,7 @@ def test_array_from_list():
 
 
 def test_array_from_struct():
-    var fields = [Field("x", materialize[int32]())]
+    var fields = [Field("x", int32)]
     var s = StructBuilder(fields^, List[Builder](), capacity=5)
     var a = s.finish()
     assert_true(a.dtype.is_struct())
@@ -139,7 +139,7 @@ def test_array_copy():
     src_buffers.append(_sb.finish())
     var _bb = BufferBuilder.alloc[DType.bool](3)
     var src = Array(
-        dtype=materialize[int8](),
+        dtype=int8,
         length=3,
         nulls=0,
         bitmap=_bb.finish(),
@@ -162,7 +162,7 @@ def test_array_move():
     a_buffers.append(_ab.finish())
     var _bb2 = BufferBuilder.alloc[DType.bool](5)
     var a = Array(
-        dtype=materialize[int8](),
+        dtype=int8,
         length=5,
         nulls=0,
         bitmap=_bb2.finish(),
@@ -172,7 +172,7 @@ def test_array_move():
     )
     var b = a^
     assert_equal(b.length, 5)
-    assert_equal(b.dtype, materialize[int8]())
+    assert_equal(b.dtype, int8)
 
 
 def test_boolean_array():
@@ -453,7 +453,7 @@ def test_fixed_size_list_int_array():
     builder.append(True)
     builder.append(True)
     assert_equal(
-        builder.data[].dtype, fixed_size_list_(materialize[int64](), 3)
+        builder.data[].dtype, fixed_size_list_(int64, 3)
     )
     assert_equal(len(builder), 2)
     var fsl = builder.finish()
@@ -563,8 +563,8 @@ def test_struct_array_unsafe_get():
     b_b.append(20)
     b_b.append(30)
     var fields = List[Field]()
-    fields.append(Field("int_data_a", materialize[int32]()))
-    fields.append(Field("int_data_b", materialize[int32]()))
+    fields.append(Field("int_data_a", int32))
+    fields.append(Field("int_data_b", int32))
     var children = List[Builder]()
     children.append(a_b)
     children.append(b_b)
@@ -590,7 +590,7 @@ def test_chunked_array():
     arrays.append(array[uint8]([0]))
     arrays.append(array[uint8]([0, 1]))
 
-    var chunked_array = ChunkedArray(materialize[int8](), arrays^)
+    var chunked_array = ChunkedArray(int8, arrays^)
     assert_equal(chunked_array.length, 3)
 
     assert_equal(chunked_array.chunk(0).length, 1)
@@ -605,14 +605,14 @@ def test_combine_chunked_array():
     arrays.append(array[uint8]([0]))
     arrays.append(array[uint8]([0, 1]))
 
-    var chunked_array = ChunkedArray(materialize[int8](), arrays^)
+    var chunked_array = ChunkedArray(int8, arrays^)
     assert_equal(chunked_array.length, 3)
     assert_equal(len(chunked_array.chunks), 2)
     assert_equal(chunked_array.chunk(1).copy().as_uint8().unsafe_get(1), 1)
 
     var combined_array = chunked_array^.combine_chunks()
     assert_equal(combined_array.length, 3)
-    assert_equal(combined_array.dtype, materialize[int8]())
+    assert_equal(combined_array.dtype, int8)
     # Ensure that the last element of the last buffer has the expected value.
     assert_equal(combined_array.buffers[1].unsafe_get(1), 1)
 

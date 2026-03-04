@@ -38,7 +38,7 @@ def test_chunked_array_default_dispatch():
     var chunks = List[Array]()
     chunks.append(Array(array[int64]([1, 2, 3])))
     chunks.append(Array(array[int64]([4, 5])))
-    var chunked = ChunkedArray(materialize[int64](), chunks^)
+    var chunked = ChunkedArray(int64, chunks^)
     var counter = ElementCounter()
     counter.visit(chunked)
     assert_equal(counter.count, 5)

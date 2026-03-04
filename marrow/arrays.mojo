@@ -48,7 +48,7 @@ struct Array(Copyable, Movable, Writable):
 
     @implicit
     fn __init__[T: DataType](out self, array: PrimitiveArray[T]):
-        self.dtype = materialize[T]()
+        self.dtype = T
         self.length = array.length
         self.nulls = array.nulls
         self.offset = array.offset
@@ -58,7 +58,7 @@ struct Array(Copyable, Movable, Writable):
 
     @implicit
     fn __init__(out self, array: StringArray):
-        self.dtype = materialize[string]()
+        self.dtype = string
         self.length = array.length
         self.nulls = array.nulls
         self.offset = array.offset
@@ -196,7 +196,7 @@ struct PrimitiveArray[T: DataType](Movable, Sized, Writable):
     var buffer: Buffer
 
     fn __init__(out self, ref data: Array, offset: Int = 0) raises:
-        if data.dtype != materialize[Self.T]():
+        if data.dtype != Self.T:
             # TODO: mojo hangs if we pass data.dtype directly despite that it properly satisfies Writable
             raise Error("Unexpected dtype '{}' instead of '{}'.".format(String(data.dtype), String(Self.T)))
         elif len(data.buffers) != 1:
@@ -299,7 +299,7 @@ struct StringArray(Movable, Sized, Writable):
         Raises:
             If the dtype is not string or the buffer count is wrong.
         """
-        if data.dtype != materialize[string]():
+        if data.dtype != string:
             raise Error(
                 "Unexpected dtype '{}' instead of 'string'.".format(String(data.dtype))
             )

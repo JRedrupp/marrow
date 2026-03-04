@@ -55,33 +55,33 @@ struct CArrowSchema(Copyable):
             UnsafePointer[CArrowSchema, MutAnyOrigin], MutAnyOrigin
         ]()
 
-        if dtype == materialize[null]():
+        if dtype == null:
             fmt = "n"
-        elif dtype == materialize[bool_]():
+        elif dtype == bool_:
             fmt = "b"
-        elif dtype == materialize[int8]():
+        elif dtype == int8:
             fmt = "c"
-        elif dtype == materialize[uint8]():
+        elif dtype == uint8:
             fmt = "C"
-        elif dtype == materialize[int16]():
+        elif dtype == int16:
             fmt = "s"
-        elif dtype == materialize[uint16]():
+        elif dtype == uint16:
             fmt = "S"
-        elif dtype == materialize[int32]():
+        elif dtype == int32:
             fmt = "i"
-        elif dtype == materialize[uint32]():
+        elif dtype == uint32:
             fmt = "I"
-        elif dtype == materialize[int64]():
+        elif dtype == int64:
             fmt = "l"
-        elif dtype == materialize[uint64]():
+        elif dtype == uint64:
             fmt = "L"
-        elif dtype == materialize[float16]():
+        elif dtype == float16:
             fmt = "e"
-        elif dtype == materialize[float32]():
+        elif dtype == float32:
             fmt = "f"
-        elif dtype == materialize[float64]():
+        elif dtype == float64:
             fmt = "g"
-        elif dtype == materialize[binary]():
+        elif dtype == binary:
             fmt = "z"
         elif dtype.is_string():
             fmt = "u"
@@ -146,35 +146,35 @@ struct CArrowSchema(Copyable):
         var fmt = StringSlice(unsafe_from_utf8_ptr=self.format)
         # TODO(kszucs): not the nicest, but dictionary literals are not supported yet
         if fmt == "n":
-            return materialize[null]()
+            return null
         elif fmt == "b":
-            return materialize[bool_]()
+            return bool_
         elif fmt == "c":
-            return materialize[int8]()
+            return int8
         elif fmt == "C":
-            return materialize[uint8]()
+            return uint8
         elif fmt == "s":
-            return materialize[int16]()
+            return int16
         elif fmt == "S":
-            return materialize[uint16]()
+            return uint16
         elif fmt == "i":
-            return materialize[int32]()
+            return int32
         elif fmt == "I":
-            return materialize[uint32]()
+            return uint32
         elif fmt == "l":
-            return materialize[int64]()
+            return int64
         elif fmt == "L":
-            return materialize[uint64]()
+            return uint64
         elif fmt == "e":
-            return materialize[float16]()
+            return float16
         elif fmt == "f":
-            return materialize[float32]()
+            return float32
         elif fmt == "g":
-            return materialize[float64]()
+            return float64
         elif fmt == "z":
-            return materialize[binary]()
+            return binary
         elif fmt == "u":
-            return materialize[string]()
+            return string
         elif fmt == "+l":
             var field = self.children[0][].to_field()
             return list_(field.dtype.copy())

@@ -15,9 +15,9 @@ def test_schema_from_pyarrow():
     var schema = c_schema.to_dtype()
 
     assert_equal(schema.fields[0].name, "int_field")
-    assert_equal(schema.fields[0].dtype, materialize[int32]())
+    assert_equal(schema.fields[0].dtype, int32)
     assert_equal(schema.fields[1].name, "string_field")
-    assert_equal(schema.fields[1].dtype, materialize[string]())
+    assert_equal(schema.fields[1].dtype, string)
 
 
 def test_primitive_array_from_pyarrow():
@@ -31,7 +31,7 @@ def test_primitive_array_from_pyarrow():
     var c_schema = CArrowSchema.from_pyarrow(pyarr.type)
 
     var dtype = c_schema.to_dtype()
-    assert_equal(dtype, materialize[int64]())
+    assert_equal(dtype, int64)
     assert_equal(c_array.length, 5)
     assert_equal(c_array.null_count, 1)
     assert_equal(c_array.offset, 0)
@@ -65,7 +65,7 @@ def test_binary_array_from_pyarrow():
     var c_schema = CArrowSchema.from_pyarrow(pyarr.type)
 
     var dtype = c_schema.to_dtype()
-    assert_equal(dtype, materialize[string]())
+    assert_equal(dtype, string)
 
     assert_equal(c_array.length, 3)
     assert_equal(c_array.null_count, 1)
@@ -101,7 +101,7 @@ def test_list_array_from_pyarrow():
     var c_schema = CArrowSchema.from_pyarrow(pyarr.type)
 
     var dtype = c_schema.to_dtype()
-    assert_equal(dtype, list_(materialize[int64]()))
+    assert_equal(dtype, list_(int64))
 
     assert_equal(c_array.length, 3)
     assert_equal(c_array.null_count, 1)
@@ -124,21 +124,21 @@ def test_list_array_from_pyarrow():
 
 
 def test_schema_from_dtype():
-    var c_schema = CArrowSchema.from_dtype(materialize[int32]())
+    var c_schema = CArrowSchema.from_dtype(int32)
     var dtype = c_schema.to_dtype()
-    assert_equal(dtype, materialize[int32]())
+    assert_equal(dtype, int32)
 
-    var c_schema_str = CArrowSchema.from_dtype(materialize[string]())
+    var c_schema_str = CArrowSchema.from_dtype(string)
     var dtype_str = c_schema_str.to_dtype()
-    assert_equal(dtype_str, materialize[string]())
+    assert_equal(dtype_str, string)
 
-    var c_schema_bool = CArrowSchema.from_dtype(materialize[bool_]())
+    var c_schema_bool = CArrowSchema.from_dtype(bool_)
     var dtype_bool = c_schema_bool.to_dtype()
-    assert_equal(dtype_bool, materialize[bool_]())
+    assert_equal(dtype_bool, bool_)
 
-    var c_schema_float64 = CArrowSchema.from_dtype(materialize[float64]())
+    var c_schema_float64 = CArrowSchema.from_dtype(float64)
     var dtype_float64 = c_schema_float64.to_dtype()
-    assert_equal(dtype_float64, materialize[float64]())
+    assert_equal(dtype_float64, float64)
 
 
 def test_schema_to_field():
@@ -149,7 +149,7 @@ def test_schema_to_field():
     var c_schema = CArrowSchema.from_pyarrow(pyfield)
     var field = c_schema.to_field()
     assert_equal(field.name, "test_field")
-    assert_equal(field.dtype, materialize[int32]())
+    assert_equal(field.dtype, int32)
     assert_equal(field.nullable, True)
 
     var pyfield_str = pa.field(
@@ -158,7 +158,7 @@ def test_schema_to_field():
     var c_schema_str = CArrowSchema.from_pyarrow(pyfield_str)
     var field_str = c_schema_str.to_field()
     assert_equal(field_str.name, "string_field")
-    assert_equal(field_str.dtype, materialize[string]())
+    assert_equal(field_str.dtype, string)
     assert_equal(field_str.nullable, False)
 
 
@@ -185,9 +185,9 @@ def test_arrow_array_stream():
     var schema = c_schema.to_dtype()
     assert_equal(len(schema.fields), 2)
     assert_equal(schema.fields[0].name, "col1")
-    assert_equal(schema.fields[0].dtype, materialize[int64]())
+    assert_equal(schema.fields[0].dtype, int64)
     assert_equal(schema.fields[1].name, "col2")
-    assert_equal(schema.fields[1].dtype, materialize[string]())
+    assert_equal(schema.fields[1].dtype, string)
 
     var c_array = array_stream.c_next()
     assert_equal(c_array.length, 5)
@@ -219,9 +219,9 @@ def test_struct_dtype_conversion():
     assert_true(dtype.is_struct())
     assert_equal(len(dtype.fields), 2)
     assert_equal(dtype.fields[0].name, "x")
-    assert_equal(dtype.fields[0].dtype, materialize[int32]())
+    assert_equal(dtype.fields[0].dtype, int32)
     assert_equal(dtype.fields[1].name, "y")
-    assert_equal(dtype.fields[1].dtype, materialize[float64]())
+    assert_equal(dtype.fields[1].dtype, float64)
 
 
 def test_list_dtype_conversion():
@@ -232,7 +232,7 @@ def test_list_dtype_conversion():
     var dtype = c_schema.to_dtype()
 
     assert_true(dtype.is_list())
-    assert_equal(dtype.fields[0].dtype, materialize[int32]())
+    assert_equal(dtype.fields[0].dtype, int32)
 
 
 def test_fixed_size_list_dtype_conversion():
@@ -245,7 +245,7 @@ def test_fixed_size_list_dtype_conversion():
 
     assert_true(dtype.is_fixed_size_list())
     assert_equal(dtype.size, 3)
-    assert_equal(dtype.fields[0].dtype, materialize[float32]())
+    assert_equal(dtype.fields[0].dtype, float32)
 
 
 def test_fixed_size_list_from_pyarrow():
@@ -293,16 +293,16 @@ def test_numeric_dtypes():
     var pa = Python.import_module("pyarrow")
 
     var types_to_test = [
-        (pa.int8(), materialize[int8]()),
-        (pa.uint8(), materialize[uint8]()),
-        (pa.int16(), materialize[int16]()),
-        (pa.uint16(), materialize[uint16]()),
-        (pa.int32(), materialize[int32]()),
-        (pa.uint32(), materialize[uint32]()),
-        (pa.int64(), materialize[int64]()),
-        (pa.uint64(), materialize[uint64]()),
-        (pa.float32(), materialize[float32]()),
-        (pa.float64(), materialize[float64]()),
+        (pa.int8(), int8),
+        (pa.uint8(), uint8),
+        (pa.int16(), int16),
+        (pa.uint16(), uint16),
+        (pa.int32(), int32),
+        (pa.uint32(), uint32),
+        (pa.int64(), int64),
+        (pa.uint64(), uint64),
+        (pa.float32(), float32),
+        (pa.float64(), float64),
     ]
 
     for i in range(len(types_to_test)):

@@ -6,91 +6,91 @@ from marrow import dtypes
 
 fn null() raises -> PythonObject:
     """Create a null DataType."""
-    var result = materialize[dtypes.null]()
+    var result = dtypes.null
     return PythonObject(alloc=result^)
 
 
 fn bool_() raises -> PythonObject:
     """Create a boolean DataType."""
-    var result = materialize[dtypes.bool_]()
+    var result = dtypes.bool_
     return PythonObject(alloc=result^)
 
 
 fn int8() raises -> PythonObject:
     """Create an int8 DataType."""
-    var result = materialize[dtypes.int8]()
+    var result = dtypes.int8
     return PythonObject(alloc=result^)
 
 
 fn int16() raises -> PythonObject:
     """Create an int16 DataType."""
-    var result = materialize[dtypes.int16]()
+    var result = dtypes.int16
     return PythonObject(alloc=result^)
 
 
 fn int32() raises -> PythonObject:
     """Create an int32 DataType."""
-    var result = materialize[dtypes.int32]()
+    var result = dtypes.int32
     return PythonObject(alloc=result^)
 
 
 fn int64() raises -> PythonObject:
     """Create an int64 DataType."""
-    var result = materialize[dtypes.int64]()
+    var result = dtypes.int64
     return PythonObject(alloc=result^)
 
 
 fn uint8() raises -> PythonObject:
     """Create a uint8 DataType."""
-    var result = materialize[dtypes.uint8]()
+    var result = dtypes.uint8
     return PythonObject(alloc=result^)
 
 
 fn uint16() raises -> PythonObject:
     """Create a uint16 DataType."""
-    var result = materialize[dtypes.uint16]()
+    var result = dtypes.uint16
     return PythonObject(alloc=result^)
 
 
 fn uint32() raises -> PythonObject:
     """Create a uint32 DataType."""
-    var result = materialize[dtypes.uint32]()
+    var result = dtypes.uint32
     return PythonObject(alloc=result^)
 
 
 fn uint64() raises -> PythonObject:
     """Create a uint64 DataType."""
-    var result = materialize[dtypes.uint64]()
+    var result = dtypes.uint64
     return PythonObject(alloc=result^)
 
 
 fn float16() raises -> PythonObject:
     """Create a float16 DataType."""
-    var result = materialize[dtypes.float16]()
+    var result = dtypes.float16
     return PythonObject(alloc=result^)
 
 
 fn float32() raises -> PythonObject:
     """Create a float32 DataType."""
-    var result = materialize[dtypes.float32]()
+    var result = dtypes.float32
     return PythonObject(alloc=result^)
 
 
 fn float64() raises -> PythonObject:
     """Create a float64 DataType."""
-    var result = materialize[dtypes.float64]()
+    var result = dtypes.float64
     return PythonObject(alloc=result^)
 
 
 fn string() raises -> PythonObject:
     """Create a string DataType."""
-    var result = materialize[dtypes.string]()
+    var result = dtypes.string
     return PythonObject(alloc=result^)
 
 
 fn binary() raises -> PythonObject:
     """Create a binary DataType."""
-    var result = materialize[dtypes.binary]()
+    var result = dtypes.binary
     return PythonObject(alloc=result^)
 
 

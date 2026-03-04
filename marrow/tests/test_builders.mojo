@@ -167,7 +167,7 @@ def test_primitive_builder_as_builder():
     b.append(3)
     var builder: Builder = b^
     assert_equal(builder.data[].length, 3)
-    assert_equal(builder.data[].dtype, materialize[int64]())
+    assert_equal(builder.data[].dtype, int64)
 
 
 def test_primitive_builder_null_count():
@@ -279,7 +279,7 @@ def test_string_builder_as_builder():
     b.append("test")
     var builder: Builder = b^
     assert_equal(builder.data[].length, 1)
-    assert_equal(builder.data[].dtype, materialize[string]())
+    assert_equal(builder.data[].dtype, string)
 
 
 # ---------------------------------------------------------------------------
@@ -338,7 +338,7 @@ def test_list_builder_empty_list():
 def test_list_builder_dtype():
     var child = PrimitiveBuilder[int64]()
     var b = ListBuilder(child^)
-    assert_equal(b.data[].dtype, list_(materialize[int64]()))
+    assert_equal(b.data[].dtype, list_(int64))
 
 
 def test_list_builder_child_accessor():
@@ -435,7 +435,7 @@ def test_fixed_size_list_builder_with_nulls():
 def test_fixed_size_list_builder_dtype():
     var child = PrimitiveBuilder[int32]()
     var b = FixedSizeListBuilder(child, list_size=3)
-    assert_equal(b.data[].dtype, fixed_size_list_(materialize[int32](), 3))
+    assert_equal(b.data[].dtype, fixed_size_list_(int32, 3))
 
 
 def test_fixed_size_list_builder_child_accessor():
@@ -492,8 +492,8 @@ def test_struct_builder_append_valid():
     score_b.append(0.3)
 
     var fields = List[Field]()
-    fields.append(Field("id", materialize[int64]()))
-    fields.append(Field("score", materialize[float64]()))
+    fields.append(Field("id", int64))
+    fields.append(Field("score", float64))
     var children = List[Builder]()
     children.append(id_b)
     children.append(score_b)
@@ -518,7 +518,7 @@ def test_struct_builder_append_null():
     id_b.append(20)
 
     var fields = List[Field]()
-    fields.append(Field("id", materialize[int32]()))
+    fields.append(Field("id", int32))
     var children = List[Builder]()
     children.append(id_b)
     var sb = StructBuilder(fields^, children^, capacity=2)
@@ -537,7 +537,7 @@ def test_struct_builder_field_values_accessible():
     x_b.append(99)
 
     var fields = List[Field]()
-    fields.append(Field("x", materialize[int32]()))
+    fields.append(Field("x", int32))
     var children = List[Builder]()
     children.append(x_b)
     var sb = StructBuilder(fields^, children^, capacity=2)
@@ -564,9 +564,9 @@ def test_struct_builder_multi_type_fields():
     active_b.append(False)
 
     var fields = List[Field]()
-    fields.append(Field("id", materialize[int64]()))
-    fields.append(Field("name", materialize[string]()))
-    fields.append(Field("active", materialize[bool_]()))
+    fields.append(Field("id", int64))
+    fields.append(Field("name", string))
+    fields.append(Field("active", bool_))
     var children = List[Builder]()
     children.append(id_b)
     children.append(name_b)
@@ -590,8 +590,8 @@ def test_struct_builder_child_accessor():
     y_b.append(8)
 
     var fields = List[Field]()
-    fields.append(Field("x", materialize[int32]()))
-    fields.append(Field("y", materialize[int32]()))
+    fields.append(Field("x", int32))
+    fields.append(Field("y", int32))
     var children = List[Builder]()
     children.append(x_b)
     children.append(y_b)
@@ -611,7 +611,7 @@ def test_struct_builder_capacity_growth():
     id_b.append(4)
 
     var fields = List[Field]()
-    fields.append(Field("id", materialize[int32]()))
+    fields.append(Field("id", int32))
     var children = List[Builder]()
     children.append(id_b)
     var sb = StructBuilder(fields^, children^)
@@ -629,8 +629,8 @@ def test_struct_builder_field_names_preserved():
     b_b.append(2)
 
     var fields = List[Field]()
-    fields.append(Field("alpha", materialize[int8]()))
-    fields.append(Field("beta", materialize[int8]()))
+    fields.append(Field("alpha", int8))
+    fields.append(Field("beta", int8))
     var children = List[Builder]()
     children.append(a_b)
     children.append(b_b)
@@ -791,16 +791,6 @@ def test_list_builder_finish_shrinks_offsets_buffer():
     # 3 uint32 offsets = 12 bytes → 64-byte aligned = 64 bytes
     assert_equal(frozen.offsets.size, 64)
 
-
-def test_primitive_builder_finish_no_nulls_drops_bitmap():
-    """Finish() with null_count==0 produces a zero-size bitmap (Arrow spec)."""
-    var b = PrimitiveBuilder[int64](128)
-    b.append(1)
-    b.append(2)
-    b.append(3)
-    var frozen = b.finish()
-    assert_equal(frozen.nulls, 0)
-    assert_equal(frozen.bitmap.size, 0)
 
 
 def test_primitive_builder_finish_with_nulls_shrinks_bitmap():

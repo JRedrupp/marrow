@@ -138,8 +138,8 @@ def test_format_struct():
     b_b.append(20)
     b_b.append(30)
     var fields = List[Field]()
-    fields.append(Field("int_data_a", materialize[int32]()))
-    fields.append(Field("int_data_b", materialize[int32]()))
+    fields.append(Field("int_data_a", int32))
+    fields.append(Field("int_data_b", int32))
     var children = List[Builder]()
     children.append(a_b)
     children.append(b_b)
@@ -159,9 +159,9 @@ def test_format_struct():
 
 def test_format_empty_struct():
     var fields = [
-        Field("id", materialize[int64]()),
-        Field("name", materialize[string]()),
-        Field("active", materialize[bool_]()),
+        Field("id", int64),
+        Field("name", string),
+        Field("active", bool_),
     ]
     var s = StructBuilder(fields^, List[Builder](), capacity=10)
     assert_equal(_fmt(Array(s.finish())), "StructArray({})")
@@ -173,7 +173,7 @@ def test_format_chunked():
     var chunks = List[Array]()
     chunks.append(first^)
     chunks.append(second^)
-    var chunked = ChunkedArray(materialize[uint8](), chunks^)
+    var chunked = ChunkedArray(uint8, chunks^)
     assert_equal(
         _fmt_chunked(chunked^),
         (

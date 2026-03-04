@@ -177,7 +177,7 @@ struct Builder(Copyable, Movable):
             uint8, uint16, uint32, uint64,
             float32, float64,
         ]:
-            if dtype == materialize[T]():
+            if dtype == T:
                 var b = PrimitiveBuilder[T](self.data)
                 return b.finish()
 
@@ -216,7 +216,7 @@ struct PrimitiveBuilder[T: DataType](Movable, Sized):
     fn __init__(out self, capacity: Int = 0):
         self.data = ArcPointer(
             BuilderData(
-                dtype=materialize[Self.T](),
+                dtype=Self.T,
                 length=0,
                 capacity=capacity,
                 bitmap=BufferBuilder.alloc[DType.bool](capacity),
@@ -327,7 +327,7 @@ struct StringBuilder(Movable, Sized):
         offsets.unsafe_set[DType.uint32](0, 0)
         self.data = ArcPointer(
             BuilderData(
-                dtype=materialize[string](),
+                dtype=string,
                 length=0,
                 capacity=capacity,
                 bitmap=BufferBuilder.alloc[DType.bool](capacity),

@@ -3,7 +3,7 @@
 from std.testing import assert_equal, assert_true, TestSuite
 from marrow.arrays import Array, PrimitiveArray, FixedSizeListArray
 from marrow.builders import PrimitiveBuilder, FixedSizeListBuilder
-from marrow.dtypes import float32, fixed_size_list_, materialize
+from marrow.dtypes import float32, fixed_size_list_
 from marrow.kernels.similarity import cosine_similarity
 
 

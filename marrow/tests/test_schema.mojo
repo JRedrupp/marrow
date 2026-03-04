@@ -21,19 +21,19 @@ def test_schema_primitive_fields():
 
     # Create a schema with different data types
     fields = [
-        Field("field1", materialize[int8]()),
-        Field("field2", materialize[int16]()),
-        Field("field3", materialize[int32]()),
-        Field("field4", materialize[int64]()),
-        Field("field5", materialize[uint8]()),
-        Field("field6", materialize[uint16]()),
-        Field("field7", materialize[uint32]()),
-        Field("field8", materialize[uint64]()),
-        Field("field9", materialize[float16]()),
-        Field("field10", materialize[float32]()),
-        Field("field11", materialize[float64]()),
-        Field("field12", materialize[binary]()),
-        Field("field13", materialize[string]()),
+        Field("field1", int8),
+        Field("field2", int16),
+        Field("field3", int32),
+        Field("field4", int64),
+        Field("field5", uint8),
+        Field("field6", uint16),
+        Field("field7", uint32),
+        Field("field8", uint64),
+        Field("field9", float16),
+        Field("field10", float32),
+        Field("field11", float64),
+        Field("field12", binary),
+        Field("field13", string),
     ]
     var nb_fields = len(fields)
 
@@ -49,8 +49,8 @@ def test_schema_primitive_fields():
 
 def test_schema_names() -> None:
     fields = [
-        Field("field1", materialize[int8](), False),
-        Field("field2", materialize[int16](), False),
+        Field("field1", int8, False),
+        Field("field2", int16, False),
     ]
 
     var schema = Schema(fields=fields^)
@@ -59,7 +59,7 @@ def test_schema_names() -> None:
         List[String](["field{}".format(i + 1) for i in range(2)]),
     )
 
-    schema.append(Field("field3", materialize[int32]()))
+    schema.append(Field("field3", int32))
     assert_equal(
         schema.names(),
         List[String](["field{}".format(i + 1) for i in range(3)]),

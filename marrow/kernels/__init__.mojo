@@ -51,7 +51,7 @@ from std.gpu.host import DeviceContext
 from marrow.arrays import PrimitiveArray, Array
 from marrow.buffers import Buffer, BufferBuilder, bitmap_range_set
 from marrow.builders import PrimitiveBuilder
-from marrow.dtypes import DataType, all_numeric_dtypes, materialize
+from marrow.dtypes import DataType, all_numeric_dtypes
 
 
 # ---------------------------------------------------------------------------
@@ -527,7 +527,7 @@ fn binary_array_dispatch[
         raise Error("{}: dtype mismatch: {} vs {}".format(name, String(left.dtype), String(right.dtype)))
 
     comptime for dtype in all_numeric_dtypes:
-        if left.dtype == materialize[dtype]():
+        if left.dtype == dtype:
             return Array(
                 func[dtype](
                     PrimitiveArray[dtype](data=left),

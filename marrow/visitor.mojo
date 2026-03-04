@@ -55,7 +55,7 @@ trait ArrayVisitor:
             float32,
             float64,
         ]:
-            if array.dtype == materialize[dtype]():
+            if array.dtype == dtype:
                 self.visit[dtype](PrimitiveArray[dtype](data=array))
                 return
 

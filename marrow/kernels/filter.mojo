@@ -51,7 +51,7 @@ from std.memory import memcpy
 
 from marrow.arrays import PrimitiveArray, StringArray, Array
 from marrow.buffers import Buffer, BufferBuilder, bitmap_range_set, bitmap_count_ones
-from marrow.dtypes import DataType, bool_, uint32, string, all_numeric_dtypes, materialize
+from marrow.dtypes import DataType, bool_, uint32, string, all_numeric_dtypes
 
 from .boolean import count_true
 from .sum import sum as sum_kernel
@@ -408,16 +408,16 @@ fn filter(array: Array, selection: PrimitiveArray[bool_]) raises -> Array:
     Returns:
         A new Array with only the selected elements.
     """
-    if array.dtype == materialize[bool_]():
+    if array.dtype == bool_:
         return Array(filter[bool_](PrimitiveArray[bool_](data=array), selection))
 
     comptime for dtype in all_numeric_dtypes:
-        if array.dtype == materialize[dtype]():
+        if array.dtype == dtype:
             return Array(
                 filter[dtype](PrimitiveArray[dtype](data=array), selection)
             )
 
-    if array.dtype == materialize[string]():
+    if array.dtype == string:
         return Array(filter(StringArray(data=array), selection))
 
     raise Error("filter: unsupported dtype " + String(array.dtype))
@@ -452,11 +452,11 @@ fn drop_nulls(array: Array) raises -> Array:
     Returns:
         A new Array with null elements removed.
     """
-    if array.dtype == materialize[bool_]():
+    if array.dtype == bool_:
         return Array(drop_nulls[bool_](PrimitiveArray[bool_](data=array)))
 
     comptime for dtype in all_numeric_dtypes:
-        if array.dtype == materialize[dtype]():
+        if array.dtype == dtype:
             return Array(drop_nulls[dtype](PrimitiveArray[dtype](data=array)))
 
     raise Error("drop_nulls: unsupported dtype " + String(array.dtype))
