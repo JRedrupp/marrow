@@ -146,7 +146,6 @@ struct DeviceType:
     """Qualcomm Hexagon DSP memory."""
 
 
-
 comptime simd_width = simd_byte_width()
 comptime simd_widths = (simd_width, simd_width // 2, 1)
 
@@ -176,7 +175,7 @@ struct Allocation(Movable):
     var ptr: UnsafePointer[UInt8, MutAnyOrigin]
     """Raw CPU pointer.  Non-null for CPU and FOREIGN; null (default) for HOST/DEVICE."""
 
-    var release: Optional[fn (UnsafePointer[UInt8, MutAnyOrigin]) -> None]
+    var release: Optional[fn(UnsafePointer[UInt8, MutAnyOrigin]) -> None]
     """Release callback.  Set for CPU (_cpu_release) and FOREIGN (producer callback);
     None for HOST and DEVICE (their Optional field destructors handle release)."""
 
@@ -189,7 +188,7 @@ struct Allocation(Movable):
     fn __init__(
         out self,
         ptr: UnsafePointer[UInt8, MutAnyOrigin],
-        release: Optional[fn (UnsafePointer[UInt8, MutAnyOrigin]) -> None],
+        release: Optional[fn(UnsafePointer[UInt8, MutAnyOrigin]) -> None],
         host: Optional[HostBuffer[DType.uint8]],
         device: Optional[DeviceBuffer[DType.uint8]],
     ):
@@ -206,20 +205,26 @@ struct Allocation(Movable):
     @staticmethod
     fn foreign(
         ptr: UnsafePointer[UInt8, MutAnyOrigin],
-        release: fn (UnsafePointer[UInt8, MutAnyOrigin]) -> None,
+        release: fn(UnsafePointer[UInt8, MutAnyOrigin]) -> None,
     ) -> Allocation:
         """Create a foreign CPU allocation with a custom release callback."""
         return Allocation(ptr, release, None, None)
 
     @staticmethod
     fn host(host_buf: HostBuffer[DType.uint8]) -> Allocation:
-        """Create a HOST (pinned) allocation.  HostBuffer.__del__ handles release."""
-        return Allocation(UnsafePointer[UInt8, MutAnyOrigin](), None, host_buf, None)
+        """Create a HOST (pinned) allocation.  HostBuffer.__del__ handles release.
+        """
+        return Allocation(
+            UnsafePointer[UInt8, MutAnyOrigin](), None, host_buf, None
+        )
 
     @staticmethod
     fn device(dev_buf: DeviceBuffer[DType.uint8]) -> Allocation:
-        """Create a DEVICE (GPU) allocation.  DeviceBuffer.__del__ handles release."""
-        return Allocation(UnsafePointer[UInt8, MutAnyOrigin](), None, None, dev_buf)
+        """Create a DEVICE (GPU) allocation.  DeviceBuffer.__del__ handles release.
+        """
+        return Allocation(
+            UnsafePointer[UInt8, MutAnyOrigin](), None, None, dev_buf
+        )
 
     fn device_type(self) raises -> Int32:
         """Return the Arrow C Device Data Interface DeviceType value.
@@ -356,7 +361,9 @@ struct BufferBuilder(Movable):
         else:
             byte_size = math.align_up(Int(length) * size_of[T](), 64)
         var host = ctx.enqueue_create_host_buffer[DType.uint8](byte_size)
-        var ptr = rebind[UnsafePointer[UInt8, MutExternalOrigin]](host.unsafe_ptr())
+        var ptr = rebind[UnsafePointer[UInt8, MutExternalOrigin]](
+            host.unsafe_ptr()
+        )
         memset_zero(ptr, byte_size)
         return BufferBuilder(ptr, byte_size, host)
 
@@ -382,12 +389,18 @@ struct BufferBuilder(Movable):
         var result = Buffer(
             new.ptr.as_immutable(),
             new.size,
-            ArcPointer(Allocation.cpu(rebind[UnsafePointer[UInt8, MutAnyOrigin]](new.ptr))),
+            ArcPointer(
+                Allocation.cpu(
+                    rebind[UnsafePointer[UInt8, MutAnyOrigin]](new.ptr)
+                )
+            ),
         )
         new.ptr = UnsafePointer[UInt8, MutExternalOrigin]()
         return result
 
-    fn resize[I: Intable, //, T: DType = DType.uint8](mut self, length: I) raises:
+    fn resize[
+        I: Intable, //, T: DType = DType.uint8
+    ](mut self, length: I) raises:
         """Resize the buffer to hold `length` elements of type T.
 
         For HOST builders the new allocation is also pinned host memory using
@@ -395,7 +408,9 @@ struct BufferBuilder(Movable):
         """
         var new: BufferBuilder
         if self._host:
-            new = BufferBuilder.alloc_host[T](self._host.value().context(), length)
+            new = BufferBuilder.alloc_host[T](
+                self._host.value().context(), length
+            )
         else:
             new = BufferBuilder.alloc[T](length)
         memcpy(dest=new.ptr, src=self.ptr, count=min(new.size, self.size))
@@ -523,7 +538,9 @@ struct Buffer(ImplicitlyCopyable, Movable, Writable):
         Precondition: `owner` must have been created with `Allocation.foreign(...)`.
         """
         return Buffer(
-            rebind[UnsafePointer[UInt8, ImmutExternalOrigin]](ptr.bitcast[UInt8]()),
+            rebind[UnsafePointer[UInt8, ImmutExternalOrigin]](
+                ptr.bitcast[UInt8]()
+            ),
             math.align_up(Int(size), 64),
             owner,
         )
@@ -541,7 +558,9 @@ struct Buffer(ImplicitlyCopyable, Movable, Writable):
         the context API (cuda→CUDA_HOST, hip→ROCM_HOST, otherwise CPU).
         """
         return Buffer(
-            rebind[UnsafePointer[UInt8, ImmutExternalOrigin]](host.unsafe_ptr()),
+            rebind[UnsafePointer[UInt8, ImmutExternalOrigin]](
+                host.unsafe_ptr()
+            ),
             len(host),
             ArcPointer(Allocation.host(host)),
         )
@@ -693,7 +712,6 @@ struct Buffer(ImplicitlyCopyable, Movable, Writable):
     fn write_to[W: Writer](self, mut writer: W):
         """Write the buffer's bytes to a Writer."""
         writer.write("Buffer(ptr={}, size={})".format(self.ptr, self.size))
-
 
 
 # ---------------------------------------------------------------------------

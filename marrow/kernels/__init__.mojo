@@ -223,7 +223,11 @@ fn binary_simd[
         A new PrimitiveArray with func applied element-wise using SIMD.
     """
     if len(left) != len(right):
-        raise Error("{} arrays must have the same length, got {} and {}".format(name, len(left), len(right)))
+        raise Error(
+            "{} arrays must have the same length, got {} and {}".format(
+                name, len(left), len(right)
+            )
+        )
 
     var length = len(left)
     comptime native = T.native
@@ -524,7 +528,11 @@ fn binary_array_dispatch[
     """
     if left.dtype != right.dtype:
         # TODO: remove String() from around dtypes once mojo stops hanging when we pass them directly to format()
-        raise Error("{}: dtype mismatch: {} vs {}".format(name, String(left.dtype), String(right.dtype)))
+        raise Error(
+            "{}: dtype mismatch: {} vs {}".format(
+                name, String(left.dtype), String(right.dtype)
+            )
+        )
 
     comptime for dtype in all_numeric_dtypes:
         if left.dtype == dtype:

@@ -198,7 +198,11 @@ struct PrimitiveArray[T: DataType](Movable, Sized, Writable):
     fn __init__(out self, ref data: Array, offset: Int = 0) raises:
         if data.dtype != Self.T:
             # TODO: mojo hangs if we pass data.dtype directly despite that it properly satisfies Writable
-            raise Error("Unexpected dtype '{}' instead of '{}'.".format(String(data.dtype), String(Self.T)))
+            raise Error(
+                "Unexpected dtype '{}' instead of '{}'.".format(
+                    String(data.dtype), String(Self.T)
+                )
+            )
         elif len(data.buffers) != 1:
             raise Error("PrimitiveArray requires exactly one buffer")
 
@@ -213,7 +217,8 @@ struct PrimitiveArray[T: DataType](Movable, Sized, Writable):
         return self.length
 
     fn with_offset(self, offset: Int) -> Self:
-        """Return a new PrimitiveArray with the given offset added to the current offset."""
+        """Return a new PrimitiveArray with the given offset added to the current offset.
+        """
         return Self(
             length=self.length - offset,
             nulls=self.nulls,
@@ -301,7 +306,9 @@ struct StringArray(Movable, Sized, Writable):
         """
         if data.dtype != string:
             raise Error(
-                "Unexpected dtype '{}' instead of 'string'.".format(String(data.dtype))
+                "Unexpected dtype '{}' instead of 'string'.".format(
+                    String(data.dtype)
+                )
             )
         elif len(data.buffers) != 2:
             raise Error("StringArray requires exactly two buffers")
@@ -318,7 +325,8 @@ struct StringArray(Movable, Sized, Writable):
         return self.length
 
     fn with_offset(self, offset) -> Self:
-        """Return a new StringArray with the given offset added to the current offset."""
+        """Return a new StringArray with the given offset added to the current offset.
+        """
         return Self(
             length=self.length - offset,
             nulls=self.nulls,
@@ -362,7 +370,11 @@ struct StringArray(Movable, Sized, Writable):
             If the index is out of bounds.
         """
         if index < 0 or index >= self.length:
-            raise Error("index {} out of bounds for length {}".format(index, self.length))
+            raise Error(
+                "index {} out of bounds for length {}".format(
+                    index, self.length
+                )
+            )
         return self.unsafe_get(UInt(index))
 
 
@@ -381,7 +393,11 @@ struct ListArray(Movable, Sized, Writable):
 
     fn __init__(out self, ref data: Array) raises:
         if not data.dtype.is_list():
-            raise Error("Unexpected dtype '{}' instead of 'list'.".format(String(data.dtype)))
+            raise Error(
+                "Unexpected dtype '{}' instead of 'list'.".format(
+                    String(data.dtype)
+                )
+            )
         elif len(data.buffers) != 1:
             raise Error("ListArray requires exactly one buffer")
         elif len(data.children) != 1:
@@ -408,8 +424,12 @@ struct ListArray(Movable, Sized, Writable):
 
     fn unsafe_get(self, index: Int) -> Array:
         """Return a view of the child array for the list at the given index."""
-        var start = Int(self.offsets.unsafe_get[DType.int32](self.offset + index))
-        var end = Int(self.offsets.unsafe_get[DType.int32](self.offset + index + 1))
+        var start = Int(
+            self.offsets.unsafe_get[DType.int32](self.offset + index)
+        )
+        var end = Int(
+            self.offsets.unsafe_get[DType.int32](self.offset + index + 1)
+        )
         var result = Array(copy=self.values)
         result.offset = start
         result.length = end - start
@@ -431,7 +451,11 @@ struct FixedSizeListArray(Movable, Sized, Writable):
 
     fn __init__(out self, ref data: Array) raises:
         if not data.dtype.is_fixed_size_list():
-            raise Error("Unexpected dtype '{}' instead of 'fixed_size_list'.".format(String(data.dtype)))
+            raise Error(
+                "Unexpected dtype '{}' instead of 'fixed_size_list'.".format(
+                    String(data.dtype)
+                )
+            )
         elif len(data.buffers) != 0:
             raise Error("FixedSizeListArray requires zero buffers")
         elif len(data.children) != 1:

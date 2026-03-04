@@ -10,12 +10,8 @@ def test_bool_type():
 
 
 def test_list_type():
-    assert_true(
-        dt.list_(dt.int64) == dt.list_(dt.int64)
-    )
-    assert_false(
-        dt.list_(dt.int64) == dt.list_(dt.int32)
-    )
+    assert_true(dt.list_(dt.int64) == dt.list_(dt.int64))
+    assert_false(dt.list_(dt.int64) == dt.list_(dt.int32))
     t1 = dt.list_(dt.list_(dt.int64))
     assert_equal(String(t1), "list(list(int64))")
 
@@ -42,9 +38,6 @@ def test_struct_type():
     )
     assert_true(s1 == s2)
     assert_false(s1 == s3)
-
-
-
 
 
 def test_is_integer():

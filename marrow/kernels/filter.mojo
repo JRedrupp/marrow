@@ -50,7 +50,12 @@ from std.bit import count_trailing_zeros
 from std.memory import memcpy
 
 from marrow.arrays import PrimitiveArray, StringArray, Array
-from marrow.buffers import Buffer, BufferBuilder, bitmap_range_set, bitmap_count_ones
+from marrow.buffers import (
+    Buffer,
+    BufferBuilder,
+    bitmap_range_set,
+    bitmap_count_ones,
+)
 from marrow.dtypes import DataType, bool_, uint32, string, all_numeric_dtypes
 
 from .boolean import count_true
@@ -130,7 +135,9 @@ fn _string_lengths(array: StringArray) -> PrimitiveArray[uint32]:
 
 fn filter[
     T: DataType
-](array: PrimitiveArray[T], selection: PrimitiveArray[bool_]) raises -> PrimitiveArray[T]:
+](
+    array: PrimitiveArray[T], selection: PrimitiveArray[bool_]
+) raises -> PrimitiveArray[T]:
     """Filter a primitive array, keeping only elements where selection is True.
 
     Iterates over the selection bitmap byte-by-byte.  Zero bytes are skipped
@@ -172,7 +179,9 @@ fn filter[
             # bool_ is bit-packed: copy bitmap-sized bytes, not n bytes
             memcpy(dest=buf.ptr, src=array.buffer.unsafe_ptr(), count=bm_bytes)
         else:
-            memcpy(dest=buf.ptr, src=array.buffer.unsafe_ptr(), count=n * elem_size)
+            memcpy(
+                dest=buf.ptr, src=array.buffer.unsafe_ptr(), count=n * elem_size
+            )
     elif out_len > 0:
         var sel_ptr = selection.buffer.unsafe_ptr()
         # Process 64 bits at a time: 8× fewer outer-loop iterations than bytes.
@@ -218,7 +227,8 @@ fn filter[
                     else:
                         memcpy(
                             dest=buf.ptr + out_idx * elem_size,
-                            src=array.buffer.unsafe_ptr() + run_start * elem_size,
+                            src=array.buffer.unsafe_ptr()
+                            + run_start * elem_size,
                             count=run_len * elem_size,
                         )
                     # Copy validity for this run.
@@ -265,7 +275,9 @@ fn filter[
 # ---------------------------------------------------------------------------
 
 
-fn filter(array: StringArray, selection: PrimitiveArray[bool_]) raises -> StringArray:
+fn filter(
+    array: StringArray, selection: PrimitiveArray[bool_]
+) raises -> StringArray:
     """Filter a StringArray, keeping only elements where selection is True.
 
     Composes:
@@ -327,9 +339,11 @@ fn filter(array: StringArray, selection: PrimitiveArray[bool_]) raises -> String
     var byte_count = math.ceildiv(n, 8)
 
     # Run-merge state: accumulate consecutive selected source ranges
-    var run_src_start = -1   # byte offset into array.values where current run starts
-    var run_src_end = -1     # exclusive end byte offset (not yet written)
-    var dst_offset = 0       # next write position in values_buf
+    var run_src_start = (
+        -1
+    )  # byte offset into array.values where current run starts
+    var run_src_end = -1  # exclusive end byte offset (not yet written)
+    var dst_offset = 0  # next write position in values_buf
 
     for byte_i in range(byte_count):
         var f = sel_ptr[byte_i]
@@ -338,7 +352,11 @@ fn filter(array: StringArray, selection: PrimitiveArray[bool_]) raises -> String
             # No selected elements in this byte; flush any active run.
             if run_src_start != -1:
                 var run_len = run_src_end - run_src_start
-                memcpy(dest=dst_ptr + dst_offset, src=src_ptr + run_src_start, count=run_len)
+                memcpy(
+                    dest=dst_ptr + dst_offset,
+                    src=src_ptr + run_src_start,
+                    count=run_len,
+                )
                 dst_offset += run_len
                 run_src_start = -1
                 run_src_end = -1
@@ -351,8 +369,12 @@ fn filter(array: StringArray, selection: PrimitiveArray[bool_]) raises -> String
             if elem_i >= n:
                 break
             if mask & 1:
-                var src_start = Int(array.offsets.unsafe_get[DType.uint32](elem_i))
-                var src_end = Int(array.offsets.unsafe_get[DType.uint32](elem_i + 1))
+                var src_start = Int(
+                    array.offsets.unsafe_get[DType.uint32](elem_i)
+                )
+                var src_end = Int(
+                    array.offsets.unsafe_get[DType.uint32](elem_i + 1)
+                )
                 if run_src_start == -1:
                     run_src_start = src_start
                     run_src_end = src_end
@@ -360,14 +382,22 @@ fn filter(array: StringArray, selection: PrimitiveArray[bool_]) raises -> String
                     run_src_end = src_end
                 else:
                     var run_len = run_src_end - run_src_start
-                    memcpy(dest=dst_ptr + dst_offset, src=src_ptr + run_src_start, count=run_len)
+                    memcpy(
+                        dest=dst_ptr + dst_offset,
+                        src=src_ptr + run_src_start,
+                        count=run_len,
+                    )
                     dst_offset += run_len
                     run_src_start = src_start
                     run_src_end = src_end
             else:
                 if run_src_start != -1:
                     var run_len = run_src_end - run_src_start
-                    memcpy(dest=dst_ptr + dst_offset, src=src_ptr + run_src_start, count=run_len)
+                    memcpy(
+                        dest=dst_ptr + dst_offset,
+                        src=src_ptr + run_src_start,
+                        count=run_len,
+                    )
                     dst_offset += run_len
                     run_src_start = -1
                     run_src_end = -1
@@ -377,7 +407,11 @@ fn filter(array: StringArray, selection: PrimitiveArray[bool_]) raises -> String
     # Flush final run
     if run_src_start != -1:
         var run_len = run_src_end - run_src_start
-        memcpy(dest=dst_ptr + dst_offset, src=src_ptr + run_src_start, count=run_len)
+        memcpy(
+            dest=dst_ptr + dst_offset,
+            src=src_ptr + run_src_start,
+            count=run_len,
+        )
 
     # out_validity.buffer holds the bit-packed validity for the output elements.
     var out_valid_count = bitmap_count_ones(
@@ -409,7 +443,9 @@ fn filter(array: Array, selection: PrimitiveArray[bool_]) raises -> Array:
         A new Array with only the selected elements.
     """
     if array.dtype == bool_:
-        return Array(filter[bool_](PrimitiveArray[bool_](data=array), selection))
+        return Array(
+            filter[bool_](PrimitiveArray[bool_](data=array), selection)
+        )
 
     comptime for dtype in all_numeric_dtypes:
         if array.dtype == dtype:

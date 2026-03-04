@@ -452,9 +452,7 @@ def test_fixed_size_list_int_array():
     var builder = FixedSizeListBuilder(ints_b, list_size=3)
     builder.append(True)
     builder.append(True)
-    assert_equal(
-        builder.data[].dtype, fixed_size_list_(int64, 3)
-    )
+    assert_equal(builder.data[].dtype, fixed_size_list_(int64, 3))
     assert_equal(len(builder), 2)
     var fsl = builder.finish()
     assert_equal(len(fsl), 2)
@@ -615,7 +613,6 @@ def test_combine_chunked_array():
     assert_equal(combined_array.dtype, int8)
     # Ensure that the last element of the last buffer has the expected value.
     assert_equal(combined_array.buffers[1].unsafe_get(1), 1)
-
 
 
 def test_primitive_finish_shrinks():

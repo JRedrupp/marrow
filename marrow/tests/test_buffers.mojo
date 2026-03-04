@@ -183,7 +183,8 @@ def test_buffer_finish():
 
 
 def test_buffer_cpu_kind():
-    """CPU buffers from BufferBuilder.finish() have kind=CPU and are CPU-accessible."""
+    """CPU buffers from BufferBuilder.finish() have kind=CPU and are CPU-accessible.
+    """
     var b = BufferBuilder.alloc(64)
     var frozen = b.finish()
     assert_true(frozen.is_cpu())
@@ -199,9 +200,9 @@ def test_buffer_foreign_kind():
     # data so the release callback can increment it before freeing the memory.
     var n_released: Int = 0
     var raw = alloc[UInt8](size_of[UnsafePointer[Int, MutAnyOrigin]]())
-    raw.bitcast[UnsafePointer[Int, MutAnyOrigin]]()[0] = rebind[UnsafePointer[Int, MutAnyOrigin]](
-        UnsafePointer(to=n_released)
-    )
+    raw.bitcast[UnsafePointer[Int, MutAnyOrigin]]()[0] = rebind[
+        UnsafePointer[Int, MutAnyOrigin]
+    ](UnsafePointer(to=n_released))
 
     fn count_and_free(ptr: UnsafePointer[UInt8, MutAnyOrigin]) -> None:
         var counter = ptr.bitcast[UnsafePointer[Int, MutAnyOrigin]]()[0]
@@ -213,7 +214,9 @@ def test_buffer_foreign_kind():
         raw.bitcast[NoneType]()
     )
     var keeper = ArcPointer(Allocation.foreign(mut_ptr, count_and_free))
-    var buf = Buffer.from_foreign(void_ptr, size_of[UnsafePointer[Int, MutAnyOrigin]](), keeper)
+    var buf = Buffer.from_foreign(
+        void_ptr, size_of[UnsafePointer[Int, MutAnyOrigin]](), keeper
+    )
     assert_true(buf.is_cpu())
     assert_false(buf.is_device())
     assert_false(buf.is_host())

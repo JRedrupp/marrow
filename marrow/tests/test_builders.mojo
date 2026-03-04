@@ -783,14 +783,13 @@ def test_list_builder_finish_shrinks_offsets_buffer():
     child.append(20)
     child.append(30)
     var b = ListBuilder(child^, 128)
-    b.append(True)   # list [10, 20]
-    b.append(True)   # list [30]
+    b.append(True)  # list [10, 20]
+    b.append(True)  # list [30]
     # capacity allocated 129 * 4 = 516 bytes for offsets; only 3 needed
     var frozen = b.finish()
     assert_equal(frozen.length, 2)
     # 3 uint32 offsets = 12 bytes → 64-byte aligned = 64 bytes
     assert_equal(frozen.offsets.size, 64)
-
 
 
 def test_primitive_builder_finish_with_nulls_shrinks_bitmap():
@@ -806,7 +805,8 @@ def test_primitive_builder_finish_with_nulls_shrinks_bitmap():
 
 
 def test_builder_finish_dispatch_primitive():
-    """Builder.finish() dispatches to PrimitiveBuilder.finish() and returns Array."""
+    """Builder.finish() dispatches to PrimitiveBuilder.finish() and returns Array.
+    """
     var b = PrimitiveBuilder[int32](10)
     b.append(42)
     b.append(99)
@@ -820,7 +820,8 @@ def test_builder_finish_dispatch_primitive():
 
 
 def test_builder_finish_dispatch_string():
-    """Builder.finish() dispatches to StringBuilder.finish() and returns Array."""
+    """Builder.finish() dispatches to StringBuilder.finish() and returns Array.
+    """
     var b = StringBuilder(10)
     b.append("foo")
     b.append("bar")

@@ -161,7 +161,7 @@ struct Field(Copyable, Equatable, Writable):
         )
 
 
-struct DataType(ImplicitlyCopyable, Equatable, Writable):
+struct DataType(Equatable, ImplicitlyCopyable, Writable):
     var code: UInt8
     var native: DType
     var fields: List[Field]

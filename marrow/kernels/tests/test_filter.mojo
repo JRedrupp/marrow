@@ -79,7 +79,10 @@ def test_filter_cross_byte_boundary():
     var a = array[int32]([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
     # Keep last 2 of first byte and first 2 of second byte
     var result = filter(
-        a, array([False, False, False, False, False, False, True, True, True, True])
+        a,
+        array(
+            [False, False, False, False, False, False, True, True, True, True]
+        ),
     )
     assert_equal(len(result), 4)
     assert_equal(result.unsafe_get(0), 7)
@@ -89,7 +92,8 @@ def test_filter_cross_byte_boundary():
 
 
 def test_filter_sparse_zero_byte():
-    """Zero bytes in selection bitmap are skipped without inspecting elements."""
+    """Zero bytes in selection bitmap are skipped without inspecting elements.
+    """
     var a = arange[int32](0, 20)
     # Only keep element 16 (first element of the third selection byte)
     var sel = List[Optional[Bool]]()

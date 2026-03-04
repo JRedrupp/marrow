@@ -173,9 +173,17 @@ struct Builder(Copyable, Movable):
         dtype = self.data[].dtype
 
         comptime for T in [
-            bool_, int8, int16, int32, int64,
-            uint8, uint16, uint32, uint64,
-            float32, float64,
+            bool_,
+            int8,
+            int16,
+            int32,
+            int64,
+            uint8,
+            uint16,
+            uint32,
+            uint64,
+            float32,
+            float64,
         ]:
             if dtype == T:
                 var b = PrimitiveBuilder[T](self.data)
@@ -194,7 +202,9 @@ struct Builder(Copyable, Movable):
             var b = StructBuilder(self.data)
             return b.finish()
         else:
-            raise Error("Builder.finish: unsupported dtype {}".format(String(dtype)))
+            raise Error(
+                "Builder.finish: unsupported dtype {}".format(String(dtype))
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -413,7 +423,7 @@ struct StringBuilder(Movable, Sized):
             offset=0,
             bitmap=bitmap^,
             offsets=offsets^,
-            values=values^
+            values=values^,
         )
 
         # reset builder state
@@ -422,7 +432,6 @@ struct StringBuilder(Movable, Sized):
         self.data[].null_count = 0
 
         return result^
-
 
 
 # ---------------------------------------------------------------------------

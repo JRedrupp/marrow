@@ -1,7 +1,13 @@
 from std.ffi import external_call, c_char
 from std.memory import ArcPointer, memcpy
 from std.sys import size_of
-from .buffers import Allocation, Buffer, BufferBuilder, DeviceType, bitmap_range_set
+from .buffers import (
+    Allocation,
+    Buffer,
+    BufferBuilder,
+    DeviceType,
+    bitmap_range_set,
+)
 
 import std.math as math
 from std.python import Python, PythonObject
@@ -195,7 +201,6 @@ struct CArrowSchema(Copyable):
         var dtype = self.to_dtype()
         var nullable = self.flags & ARROW_FLAG_NULLABLE
         return Field(String(name), dtype^, nullable != 0)
-
 
 
 fn _release_c_array(ptr: UnsafePointer[UInt8, MutAnyOrigin]) -> None:
@@ -435,7 +440,6 @@ struct CArrowArray(Movable):
 # Arrow C Device Data Interface
 # https://arrow.apache.org/docs/format/CDeviceDataInterface.html
 # ---------------------------------------------------------------------------
-
 
 
 fn _release_c_device_array(ptr: UnsafePointer[UInt8, MutAnyOrigin]) -> None:

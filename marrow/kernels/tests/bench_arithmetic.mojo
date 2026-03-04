@@ -112,11 +112,9 @@ fn bench_add_nulls[T: DataType](mut b: Bencher, size: Int) raises:
 # ---------------------------------------------------------------------------
 
 
-fn _bench_gpu_add[T: DataType](
-    size: Int,
-    iters: Int,
-    ctx: DeviceContext,
-) raises -> Float64:
+fn _bench_gpu_add[
+    T: DataType
+](size: Int, iters: Int, ctx: DeviceContext,) raises -> Float64:
     """Returns mean microseconds per kernel dispatch with pre-loaded data."""
     var lhs = _make_array[T](size).to_device(ctx)
     var rhs = _make_array[T](size).to_device(ctx)
