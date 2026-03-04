@@ -3,7 +3,7 @@ from testing import assert_equal, assert_true, assert_false, TestSuite
 from marrow.arrays import array, arange, Array, PrimitiveArray
 from marrow.builders import PrimitiveBuilder
 from marrow.dtypes import int32, int64, float64
-from marrow.compute.kernels.arithmetic import (
+from marrow.kernels.arithmetic import (
     add,
     sub,
     mul,

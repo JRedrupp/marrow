@@ -4,7 +4,7 @@ from testing import assert_equal, assert_true, TestSuite
 from marrow.arrays import Array, PrimitiveArray, FixedSizeListArray
 from marrow.builders import PrimitiveBuilder, FixedSizeListBuilder
 from marrow.dtypes import float32, fixed_size_list_, materialize
-from marrow.compute.kernels.similarity import cosine_similarity
+from marrow.kernels.similarity import cosine_similarity
 
 
 def _make_vectors(*values: Float64, dim: Int) raises -> FixedSizeListArray:

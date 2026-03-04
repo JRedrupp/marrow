@@ -1,4 +1,4 @@
-from .kernels.arithmetic import (
+from marrow.kernels.arithmetic import (
     add,
     sub,
     mul,
@@ -10,6 +10,7 @@ from .kernels.arithmetic import (
     neg,
     abs_,
 )
-from .kernels.sum import sum, product, min_, max_, any_, all_
-from .filter import drop_nulls
-from .kernels.similarity import cosine_similarity
+from marrow.kernels.sum import sum, product, min_, max_, any_, all_
+from marrow.kernels.boolean import count_true
+from marrow.kernels.filter import drop_nulls, filter
+from marrow.kernels.similarity import cosine_similarity

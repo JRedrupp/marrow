@@ -11,7 +11,7 @@ from gpu.host import DeviceContext
 
 from marrow.arrays import array, arange, Array, PrimitiveArray
 from marrow.dtypes import int32, int64, float32
-from marrow.compute.kernels.add import add
+from marrow.kernels.add import add
 
 
 def test_add_gpu():

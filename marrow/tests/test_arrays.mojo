@@ -15,7 +15,7 @@ from marrow.buffers import (
     BufferBuilder,
     bitmap_range_set,
 )
-from marrow.compute.filter import drop_nulls
+from marrow.kernels.filter import drop_nulls
 from reflection import call_location
 
 
@@ -302,7 +302,7 @@ def test_arange_uint64():
 
 def test_drop_null() -> None:
     """Test the drop null function via the compute module."""
-    from marrow.compute.filter import drop_nulls
+    from marrow.kernels.filter import drop_nulls
 
     var primitive_array = array[uint8](
         [None, 1, None, 3, None, 5, None, 7, None, 9]

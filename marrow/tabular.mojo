@@ -6,3 +6,6 @@ from .schema import Schema
 struct RecordBatch:
     var schema: Schema
     var fields: List[Array]
+
+
+# TODO: add Table which is a collection of chunked arrays with the same length, and a schema

@@ -12,7 +12,7 @@ from gpu.host import DeviceContext
 from marrow.arrays import Array, PrimitiveArray, FixedSizeListArray
 from marrow.builders import PrimitiveBuilder, FixedSizeListBuilder
 from marrow.dtypes import float32
-from marrow.compute.kernels.similarity import cosine_similarity
+from marrow.kernels.similarity import cosine_similarity
 
 
 fn _make_vectors(n_vectors: Int, dim: Int) raises -> FixedSizeListArray:

@@ -20,8 +20,8 @@ from time import perf_counter_ns
 from marrow.arrays import PrimitiveArray
 from marrow.builders import PrimitiveBuilder
 from marrow.dtypes import int32, float64, DataType
-from marrow.compute.kernels.add import _add_simd, add
-from marrow.compute.kernels import binary_simd
+from marrow.kernels.add import _add_simd, add
+from marrow.kernels import binary_simd
 
 
 # ---------------------------------------------------------------------------
