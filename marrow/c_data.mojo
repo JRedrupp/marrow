@@ -19,7 +19,7 @@ fn empty_release_schema(ptr: UnsafePointer[CArrowSchema, MutAnyOrigin]):
 
 
 @fieldwise_init
-struct CArrowSchema(Copyable, Stringable, Writable):
+struct CArrowSchema(Copyable, Writable):
     var format: UnsafePointer[c_char, MutAnyOrigin]
     var name: UnsafePointer[c_char, MutAnyOrigin]
     var metadata: UnsafePointer[c_char, MutAnyOrigin]
@@ -196,19 +196,6 @@ struct CArrowSchema(Copyable, Stringable, Writable):
         var nullable = self.flags & ARROW_FLAG_NULLABLE
         return Field(String(name), dtype^, nullable != 0)
 
-    fn __str__(self) -> String:
-        var metadata = 'metadata="{}", '.format(
-            StringSlice(unsafe_from_utf8_ptr=self.metadata)
-        ) if self.metadata else ""
-        return 'CArrowSchema(name="{}", format="{}", {}n_children={})'.format(
-            StringSlice(unsafe_from_utf8_ptr=self.name),
-            StringSlice(unsafe_from_utf8_ptr=self.format),
-            metadata,
-            self.n_children,
-        )
-
-    fn write_to[W: Writer](self, mut writer: W):
-        writer.write(self.__str__())
 
 
 fn _release_c_array(ptr: UnsafePointer[UInt8, MutAnyOrigin]) -> None:

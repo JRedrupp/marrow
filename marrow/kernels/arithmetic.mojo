@@ -10,11 +10,10 @@ each helper with W=1 per thread.
 """
 
 import std.math as math
-from gpu.host import DeviceContext
+from std.gpu.host import DeviceContext
 
-from marrow.arrays import PrimitiveArray, Array
-
-from marrow.dtypes import DataType
+from ..arrays import PrimitiveArray, Array
+from ..dtypes import DataType
 from . import binary_simd, binary_gpu, unary_simd, binary_array_dispatch
 
 

@@ -141,7 +141,7 @@ comptime LIST_VIEW: UInt8 = 41
 comptime LARGE_LIST_VIEW: UInt8 = 42
 
 
-struct Field(Copyable, Equatable, Stringable):
+struct Field(Copyable, Equatable, Writable):
     var name: String
     var dtype: DataType
     var nullable: Bool
@@ -160,16 +160,8 @@ struct Field(Copyable, Equatable, Stringable):
             and self.nullable == other.nullable
         )
 
-    fn __str__(self) -> String:
-        return "Field(name={}, dtype={}, nullable={})".format(
-            self.name, self.dtype.__str__(), self.nullable
-        )
 
-    fn __repr__(self) -> String:
-        return self.__str__()
-
-
-struct DataType(Copyable, Equatable, Stringable, Writable):
+struct DataType(ImplicitlyCopyable, Equatable, Writable):
     var code: UInt8
     var native: DType
     var fields: List[Field]
@@ -243,35 +235,29 @@ struct DataType(Copyable, Equatable, Stringable, Writable):
                 return False
         return True
 
-    fn __str__(self) -> String:
-        if self.code == NA:
-            return "null"
-        elif self.code == BOOL:
-            return "bool"
-        elif self.code == UINT8:
-            return "uint8"
-        elif self.code == INT8:
-            return "int8"
-        elif self.code == INT16:
-            return "int16"
-        elif self.code == INT32:
-            return "int32"
-        elif self.code == INT64:
-            return "int64"
-        elif self.code == LIST:
-            return "list"
-        elif self.code == FIXED_SIZE_LIST:
-            return "fixed_size_list"
-        elif self.code == STRUCT:
-            return "struct"
-        else:
-            return "unknown " + String(self.code)
-
-    fn __repr__(self) -> String:
-        return self.__str__()
-
     fn write_to[W: Writer](self, mut writer: W):
-        writer.write(self.__str__())
+        if self.code == NA:
+            writer.write("null")
+        elif self.code == BOOL:
+            writer.write("bool")
+        elif self.code == UINT8:
+            writer.write("uint8")
+        elif self.code == INT8:
+            writer.write("int8")
+        elif self.code == INT16:
+            writer.write("int16")
+        elif self.code == INT32:
+            writer.write("int32")
+        elif self.code == INT64:
+            writer.write("int64")
+        elif self.code == LIST:
+            writer.write("list(", self.fields[0].dtype, ")")
+        elif self.code == FIXED_SIZE_LIST:
+            writer.write("fixed_size_list")
+        elif self.code == STRUCT:
+            writer.write("struct")
+        else:
+            writer.write("unknown {}".format(self.code))
 
     @always_inline
     fn is_bool(self) -> Bool:

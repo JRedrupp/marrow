@@ -68,4 +68,4 @@ trait ArrayVisitor:
         elif array.dtype.is_struct():
             self.visit(StructArray(data=array))
         else:
-            raise Error("visit: unsupported dtype " + array.dtype.__str__())
+            raise Error("visit: unsupported dtype {}".format(String(array.dtype)))

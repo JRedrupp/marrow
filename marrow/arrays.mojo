@@ -28,7 +28,7 @@ from .dtypes import *
 
 
 @fieldwise_init
-struct Array(Copyable, Movable, Stringable):
+struct Array(Copyable, Movable, Writable):
     """Array is the lower level abstraction directly usable by the library consumer.
 
     Equivalent with https://github.com/apache/arrow/blob/7184439dea96cd285e6de00e07c5114e4919a465/cpp/src/arrow/array/data.h#L62-L84.
@@ -68,7 +68,7 @@ struct Array(Copyable, Movable, Stringable):
 
     @implicit
     fn __init__(out self, array: ListArray):
-        self.dtype = array.dtype.copy()
+        self.dtype = array.dtype
         self.length = array.length
         self.nulls = array.nulls
         self.offset = array.offset
@@ -78,7 +78,7 @@ struct Array(Copyable, Movable, Stringable):
 
     @implicit
     fn __init__(out self, array: FixedSizeListArray):
-        self.dtype = array.dtype.copy()
+        self.dtype = array.dtype
         self.length = array.length
         self.nulls = array.nulls
         self.offset = array.offset
@@ -88,7 +88,7 @@ struct Array(Copyable, Movable, Stringable):
 
     @implicit
     fn __init__(out self, array: StructArray):
-        self.dtype = array.dtype.copy()
+        self.dtype = array.dtype
         self.length = array.length
         self.nulls = array.nulls
         self.offset = 0
@@ -97,7 +97,7 @@ struct Array(Copyable, Movable, Stringable):
         self.children = array.children.copy()
 
     fn __init__(out self, *, copy: Self):
-        self.dtype = copy.dtype.copy()
+        self.dtype = copy.dtype
         self.length = copy.length
         self.nulls = copy.nulls
         self.bitmap = copy.bitmap
@@ -119,15 +119,18 @@ struct Array(Copyable, Movable, Stringable):
             return True
         return self.bitmap.unsafe_get[DType.bool](index + self.offset)
 
-    fn __str__(self) -> String:
-        from .pretty import ArrayPrinter
+    fn write_to[W: Writer](self, mut writer: W):
+        writer.write("ANYAD")
 
-        var printer = ArrayPrinter()
-        try:
-            printer.visit(self)
-        except:
-            pass
-        return printer^.finish()
+    # fn __str__(self) -> String:
+    #     from .pretty import ArrayPrinter
+
+    #     var printer = ArrayPrinter()
+    #     try:
+    #         printer.visit(self)
+    #     except:
+    #         pass
+    #     return printer^.finish()
 
     fn as_primitive[T: DataType](self) raises -> PrimitiveArray[T]:
         return PrimitiveArray[T](self)
@@ -179,7 +182,7 @@ struct Array(Copyable, Movable, Stringable):
 
 
 @fieldwise_init
-struct PrimitiveArray[T: DataType](Movable, Sized):
+struct PrimitiveArray[T: DataType](Movable, Sized, Writable):
     """An immutable Arrow array of fixed-size primitive values (integers, floats, etc.).
     """
 
@@ -194,13 +197,8 @@ struct PrimitiveArray[T: DataType](Movable, Sized):
 
     fn __init__(out self, ref data: Array, offset: Int = 0) raises:
         if data.dtype != materialize[Self.T]():
-            raise Error(
-                "Unexpected dtype '"
-                + data.dtype.__str__()
-                + "' instead of '"
-                + materialize[Self.T]().__str__()
-                + "'."
-            )
+            # TODO: mojo hangs if we pass data.dtype directly despite that it properly satisfies Writable
+            raise Error("Unexpected dtype '{}' instead of '{}'.".format(String(data.dtype), String(Self.T)))
         elif len(data.buffers) != 1:
             raise Error("PrimitiveArray requires exactly one buffer")
 
@@ -213,6 +211,19 @@ struct PrimitiveArray[T: DataType](Movable, Sized):
     @always_inline
     fn __len__(self) -> Int:
         return self.length
+
+    fn with_offset(self, offset: Int) -> Self:
+        """Return a new PrimitiveArray with the given offset added to the current offset."""
+        return Self(
+            length=self.length - offset,
+            nulls=self.nulls,
+            offset=self.offset + offset,
+            bitmap=self.bitmap,
+            buffer=self.buffer,
+        )
+
+    fn write_to[W: Writer](self, mut writer: W):
+        writer.write("ANYAD")
 
     @always_inline
     fn is_valid(self, index: Int) -> Bool:
@@ -272,7 +283,7 @@ comptime Float64Array = PrimitiveArray[float64]
 
 
 @fieldwise_init
-struct StringArray(Movable, Sized):
+struct StringArray(Movable, Sized, Writable):
     """An immutable Arrow array of variable-length UTF-8 strings."""
 
     var length: Int
@@ -290,9 +301,7 @@ struct StringArray(Movable, Sized):
         """
         if data.dtype != materialize[string]():
             raise Error(
-                "Unexpected dtype '"
-                + data.dtype.__str__()
-                + "' instead of 'string'."
+                "Unexpected dtype '{}' instead of 'string'.".format(String(data.dtype))
             )
         elif len(data.buffers) != 2:
             raise Error("StringArray requires exactly two buffers")
@@ -307,6 +316,20 @@ struct StringArray(Movable, Sized):
     fn __len__(self) -> Int:
         """Return the number of elements in the array."""
         return self.length
+
+    fn with_offset(self, offset) -> Self:
+        """Return a new StringArray with the given offset added to the current offset."""
+        return Self(
+            length=self.length - offset,
+            nulls=self.nulls,
+            offset=self.offset + offset,
+            bitmap=self.bitmap,
+            offsets=self.offsets,
+            values=self.values,
+        )
+
+    fn write_to[W: Writer](self, mut writer: W):
+        writer.write("ANYAD")
 
     fn is_valid(self, index: Int) -> Bool:
         """Return True if the element at the given index is not null."""
@@ -339,17 +362,12 @@ struct StringArray(Movable, Sized):
             If the index is out of bounds.
         """
         if index < 0 or index >= self.length:
-            raise Error(
-                "index "
-                + String(index)
-                + " out of bounds for length "
-                + String(self.length)
-            )
+            raise Error("index {} out of bounds for length {}".format(index, self.length))
         return self.unsafe_get(UInt(index))
 
 
 @fieldwise_init
-struct ListArray(Movable, Sized):
+struct ListArray(Movable, Sized, Writable):
     """An immutable Arrow array of variable-length lists (each element is a sub-array).
     """
 
@@ -363,15 +381,13 @@ struct ListArray(Movable, Sized):
 
     fn __init__(out self, ref data: Array) raises:
         if not data.dtype.is_list():
-            raise Error(
-                "Unexpected dtype " + data.dtype.__str__() + " instead of 'list'"
-            )
+            raise Error("Unexpected dtype '{}' instead of 'list'.".format(String(data.dtype)))
         elif len(data.buffers) != 1:
             raise Error("ListArray requires exactly one buffer")
         elif len(data.children) != 1:
             raise Error("ListArray requires exactly one child array")
 
-        self.dtype = data.dtype.copy()
+        self.dtype = data.dtype
         self.length = data.length
         self.nulls = data.nulls
         self.offset = data.offset
@@ -382,35 +398,38 @@ struct ListArray(Movable, Sized):
     fn __len__(self) -> Int:
         return self.length
 
+    fn write_to[W: Writer](self, mut writer: W):
+        writer.write("ANYAD")
+
     fn is_valid(self, index: Int) -> Bool:
         if self.bitmap.size == 0:
             return True
         return self.bitmap.unsafe_get[DType.bool](index + self.offset)
 
-    fn unsafe_get(self, index: Int, out array_data: Array) raises:
-        """Access the value at a given index in the list array.
+    # fn unsafe_get(self, index: Int, out array_data: Array) raises:
+    #     """Access the value at a given index in the list array.
 
-        Use an out argument to allow the caller to re-use memory while iterating over a pyarrow structure.
-        """
-        var start = Int(
-            self.offsets.unsafe_get[DType.int32](self.offset + index)
-        )
-        var end = Int(
-            self.offsets.unsafe_get[DType.int32](self.offset + index + 1)
-        )
-        return Array(
-            dtype=self.values.dtype.copy(),
-            length=end - start,
-            nulls=-1,
-            bitmap=self.values.bitmap,
-            buffers=self.values.buffers.copy(),
-            children=self.values.children.copy(),
-            offset=start,
-        )
+    #     Use an out argument to allow the caller to re-use memory while iterating over a pyarrow structure.
+    #     """
+    #     var start = Int(
+    #         self.offsets.unsafe_get[DType.int32](self.offset + index)
+    #     )
+    #     var end = Int(
+    #         self.offsets.unsafe_get[DType.int32](self.offset + index + 1)
+    #     )
+    #     return Array(
+    #         dtype=self.values.dtype,
+    #         length=end - start,
+    #         nulls=-1,
+    #         bitmap=self.values.bitmap,
+    #         buffers=self.values.buffers.copy(),
+    #         children=self.values.children.copy(),
+    #         offset=start,
+    #     )
 
 
 @fieldwise_init
-struct FixedSizeListArray(Movable, Sized):
+struct FixedSizeListArray(Movable, Sized, Writable):
     """An immutable Arrow array of fixed-size lists (each element is a sub-array of the same length).
     """
 
@@ -423,17 +442,13 @@ struct FixedSizeListArray(Movable, Sized):
 
     fn __init__(out self, ref data: Array) raises:
         if not data.dtype.is_fixed_size_list():
-            raise Error(
-                "Unexpected dtype "
-                + data.dtype.__str__()
-                + " instead of 'fixed_size_list'"
-            )
+            raise Error("Unexpected dtype '{}' instead of 'fixed_size_list'.".format(String(data.dtype)))
         elif len(data.buffers) != 0:
             raise Error("FixedSizeListArray requires zero buffers")
         elif len(data.children) != 1:
             raise Error("FixedSizeListArray requires exactly one child array")
 
-        self.dtype = data.dtype.copy()
+        self.dtype = data.dtype
         self.length = data.length
         self.nulls = data.nulls
         self.offset = data.offset
@@ -442,6 +457,9 @@ struct FixedSizeListArray(Movable, Sized):
 
     fn __len__(self) -> Int:
         return self.length
+
+    fn write_to[W: Writer](self, mut writer: W):
+        writer.write("ANYAD")
 
     fn is_valid(self, index: Int) -> Bool:
         if self.bitmap.size == 0:
@@ -452,7 +470,7 @@ struct FixedSizeListArray(Movable, Sized):
         var list_size = self.dtype.size
         var start = (self.offset + index) * list_size
         return Array(
-            dtype=self.values.dtype.copy(),
+            dtype=self.values.dtype,
             length=list_size,
             nulls=-1,
             bitmap=self.values.bitmap,
@@ -467,7 +485,7 @@ struct FixedSizeListArray(Movable, Sized):
         for i in range(len(self.values.buffers)):
             new_buffers.append(self.values.buffers[i].to_device(ctx))
         var new_child = Array(
-            dtype=self.values.dtype.copy(),
+            dtype=self.values.dtype,
             length=self.values.length,
             nulls=self.values.nulls,
             bitmap=self.values.bitmap.to_device(ctx),
@@ -476,7 +494,7 @@ struct FixedSizeListArray(Movable, Sized):
             offset=self.values.offset,
         )
         return FixedSizeListArray(
-            dtype=self.dtype.copy(),
+            dtype=self.dtype,
             length=self.length,
             nulls=self.nulls,
             offset=self.offset,
@@ -486,7 +504,7 @@ struct FixedSizeListArray(Movable, Sized):
 
 
 @fieldwise_init
-struct StructArray(Movable, Sized):
+struct StructArray(Movable, Sized, Writable):
     """An immutable Arrow array of structs (each element is a collection of named fields).
     """
 
@@ -497,7 +515,7 @@ struct StructArray(Movable, Sized):
     var children: List[Array]
 
     fn __init__(out self, *, ref data: Array):
-        self.dtype = data.dtype.copy()
+        self.dtype = data.dtype
         self.length = data.length
         self.nulls = data.nulls
         self.bitmap = data.bitmap
@@ -505,6 +523,9 @@ struct StructArray(Movable, Sized):
 
     fn __len__(self) -> Int:
         return self.length
+
+    fn write_to[W: Writer](self, mut writer: W):
+        writer.write("ANYAD")
 
     fn _index_for_field_name(self, name: StringSlice) raises -> Int:
         for idx, ref field in enumerate(self.dtype.fields):
@@ -520,7 +541,7 @@ struct StructArray(Movable, Sized):
         return self.children[self._index_for_field_name(name)]
 
 
-struct ChunkedArray(Stringable):
+struct ChunkedArray(Movable, Writable):
     """An array-like composed from a (possibly empty) collection of pyarrow.Arrays.
 
     [Reference](https://arrow.apache.org/docs/python/generated/pyarrow.ChunkedArray.html#pyarrow-chunkedarray).
@@ -543,15 +564,18 @@ struct ChunkedArray(Stringable):
         self.length = 0
         self._compute_length()
 
-    fn __str__(self) -> String:
-        from .pretty import ArrayPrinter
+    fn write_to[W: Writer](self, mut writer: W):
+        writer.write("ANYAD")
 
-        var printer = ArrayPrinter()
-        try:
-            printer.visit(self)
-        except:
-            pass
-        return printer^.finish()
+    # fn __str__(self) -> String:
+    #     from .pretty import ArrayPrinter
+
+    #     var printer = ArrayPrinter()
+    #     try:
+    #         printer.visit(self)
+    #     except:
+    #         pass
+    #     return printer^.finish()
 
     fn chunk(self, index: Int) -> ref[self.chunks] Array:
         """Returns the chunk at the given index.
@@ -593,7 +617,7 @@ struct ChunkedArray(Stringable):
         else:
             frozen_bitmap = bitmap.finish()
         combined = Array(
-            dtype=self.dtype.copy(),
+            dtype=self.dtype,
             length=self.length,
             nulls=total_nulls,
             bitmap=frozen_bitmap^,

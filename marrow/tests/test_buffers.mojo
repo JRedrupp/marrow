@@ -3,7 +3,7 @@ from std.sys import has_accelerator
 from std.testing import assert_equal, assert_true, assert_false, TestSuite
 from std.reflection import call_location
 from std.memory import ArcPointer
-from gpu.host import DeviceContext
+from std.gpu.host import DeviceContext
 
 from marrow.buffers import *
 

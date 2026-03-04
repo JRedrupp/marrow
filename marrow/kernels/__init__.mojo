@@ -45,9 +45,8 @@ import std.math as math
 from std.math import iota
 from std.sys import size_of, has_accelerator
 from std.sys.info import simd_byte_width
-
-from gpu import global_idx
-from gpu.host import DeviceContext
+from std.gpu import global_idx
+from std.gpu.host import DeviceContext
 
 from marrow.arrays import PrimitiveArray, Array
 from marrow.buffers import Buffer, BufferBuilder, bitmap_range_set
@@ -224,13 +223,8 @@ fn binary_simd[
         A new PrimitiveArray with func applied element-wise using SIMD.
     """
     if len(left) != len(right):
-        raise Error(
-            String(name)
-            + ": arrays must have the same length, got "
-            + String(len(left))
-            + " and "
-            + String(len(right))
-        )
+        raise Error("{} arrays must have the same length, got {} and {}".format(name, len(left), len(right)))
+
     var length = len(left)
     comptime native = T.native
     comptime width = simd_byte_width() // size_of[native]()
@@ -529,13 +523,9 @@ fn binary_array_dispatch[
         A new Array with the element-wise result.
     """
     if left.dtype != right.dtype:
-        raise Error(
-            String(name)
-            + ": dtype mismatch: "
-            + left.dtype.__str__()
-            + " vs "
-            + right.dtype.__str__()
-        )
+        # TODO: remove String() from around dtypes once mojo stops hanging when we pass them directly to format()
+        raise Error("{}: dtype mismatch: {} vs {}".format(name, String(left.dtype), String(right.dtype)))
+
     comptime for dtype in all_numeric_dtypes:
         if left.dtype == materialize[dtype]():
             return Array(
@@ -545,4 +535,4 @@ fn binary_array_dispatch[
                     ctx,
                 )
             )
-    raise Error(String(name) + ": unsupported dtype " + left.dtype.__str__())
+    raise Error("{}: unsupported dtype {}".format(name, String(left.dtype)))

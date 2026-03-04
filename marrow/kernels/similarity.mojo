@@ -3,9 +3,8 @@
 import std.math as math
 from std.sys import size_of, has_accelerator
 from std.sys.info import simd_byte_width
-
-from gpu import global_idx
-from gpu.host import DeviceBuffer, DeviceContext
+from std.gpu import global_idx
+from std.gpu.host import DeviceBuffer, DeviceContext
 
 from marrow.arrays import PrimitiveArray, FixedSizeListArray
 from marrow.buffers import Buffer, BufferBuilder, bitmap_range_set

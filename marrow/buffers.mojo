@@ -97,7 +97,7 @@ from std.memory import (
 from std.sys.info import simd_byte_width
 from std.sys import size_of
 import std.math as math
-from gpu.host import DeviceBuffer, DeviceContext, HostBuffer
+from std.gpu.host import DeviceBuffer, DeviceContext, HostBuffer
 
 
 struct DeviceType:
@@ -414,6 +414,7 @@ struct BufferBuilder(Movable):
     ](self) -> UnsafePointer[Scalar[T], MutExternalOrigin]:
         return self.ptr.bitcast[Scalar[T]]()
 
+    # TODO: use Indexable for index?
     @always_inline
     fn unsafe_get[T: DType = DType.uint8](self, index: Int) -> Scalar[T]:
         comptime output = Scalar[T]
@@ -462,7 +463,7 @@ struct BufferBuilder(Movable):
 # ---------------------------------------------------------------------------
 
 
-struct Buffer(ImplicitlyCopyable, Movable):
+struct Buffer(ImplicitlyCopyable, Movable, Writable):
     """Immutable contiguous memory region.
 
     CPU accessibility is encoded in `ptr`: a non-null ptr means the buffer is
@@ -562,9 +563,6 @@ struct Buffer(ImplicitlyCopyable, Movable):
             size,
             ArcPointer(Allocation.device(dev)),
         )
-
-    fn __del__(deinit self):
-        pass
 
     @always_inline
     fn is_cpu(self) -> Bool:
@@ -691,6 +689,11 @@ struct Buffer(ImplicitlyCopyable, Movable):
             "cannot read device buffer, call to_cpu() first",
         )
         return (self.ptr.bitcast[Scalar[T]]() + index).load[width=W]()
+
+    fn write_to[W: Writer](self, mut writer: W):
+        """Write the buffer's bytes to a Writer."""
+        writer.write("Buffer(ptr={}, size={})".format(self.ptr, self.size))
+
 
 
 # ---------------------------------------------------------------------------
