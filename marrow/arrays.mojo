@@ -588,7 +588,8 @@ struct ChunkedArray(Stringable):
             start += chunk_length
         var frozen_bitmap: Buffer
         if total_nulls == 0:
-            frozen_bitmap = BufferBuilder.alloc[DType.bool](0).finish()
+            var empty = BufferBuilder.alloc[DType.bool](0)
+            frozen_bitmap = empty.finish()
         else:
             frozen_bitmap = bitmap.finish()
         combined = Array(

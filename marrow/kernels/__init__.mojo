@@ -75,22 +75,27 @@ fn bitmap_and(a: Buffer, b: Buffer, length: Int) -> Buffer:
     Returns:
         A new Buffer where result[i] = a[i] AND b[i] (bit-packed).
     """
+    # Empty bitmap means all-valid (no nulls); AND of two all-valid = all-valid.
+    if a.size == 0 and b.size == 0:
+        var empty = BufferBuilder.alloc[DType.bool](0)
+        return empty.finish()
+
     var byte_count = math.ceildiv(length, 8)
     var result = BufferBuilder.alloc[DType.bool](length)
 
+    # Treat an empty bitmap as all-ones (0xFF = all valid) in the loop.
     comptime width = simd_byte_width()
+    var all_ones = SIMD[DType.uint8, width](0xFF)
     var i = 0
     while i + width <= byte_count:
-        result.simd_store[DType.uint8, width](
-            i,
-            a.simd_load[DType.uint8, width](i)
-            & b.simd_load[DType.uint8, width](i),
-        )
+        var va = a.simd_load[DType.uint8, width](i) if a.size > 0 else all_ones
+        var vb = b.simd_load[DType.uint8, width](i) if b.size > 0 else all_ones
+        result.simd_store[DType.uint8, width](i, va & vb)
         i += width
     while i < byte_count:
-        result.unsafe_set[DType.uint8](
-            i, a.unsafe_get[DType.uint8](i) & b.unsafe_get[DType.uint8](i)
-        )
+        var ba = a.unsafe_get[DType.uint8](i) if a.size > 0 else UInt8(0xFF)
+        var bb = b.unsafe_get[DType.uint8](i) if b.size > 0 else UInt8(0xFF)
+        result.unsafe_set[DType.uint8](i, ba & bb)
         i += 1
 
     return result.finish()
@@ -369,6 +374,7 @@ fn reduce_simd[
     comptime native = T.native
     comptime width = simd_byte_width() // size_of[native]()
     var length = len(array)
+    var has_nulls = array.bitmap.size > 0
     var bp = array.bitmap.unsafe_ptr()
 
     var acc = SIMD[native, width](initial)
@@ -377,8 +383,11 @@ fn reduce_simd[
 
     while i + width <= length:
         var vec = array.buffer.simd_load[native, width](array.offset + i)
-        var mask = _bitmap_mask[native, width](bp, array.offset + i)
-        acc = combine[width](acc, mask.select(vec, identity_vec))
+        if has_nulls:
+            var mask = _bitmap_mask[native, width](bp, array.offset + i)
+            acc = combine[width](acc, mask.select(vec, identity_vec))
+        else:
+            acc = combine[width](acc, vec)
         i += width
 
     var result = horizontal[width](acc)

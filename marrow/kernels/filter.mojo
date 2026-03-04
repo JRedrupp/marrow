@@ -77,12 +77,21 @@ fn _bitmap_as_bool_array(bitmap: Buffer, length: Int) -> PrimitiveArray[bool_]:
     """
     var all_valid = BufferBuilder.alloc[DType.bool](length)
     bitmap_range_set(all_valid.ptr, 0, length, True)
+    # When bitmap is empty (size==0), the array has no nulls and all elements
+    # are valid. Build an all-True data buffer so the selection is all-selected.
+    var data: Buffer
+    if bitmap.size == 0:
+        var all_ones = BufferBuilder.alloc[DType.bool](length)
+        bitmap_range_set(all_ones.ptr, 0, length, True)
+        data = all_ones.finish()
+    else:
+        data = bitmap
     return PrimitiveArray[bool_](
         length=length,
         nulls=0,
         offset=0,
         bitmap=all_valid.finish(),
-        buffer=bitmap,
+        buffer=data,
     )
 
 

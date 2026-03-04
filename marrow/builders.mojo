@@ -170,50 +170,24 @@ struct Builder(Copyable, Movable):
         self.data = value.data
 
     fn finish(mut self) raises -> Array:
-        var code = self.data[].dtype.code
-        if code == BOOL:
-            var b = PrimitiveBuilder[bool_](self.data)
-            return b.finish()
-        elif code == INT8:
-            var b = PrimitiveBuilder[int8](self.data)
-            return b.finish()
-        elif code == INT16:
-            var b = PrimitiveBuilder[int16](self.data)
-            return b.finish()
-        elif code == INT32:
-            var b = PrimitiveBuilder[int32](self.data)
-            return b.finish()
-        elif code == INT64:
-            var b = PrimitiveBuilder[int64](self.data)
-            return b.finish()
-        elif code == UINT8:
-            var b = PrimitiveBuilder[uint8](self.data)
-            return b.finish()
-        elif code == UINT16:
-            var b = PrimitiveBuilder[uint16](self.data)
-            return b.finish()
-        elif code == UINT32:
-            var b = PrimitiveBuilder[uint32](self.data)
-            return b.finish()
-        elif code == UINT64:
-            var b = PrimitiveBuilder[uint64](self.data)
-            return b.finish()
-        elif code == FLOAT32:
-            var b = PrimitiveBuilder[float32](self.data)
-            return b.finish()
-        elif code == FLOAT64:
-            var b = PrimitiveBuilder[float64](self.data)
-            return b.finish()
-        elif code == STRING:
+        comptime for T in [
+            bool_, int8, int16, int32, int64,
+            uint8, uint16, uint32, uint64,
+            float32, float64,
+        ]:
+            if self.data[].dtype == materialize[T]():
+                var b = PrimitiveBuilder[T](self.data)
+                return b.finish()
+        if self.data[].dtype.is_string():
             var b = StringBuilder(self.data)
             return b.finish()
-        elif code == LIST:
+        elif self.data[].dtype.is_list():
             var b = ListBuilder(self.data)
             return b.finish()
-        elif code == FIXED_SIZE_LIST:
+        elif self.data[].dtype.is_fixed_size_list():
             var b = FixedSizeListBuilder(self.data)
             return b.finish()
-        else:  # STRUCT
+        else:  # struct
             var b = StructBuilder(self.data)
             return b.finish()
 
