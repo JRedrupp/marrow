@@ -141,7 +141,7 @@ comptime LIST_VIEW: UInt8 = 41
 comptime LARGE_LIST_VIEW: UInt8 = 42
 
 
-struct Field(Copyable, Equatable, Representable, Stringable):
+struct Field(Copyable, Equatable, Stringable):
     var name: String
     var dtype: DataType
     var nullable: Bool
@@ -169,7 +169,7 @@ struct Field(Copyable, Equatable, Representable, Stringable):
         return self.__str__()
 
 
-struct DataType(Copyable, Equatable, Representable, Stringable, Writable):
+struct DataType(Copyable, Equatable, Stringable, Writable):
     var code: UInt8
     var native: DType
     var fields: List[Field]

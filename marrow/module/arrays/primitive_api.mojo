@@ -11,7 +11,7 @@ from std.python import Python
 
 
 @fieldwise_init
-struct PrimitiveArray(Movable, Representable):
+struct PrimitiveArray(Movable):
     """Type erased PrimitiveArray so that we can return to python."""
 
     var data: Array
