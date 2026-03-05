@@ -18,12 +18,8 @@ convert to/from `Array` via implicit constructors and `as_*()` accessors.
 from std.memory import memcpy
 from std.sys import size_of
 from gpu.host import DeviceContext
-from .buffers import (
-    Buffer,
-    BufferBuilder,
-    bitmap_extend,
-    bitmap_range_set,
-)
+from .buffers import Buffer, BufferBuilder
+from .bitmap import Bitmap, BitmapBuilder
 from .dtypes import *
 
 
@@ -41,7 +37,7 @@ struct Array(Copyable, Movable, Writable):
     var dtype: DataType
     var length: Int
     var nulls: Int
-    var bitmap: Buffer
+    var bitmap: Optional[Bitmap]
     var buffers: List[Buffer]
     var children: List[Array]
     var offset: Int
@@ -115,9 +111,9 @@ struct Array(Copyable, Movable, Writable):
         self.offset = take.offset
 
     fn is_valid(self, index: Int) -> Bool:
-        if self.bitmap.size == 0:
+        if not self.bitmap:
             return True
-        return self.bitmap.unsafe_get[DType.bool](index + self.offset)
+        return self.bitmap.value().is_valid(self.offset + index)
 
     fn write_to[W: Writer](self, mut writer: W):
         writer.write("ANYAD")
@@ -192,7 +188,7 @@ struct PrimitiveArray[T: DataType](Movable, Sized, Writable):
     var length: Int
     var nulls: Int
     var offset: Int
-    var bitmap: Buffer
+    var bitmap: Optional[Bitmap]
     var buffer: Buffer
 
     fn __init__(out self, ref data: Array, offset: Int = 0) raises:
@@ -232,9 +228,9 @@ struct PrimitiveArray[T: DataType](Movable, Sized, Writable):
 
     @always_inline
     fn is_valid(self, index: Int) -> Bool:
-        if self.bitmap.size == 0:
+        if not self.bitmap:
             return True
-        return self.bitmap.unsafe_get[DType.bool](index + self.offset)
+        return self.bitmap.value().is_valid(self.offset + index)
 
     @always_inline
     fn unsafe_get(self, index: Int) -> Self.scalar:
@@ -255,21 +251,27 @@ struct PrimitiveArray[T: DataType](Movable, Sized, Writable):
 
     fn to_device(self, ctx: DeviceContext) raises -> PrimitiveArray[Self.T]:
         """Upload array data to the GPU."""
+        var bm: Optional[Bitmap] = None
+        if self.bitmap:
+            bm = Bitmap(self.bitmap.value()._buffer.to_device(ctx), 0, self.bitmap.value()._length)
         return PrimitiveArray[Self.T](
             length=self.length,
             nulls=self.nulls,
             offset=0,
-            bitmap=self.bitmap.to_device(ctx),
+            bitmap=bm^,
             buffer=self.buffer.to_device(ctx),
         )
 
     fn to_cpu(self, ctx: DeviceContext) raises -> PrimitiveArray[Self.T]:
         """Download array data from the GPU to owned CPU heap buffers."""
+        var bm: Optional[Bitmap] = None
+        if self.bitmap:
+            bm = Bitmap(self.bitmap.value()._buffer.to_cpu(ctx), 0, self.bitmap.value()._length)
         return PrimitiveArray[Self.T](
             length=self.length,
             nulls=self.nulls,
             offset=0,
-            bitmap=self.bitmap.to_cpu(ctx),
+            bitmap=bm^,
             buffer=self.buffer.to_cpu(ctx),
         )
 
@@ -294,7 +296,7 @@ struct StringArray(Movable, Sized, Writable):
     var length: Int
     var nulls: Int
     var offset: Int
-    var bitmap: Buffer
+    var bitmap: Optional[Bitmap]
     var offsets: Buffer
     var values: Buffer
 
@@ -341,9 +343,9 @@ struct StringArray(Movable, Sized, Writable):
 
     fn is_valid(self, index: Int) -> Bool:
         """Return True if the element at the given index is not null."""
-        if self.bitmap.size == 0:
+        if not self.bitmap:
             return True
-        return self.bitmap.unsafe_get[DType.bool](index + self.offset)
+        return self.bitmap.value().is_valid(self.offset + index)
 
     fn unsafe_get[
         self_origin: Origin[mut=False], //
@@ -387,7 +389,7 @@ struct ListArray(Movable, Sized, Writable):
     var length: Int
     var nulls: Int
     var offset: Int
-    var bitmap: Buffer
+    var bitmap: Optional[Bitmap]
     var offsets: Buffer
     var values: Array
 
@@ -418,9 +420,9 @@ struct ListArray(Movable, Sized, Writable):
         writer.write("ANYAD")
 
     fn is_valid(self, index: Int) -> Bool:
-        if self.bitmap.size == 0:
+        if not self.bitmap:
             return True
-        return self.bitmap.unsafe_get[DType.bool](index + self.offset)
+        return self.bitmap.value().is_valid(self.offset + index)
 
     fn unsafe_get(self, index: Int) -> Array:
         """Return a view of the child array for the list at the given index."""
@@ -446,7 +448,7 @@ struct FixedSizeListArray(Movable, Sized, Writable):
     var length: Int
     var nulls: Int
     var offset: Int
-    var bitmap: Buffer
+    var bitmap: Optional[Bitmap]
     var values: Array
 
     fn __init__(out self, ref data: Array) raises:
@@ -475,9 +477,9 @@ struct FixedSizeListArray(Movable, Sized, Writable):
         writer.write("ANYAD")
 
     fn is_valid(self, index: Int) -> Bool:
-        if self.bitmap.size == 0:
+        if not self.bitmap:
             return True
-        return self.bitmap.unsafe_get[DType.bool](index + self.offset)
+        return self.bitmap.value().is_valid(self.offset + index)
 
     fn unsafe_get(self, index: Int, out array_data: Array):
         var list_size = self.dtype.size
@@ -487,7 +489,7 @@ struct FixedSizeListArray(Movable, Sized, Writable):
             length=list_size,
             # TODO: calculate nullcount
             nulls=0,
-            bitmap=self.values.bitmap,
+            bitmap=self.values.bitmap,  # Optional[Bitmap] — shared ref-counted copy
             buffers=self.values.buffers.copy(),
             children=self.values.children.copy(),
             offset=start,
@@ -498,21 +500,29 @@ struct FixedSizeListArray(Movable, Sized, Writable):
         var new_buffers = List[Buffer]()
         for i in range(len(self.values.buffers)):
             new_buffers.append(self.values.buffers[i].to_device(ctx))
+        var child_bm: Optional[Bitmap] = None
+        if self.values.bitmap:
+            var bv = self.values.bitmap.value()
+            child_bm = Bitmap(bv._buffer.to_device(ctx), 0, bv._length)
         var new_child = Array(
             dtype=self.values.dtype,
             length=self.values.length,
             nulls=self.values.nulls,
-            bitmap=self.values.bitmap.to_device(ctx),
+            bitmap=child_bm^,
             buffers=new_buffers^,
             children=List[Array](),
             offset=self.values.offset,
         )
+        var bm: Optional[Bitmap] = None
+        if self.bitmap:
+            var bv = self.bitmap.value()
+            bm = Bitmap(bv._buffer.to_device(ctx), 0, bv._length)
         return FixedSizeListArray(
             dtype=self.dtype,
             length=self.length,
             nulls=self.nulls,
             offset=self.offset,
-            bitmap=self.bitmap.to_device(ctx),
+            bitmap=bm^,
             values=new_child^,
         )
 
@@ -525,7 +535,7 @@ struct StructArray(Movable, Sized, Writable):
     var dtype: DataType
     var length: Int
     var nulls: Int
-    var bitmap: Buffer
+    var bitmap: Optional[Bitmap]
     var children: List[Array]
 
     fn __init__(out self, *, ref data: Array):
@@ -604,7 +614,7 @@ struct ChunkedArray(Movable, Writable):
 
     fn combine_chunks(var self, out combined: Array):
         """Combines all chunks into a single array."""
-        var bitmap = BufferBuilder.alloc[DType.bool](self.length)
+        var bm_builder = BitmapBuilder.alloc(self.length)
         var buffers = List[Buffer]()
         var children = List[Array]()
         var start = 0
@@ -613,23 +623,21 @@ struct ChunkedArray(Movable, Writable):
             var chunk = self.chunks.pop(0)
             var chunk_length = chunk.length
             if chunk.nulls == 0:
-                bitmap_range_set(bitmap.ptr, start, start + chunk_length, True)
+                bm_builder.set_range(start, chunk_length, True)
             else:
                 total_nulls += chunk.nulls
-                bitmap_extend(
-                    bitmap.ptr, chunk.bitmap.unsafe_ptr(), start, chunk_length
-                )
+                if chunk.bitmap:
+                    bm_builder.extend(chunk.bitmap.value(), start, chunk_length)
+                else:
+                    bm_builder.set_range(start, chunk_length, True)
             for i in range(len(chunk.buffers)):
                 buffers.append(chunk.buffers[i])
             for i in range(len(chunk.children)):
                 children.append(chunk.children[i].copy())
             start += chunk_length
-        var frozen_bitmap: Buffer
-        if total_nulls == 0:
-            var empty = BufferBuilder.alloc[DType.bool](0)
-            frozen_bitmap = empty.finish()
-        else:
-            frozen_bitmap = bitmap.finish()
+        var frozen_bitmap: Optional[Bitmap] = None
+        if total_nulls != 0:
+            frozen_bitmap = bm_builder.finish(self.length)
         combined = Array(
             dtype=self.dtype,
             length=self.length,

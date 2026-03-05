@@ -80,12 +80,9 @@ Pinned host allocation (kind=HOST):
 
 Bitmap operations
 -----------------
-Validity bitmaps are plain `Buffer` / `BufferBuilder` with bit-packed bytes
-(1 bit per element, LSB first, Arrow spec).  Free functions `bitmap_range_set`,
-`bitmap_extend`, and `bitmap_count_ones` operate directly on `Buffer` or raw
-`UnsafePointer[UInt8]` values.
-`Buffer.unsafe_get[DType.bool]` and `BufferBuilder.unsafe_set[DType.bool]`
-handle bit-packed access transparently.
+Validity bitmaps use the dedicated `Bitmap` / `BitmapBuilder` types from
+`marrow.bitmap`, which wrap `Buffer` / `BufferBuilder` with bit-level and
+SIMD bulk operations.
 """
 
 from std.memory import (
@@ -714,107 +711,3 @@ struct Buffer(ImplicitlyCopyable, Movable, Writable):
         writer.write("Buffer(ptr={}, size={})".format(self.ptr, self.size))
 
 
-# ---------------------------------------------------------------------------
-# Bitmap free functions — operate on raw UnsafePointer[UInt8]
-# ---------------------------------------------------------------------------
-
-
-# TODO: remove it
-fn _bitmap_partial_byte_set(
-    ptr: UnsafePointer[UInt8, MutExternalOrigin],
-    byte_index: Int,
-    bit_pos_start: Int,
-    bit_pos_end: Int,
-    value: Bool,
-):
-    """Set bits [bit_pos_start, bit_pos_end) within a single byte to `value`."""
-    debug_assert(
-        bit_pos_start >= 0
-        and bit_pos_end <= 8
-        and bit_pos_start <= bit_pos_end,
-        "Invalid range: ",
-        bit_pos_start,
-        " to ",
-        bit_pos_end,
-    )
-    var mask = UInt8((1 << (bit_pos_end - bit_pos_start)) - 1) << UInt8(
-        bit_pos_start
-    )
-    if value:
-        ptr[byte_index] = ptr[byte_index] | mask
-    else:
-        ptr[byte_index] = ptr[byte_index] & ~mask
-
-
-# TODO: remove it
-fn bitmap_range_set(
-    ptr: UnsafePointer[UInt8, MutExternalOrigin],
-    start: Int,
-    length: Int,
-    value: Bool,
-):
-    """Set `length` bits starting at `start` to `value` in a bit-packed bitmap.
-    """
-    var end = start + length
-    var start_byte = start // 8
-    var bit_pos_start = start % 8
-    var end_byte = end // 8
-    var bit_pos_end = end % 8
-
-    if bit_pos_start != 0 or bit_pos_end != 0:
-        if start_byte == end_byte:
-            _bitmap_partial_byte_set(
-                ptr, start_byte, bit_pos_start, bit_pos_end, value
-            )
-            return
-        if bit_pos_start != 0:
-            _bitmap_partial_byte_set(ptr, start_byte, bit_pos_start, 8, value)
-            start_byte += 1
-        if bit_pos_end != 0:
-            _bitmap_partial_byte_set(ptr, end_byte, 0, bit_pos_end, value)
-
-    if end_byte > start_byte:
-        memset(
-            ptr + start_byte,
-            value=UInt8(255 if value else 0),
-            count=end_byte - start_byte,
-        )
-
-
-# TODO: remove it
-fn bitmap_extend(
-    dst: UnsafePointer[UInt8, MutExternalOrigin],
-    src: UnsafePointer[UInt8, ImmutExternalOrigin],
-    dst_start: Int,
-    length: Int,
-):
-    """Copy `length` bits from `src` (starting at bit 0) into `dst` at `dst_start`.
-    """
-    for i in range(length):
-        var bit = Bool((src[i // 8] >> UInt8(i % 8)) & 1)
-        var byte_index = (dst_start + i) // 8
-        var bit_mask = UInt8(1 << ((dst_start + i) % 8))
-        if bit:
-            dst[byte_index] = dst[byte_index] | bit_mask
-        else:
-            dst[byte_index] = dst[byte_index] & ~bit_mask
-
-
-# TODO: move it to kernels
-fn bitmap_count_ones(buf: Buffer, byte_count: Int) -> Int:
-    """Count the number of set (1) bits across `byte_count` bytes of `buf`.
-
-    Taking `buf` by value (implicit copy) keeps the ArcPointer refcount elevated
-    for the duration of the call, preventing early-drop of the backing allocation.
-    """
-    comptime width = simd_byte_width()
-    var ptr = buf.unsafe_ptr()
-    var count = 0
-    var i = 0
-    while i + width <= byte_count:
-        count += Int((ptr + i).load[width=width]().reduce_bit_count())
-        i += width
-    while i < byte_count:
-        count += Int((ptr + i).load[width=1]().reduce_bit_count())
-        i += 1
-    return count

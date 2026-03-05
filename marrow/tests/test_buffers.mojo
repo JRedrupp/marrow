@@ -6,6 +6,7 @@ from std.memory import ArcPointer
 from std.gpu.host import DeviceContext
 
 from marrow.buffers import *
+from marrow.bitmap import Bitmap, BitmapBuilder
 
 
 @always_inline
@@ -113,60 +114,60 @@ def test_bitmap_get_set():
     assert_true(frozen.unsafe_get[DType.bool](0))
     assert_true(frozen.unsafe_get[DType.bool](1))
     assert_false(frozen.unsafe_get[DType.bool](2))
-    # 10-bit bitmap → 2 bytes of actual data
-    assert_equal(bitmap_count_ones(frozen, math.ceildiv(10, 8)), 2)
+    # 10-bit bitmap → 2 set bits
+    assert_equal(Bitmap(frozen, 0, 10).count_set_bits(), 2)
 
 
-def _reset(mut bitmap: BufferBuilder, n_bits: Int):
-    bitmap_range_set(bitmap.ptr, 0, n_bits, False)
-    assert_bitmap_set(bitmap.ptr, n_bits, [], "after _reset")
+def _reset(mut bitmap: BitmapBuilder, n_bits: Int):
+    bitmap.set_range(0, n_bits, False)
+    assert_bitmap_set(bitmap.unsafe_ptr(), n_bits, [], "after _reset")
 
 
 def test_bitmap_range_set():
-    var bitmap = BufferBuilder.alloc[DType.bool](16)
+    var bitmap = BitmapBuilder.alloc(16)
     var n_bits = 16
 
-    bitmap_range_set(bitmap.ptr, 0, 10, True)
+    bitmap.set_range(0, 10, True)
     assert_bitmap_set(
-        bitmap.ptr, n_bits, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], "range 0-10"
+        bitmap.unsafe_ptr(), n_bits, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], "range 0-10"
     )
-    bitmap_range_set(bitmap.ptr, 0, 10, False)
-    assert_bitmap_set(bitmap.ptr, n_bits, [], "reset")
+    bitmap.set_range(0, 10, False)
+    assert_bitmap_set(bitmap.unsafe_ptr(), n_bits, [], "reset")
 
-    bitmap_range_set(bitmap.ptr, 0, 0, True)
-    assert_bitmap_set(bitmap.ptr, n_bits, [], "range 0")
+    bitmap.set_range(0, 0, True)
+    assert_bitmap_set(bitmap.unsafe_ptr(), n_bits, [], "range 0")
 
     var to_test = [0, 1, 7, 8, 15]
     for pos in range(len(to_test)):
         _reset(bitmap, n_bits)
         var start_bit = to_test[pos]
-        bitmap_range_set(bitmap.ptr, start_bit, 1, True)
-        assert_bitmap_set(bitmap.ptr, n_bits, [start_bit], "range  1")
+        bitmap.set_range(start_bit, 1, True)
+        assert_bitmap_set(bitmap.unsafe_ptr(), n_bits, [start_bit], "range  1")
         if to_test[pos] < n_bits - 1:
             _reset(bitmap, n_bits)
-            bitmap_range_set(bitmap.ptr, start_bit, 2, True)
+            bitmap.set_range(start_bit, 2, True)
             assert_bitmap_set(
-                bitmap.ptr, n_bits, [start_bit, start_bit + 1], "range 2"
+                bitmap.unsafe_ptr(), n_bits, [start_bit, start_bit + 1], "range 2"
             )
 
 
 def test_bitmap_extend():
-    var src = BufferBuilder.alloc[DType.bool](6)
-    src.unsafe_set[DType.bool](0, True)
-    src.unsafe_set[DType.bool](5, True)
+    var src_b = BitmapBuilder.alloc(6)
+    src_b.set_bit(0, True)
+    src_b.set_bit(5, True)
+    var src = src_b.finish(6)
 
-    var dst = BufferBuilder.alloc[DType.bool](8)
-    bitmap_range_set(dst.ptr, 0, 8, False)
-    bitmap_extend(dst.ptr, src.finish().unsafe_ptr(), 0, 6)
-    assert_bitmap_set(dst.ptr, 8, [0, 5], "after extend")
+    var dst = BitmapBuilder.alloc(8)
+    dst.extend(src, 0, 6)
+    assert_bitmap_set(dst.unsafe_ptr(), 8, [0, 5], "after extend")
 
     # extend into offset position
-    var dst2 = BufferBuilder.alloc[DType.bool](8)
-    bitmap_range_set(dst2.ptr, 0, 8, False)
-    var src2 = BufferBuilder.alloc[DType.bool](2)
-    src2.unsafe_set[DType.bool](0, True)
-    bitmap_extend(dst2.ptr, src2.finish().unsafe_ptr(), 6, 2)
-    assert_bitmap_set(dst2.ptr, 8, [6], "extend at offset 6")
+    var dst2 = BitmapBuilder.alloc(8)
+    var src2_b = BitmapBuilder.alloc(2)
+    src2_b.set_bit(0, True)
+    var src2 = src2_b.finish(2)
+    dst2.extend(src2, 6, 2)
+    assert_bitmap_set(dst2.unsafe_ptr(), 8, [6], "extend at offset 6")
 
 
 def test_buffer_finish():

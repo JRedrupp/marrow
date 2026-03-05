@@ -6,8 +6,8 @@ from .buffers import (
     Buffer,
     BufferBuilder,
     DeviceType,
-    bitmap_range_set,
 )
+from .bitmap import Bitmap
 
 import std.math as math
 from std.python import Python, PythonObject
@@ -254,19 +254,20 @@ struct CArrowArray(Movable):
         # raw C buffers start at element 0 regardless of the logical array offset.
         var length = self.length + self.offset
 
-        var bitmap: Buffer
+        var bitmap: Optional[Bitmap]
         if self.buffers[0]:
-            bitmap = Buffer.from_foreign(
-                self.buffers[0],
-                math.ceildiv(Int(length), 8),
-                owner,
+            bitmap = Bitmap(
+                Buffer.from_foreign(
+                    self.buffers[0],
+                    math.ceildiv(Int(length), 8),
+                    owner,
+                ),
+                0,
+                Int(length),
             )
         else:
-            # bitmaps are allowed to be nullptrs by the specification; in this
-            # case we allocate a new owned buffer to hold the validity bitmap.
-            var bm = BufferBuilder.alloc[DType.bool](Int(self.length))
-            bitmap_range_set(bm.ptr, 0, Int(self.length), True)
-            bitmap = bm.finish()
+            # null bitmap pointer means all elements are valid
+            bitmap = None
 
         var buffers = List[Buffer]()
         var children = List[Array]()
@@ -393,7 +394,7 @@ struct CArrowArray(Movable):
             dtype=dtype.copy(),
             length=Int(self.length),
             nulls=Int(self.null_count),
-            bitmap=bitmap^,
+            bitmap=bitmap,
             buffers=buffers^,
             children=children^,
             offset=Int(self.offset),

@@ -7,7 +7,7 @@ from std.gpu import global_idx
 from std.gpu.host import DeviceBuffer, DeviceContext
 
 from marrow.arrays import PrimitiveArray, FixedSizeListArray
-from marrow.buffers import Buffer, BufferBuilder, bitmap_range_set
+from marrow.buffers import Buffer
 from marrow.builders import PrimitiveBuilder
 from marrow.dtypes import DataType
 
@@ -34,7 +34,6 @@ fn _cosine_similarity_no_nulls[
     comptime width = simd_byte_width() // size_of[native]()
 
     var result = PrimitiveBuilder[T](n_vectors)
-    bitmap_range_set(result.data[].bitmap.ptr, 0, n_vectors, True)
     var op = result.data[].buffers[0][].ptr.bitcast[Scalar[native]]()
 
     # Flat values pointer from the child array
@@ -153,8 +152,6 @@ fn _cosine_similarity_gpu[
         block_dim=BLOCK_SIZE,
     )
 
-    var bm = BufferBuilder.alloc[DType.bool](n_vectors)
-    bitmap_range_set(bm.ptr, 0, n_vectors, True)
     var device_bytes = n_vectors * size_of[native]()
     var buf = Buffer.from_device(
         out_dev.create_sub_buffer[DType.uint8](0, device_bytes), device_bytes
@@ -163,7 +160,7 @@ fn _cosine_similarity_gpu[
         length=n_vectors,
         nulls=0,
         offset=0,
-        bitmap=bm.finish().to_device(ctx),
+        bitmap=None,
         buffer=buf^,
     )
 

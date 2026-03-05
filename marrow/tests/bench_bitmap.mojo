@@ -1,0 +1,228 @@
+"""Benchmarks for Bitmap SIMD operations.
+
+Exercises the hot paths in Bitmap:
+  - count_set_bits   — SIMD popcount loop
+  - bitmap_and       — SIMD & loop (aligned path)
+  - bitmap_or        — SIMD | loop (aligned path)
+  - bitmap_invert    — SIMD ~ loop (aligned path)
+  - set_range(True)  — bulk-set via memset (BitmapBuilder)
+
+Sizes: 1k–10M bits.  Throughput reported in bits/second.
+
+Run with: pixi run bench_bitmap
+
+NOTE: bench_with_input is used instead of bench_function to avoid a Mojo
+codegen bug (~25.7) where registering multiple size-parameterized
+instantiations of the same function crashes at runtime.
+bench_with_input[Int, bench_fn] passes size as a runtime Int so only ONE
+template instantiation of bench_fn is created; the same function pointer is
+called multiple times with different runtime inputs.
+"""
+
+from benchmark import (
+    Bench,
+    BenchConfig,
+    Bencher,
+    BenchId,
+    BenchMetric,
+    ThroughputMeasure,
+    keep,
+)
+
+from marrow.bitmap import Bitmap, BitmapBuilder
+
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
+
+fn _make_alternating(size: Int) -> Bitmap:
+    """Bitmap with alternating 0/1 bits (worst-case for popcount branching)."""
+    var b = BitmapBuilder.alloc(size)
+    var i = 0
+    while i < size:
+        b.set_bit(i, True)
+        i += 2
+    return b.finish(size)
+
+
+fn _make_half_set(size: Int) -> Bitmap:
+    """Bitmap with the first half of bits set."""
+    var b = BitmapBuilder.alloc(size)
+    b.set_range(0, size // 2, True)
+    return b.finish(size)
+
+
+# ---------------------------------------------------------------------------
+# Benchmark functions
+# ---------------------------------------------------------------------------
+
+
+@parameter
+fn bench_count_set_bits(mut b: Bencher, size: Int) raises:
+    var bm = _make_alternating(size)
+
+    @always_inline
+    @parameter
+    fn call_fn():
+        var n = bm.count_set_bits()
+        keep(n)
+
+    b.iter[call_fn]()
+
+
+@parameter
+fn bench_and(mut b: Bencher, size: Int) raises:
+    var a = _make_half_set(size)
+    var bm = _make_alternating(size)
+
+    @always_inline
+    @parameter
+    fn call_fn() raises:
+        var r = a & bm
+        keep(r._length)
+
+    b.iter[call_fn]()
+
+
+@parameter
+fn bench_or(mut b: Bencher, size: Int) raises:
+    var a = _make_half_set(size)
+    var bm = _make_alternating(size)
+
+    @always_inline
+    @parameter
+    fn call_fn() raises:
+        var r = a | bm
+        keep(r._length)
+
+    b.iter[call_fn]()
+
+
+@parameter
+fn bench_invert(mut b: Bencher, size: Int) raises:
+    var bm = _make_alternating(size)
+
+    @always_inline
+    @parameter
+    fn call_fn() raises:
+        var r = ~bm
+        keep(r._length)
+
+    b.iter[call_fn]()
+
+
+@parameter
+fn bench_set_range(mut b: Bencher, size: Int) raises:
+    var builder = BitmapBuilder.alloc(size)
+
+    @always_inline
+    @parameter
+    fn call_fn():
+        builder.set_range(0, size, True)
+        keep(builder.unsafe_ptr())
+
+    b.iter[call_fn]()
+
+
+# ---------------------------------------------------------------------------
+# Non-aligned benchmarks: same-shift vs different-shift code paths
+# ---------------------------------------------------------------------------
+#
+# Both bitmaps are sliced to force non-zero sub-byte offsets.
+# same_offset: both at offset=3 → pure SIMD, no shift (~360 GElems/s at 10M)
+# diff_offset: offsets 3 vs 5   → one-sided shift-combine  (~305 GElems/s at 10M)
+
+
+@parameter
+fn bench_and_same_offset(mut b: Bencher, size: Int) raises:
+    """AND of two bitmaps sharing the same non-zero sub-byte offset (pure SIMD, no shift)."""
+    var a = _make_half_set(size).slice(3, size - 8)
+    var bm = _make_alternating(size).slice(3, size - 8)
+
+    @always_inline
+    @parameter
+    fn call_fn() raises:
+        var r = a & bm
+        keep(r._length)
+
+    b.iter[call_fn]()
+
+
+@parameter
+fn bench_and_diff_offset(mut b: Bencher, size: Int) raises:
+    """AND of two bitmaps with different sub-byte offsets (one-sided shift-combine)."""
+    var a = _make_half_set(size).slice(3, size - 8)
+    var bm = _make_alternating(size).slice(5, size - 8)
+
+    @always_inline
+    @parameter
+    fn call_fn() raises:
+        var r = a & bm
+        keep(r._length)
+
+    b.iter[call_fn]()
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+
+def main() raises:
+    var m = Bench(BenchConfig(num_repetitions=3))
+
+    comptime sizes = (1_000, 10_000, 100_000, 1_000_000, 10_000_000)
+    comptime labels = ("1k", "10k", "100k", "1M", "10M")
+
+    comptime for si in range(5):
+        m.bench_with_input[Int, bench_count_set_bits](
+            BenchId("count_set_bits", labels[si]),
+            sizes[si],
+            [ThroughputMeasure(BenchMetric.elements, sizes[si])],
+        )
+
+    comptime for si in range(5):
+        m.bench_with_input[Int, bench_and](
+            BenchId("bitmap_and", labels[si]),
+            sizes[si],
+            [ThroughputMeasure(BenchMetric.elements, sizes[si])],
+        )
+
+    comptime for si in range(5):
+        m.bench_with_input[Int, bench_or](
+            BenchId("bitmap_or", labels[si]),
+            sizes[si],
+            [ThroughputMeasure(BenchMetric.elements, sizes[si])],
+        )
+
+    comptime for si in range(5):
+        m.bench_with_input[Int, bench_invert](
+            BenchId("bitmap_invert", labels[si]),
+            sizes[si],
+            [ThroughputMeasure(BenchMetric.elements, sizes[si])],
+        )
+
+    comptime for si in range(5):
+        m.bench_with_input[Int, bench_set_range](
+            BenchId("set_range", labels[si]),
+            sizes[si],
+            [ThroughputMeasure(BenchMetric.elements, sizes[si])],
+        )
+
+    comptime for si in range(5):
+        m.bench_with_input[Int, bench_and_same_offset](
+            BenchId("and_same_offset", labels[si]),
+            sizes[si],
+            [ThroughputMeasure(BenchMetric.elements, sizes[si])],
+        )
+
+    comptime for si in range(5):
+        m.bench_with_input[Int, bench_and_diff_offset](
+            BenchId("and_diff_offset", labels[si]),
+            sizes[si],
+            [ThroughputMeasure(BenchMetric.elements, sizes[si])],
+        )
+
+    m.dump_report()

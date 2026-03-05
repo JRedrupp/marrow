@@ -526,8 +526,8 @@ def test_struct_builder_append_null():
     sb.append_null()
     var frozen = sb.finish()
     assert_equal(frozen.length, 2)
-    assert_true(frozen.bitmap.unsafe_get[DType.bool](0))
-    assert_false(frozen.bitmap.unsafe_get[DType.bool](1))
+    assert_true(frozen.bitmap.value().is_valid(0))
+    assert_false(frozen.bitmap.value().is_valid(1))
 
 
 def test_struct_builder_field_values_accessible():
@@ -801,7 +801,7 @@ def test_primitive_builder_finish_with_nulls_shrinks_bitmap():
     var frozen = b.finish()
     assert_equal(frozen.nulls, 1)
     # 3 bits → 1 byte → 64-byte aligned = 64 bytes
-    assert_equal(frozen.bitmap.size, 64)
+    assert_equal(frozen.bitmap.value()._buffer.size, 64)
 
 
 def test_builder_finish_dispatch_primitive():

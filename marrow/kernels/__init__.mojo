@@ -49,7 +49,8 @@ from std.gpu import global_idx
 from std.gpu.host import DeviceContext
 
 from marrow.arrays import PrimitiveArray, Array
-from marrow.buffers import Buffer, BufferBuilder, bitmap_range_set
+from marrow.buffers import Buffer, BufferBuilder
+from marrow.bitmap import Bitmap, BitmapBuilder
 from marrow.builders import PrimitiveBuilder
 from marrow.dtypes import DataType, all_numeric_dtypes
 
@@ -59,45 +60,26 @@ from marrow.dtypes import DataType, all_numeric_dtypes
 # ---------------------------------------------------------------------------
 
 
-fn bitmap_and(a: Buffer, b: Buffer, length: Int) -> Buffer:
+fn bitmap_and(a: Optional[Bitmap], b: Optional[Bitmap]) -> Optional[Bitmap]:
     """Compute the output validity bitmap as the bitwise AND of two input bitmaps.
 
     Output bit i is True iff both a[i] and b[i] are True (valid).
-    SIMD-vectorized over bitmap bytes when both bitmaps are byte-aligned (offset == 0),
-    which is the common case for freshly constructed arrays.
+    None represents an all-valid bitmap.
 
     Args:
-        a: First input bitmap buffer.
-        b: Second input bitmap buffer.
-        length: Number of bits (array elements) to process.
+        a: First input bitmap (None = all valid).
+        b: Second input bitmap (None = all valid).
 
     Returns:
-        A new Buffer where result[i] = a[i] AND b[i] (bit-packed).
+        None if both are all-valid; otherwise the AND of the two bitmaps.
     """
-    # Empty bitmap means all-valid (no nulls); AND of two all-valid = all-valid.
-    if a.size == 0 and b.size == 0:
-        var empty = BufferBuilder.alloc[DType.bool](0)
-        return empty.finish()
-
-    var byte_count = math.ceildiv(length, 8)
-    var result = BufferBuilder.alloc[DType.bool](length)
-
-    # Treat an empty bitmap as all-ones (0xFF = all valid) in the loop.
-    comptime width = simd_byte_width()
-    var all_ones = SIMD[DType.uint8, width](0xFF)
-    var i = 0
-    while i + width <= byte_count:
-        var va = a.simd_load[DType.uint8, width](i) if a.size > 0 else all_ones
-        var vb = b.simd_load[DType.uint8, width](i) if b.size > 0 else all_ones
-        result.simd_store[DType.uint8, width](i, va & vb)
-        i += width
-    while i < byte_count:
-        var ba = a.unsafe_get[DType.uint8](i) if a.size > 0 else UInt8(0xFF)
-        var bb = b.unsafe_get[DType.uint8](i) if b.size > 0 else UInt8(0xFF)
-        result.unsafe_set[DType.uint8](i, ba & bb)
-        i += 1
-
-    return result.finish()
+    if not a and not b:
+        return None
+    if not a:
+        return b
+    if not b:
+        return a
+    return a.value() & b.value()
 
 
 # ---------------------------------------------------------------------------
@@ -233,7 +215,7 @@ fn binary_simd[
     comptime native = T.native
     comptime width = simd_byte_width() // size_of[native]()
 
-    var bm = bitmap_and(left.bitmap, right.bitmap, length)
+    var bm = bitmap_and(left.bitmap, right.bitmap)
     var buf = BufferBuilder.alloc[native](length)
     ref lb = left.buffer
     ref rb = right.buffer
@@ -372,8 +354,8 @@ fn reduce_simd[
     comptime native = T.native
     comptime width = simd_byte_width() // size_of[native]()
     var length = len(array)
-    var has_nulls = array.bitmap.size > 0
-    var bp = array.bitmap.unsafe_ptr()
+    var has_nulls = array.bitmap.__bool__()
+    var bp = array.bitmap.value()._buffer.unsafe_ptr() if has_nulls else UnsafePointer[UInt8, ImmutExternalOrigin]()
 
     var acc = SIMD[native, width](initial)
     var identity_vec = SIMD[native, width](initial)
@@ -482,8 +464,6 @@ fn binary_gpu[
         block_dim=BLOCK_SIZE,
     )
 
-    var bm = BufferBuilder.alloc[DType.bool](length)
-    bitmap_range_set(bm.ptr, 0, length, True)
     var device_bytes = length * size_of[native]()
     var buf = Buffer.from_device(
         out_dev.create_sub_buffer[DType.uint8](0, device_bytes), device_bytes
@@ -492,7 +472,7 @@ fn binary_gpu[
         length=length,
         nulls=0,
         offset=0,
-        bitmap=bm.finish().to_device(ctx),
+        bitmap=None,  # nulls=0, no bitmap needed
         buffer=buf^,
     )
 

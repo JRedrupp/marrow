@@ -1,7 +1,6 @@
 from std.testing import assert_equal, TestSuite
 
 from marrow.arrays import *
-from marrow.buffers import bitmap_range_set
 from marrow.builders import (
     Builder,
     ListBuilder,
@@ -211,7 +210,6 @@ def test_format_all_nulls():
     var b = PrimitiveBuilder[int32](3)
     b.data[].length = 3
     b.data[].null_count = 3
-    bitmap_range_set(b.data[].bitmap.ptr, 0, 3, False)
     assert_equal(
         _fmt(Array(b.finish())),
         "PrimitiveArray[int32]([NULL, NULL, NULL])",
@@ -222,7 +220,7 @@ def test_format_mixed_nulls():
     var b = PrimitiveBuilder[int32](5)
     b.append(1)
     b.append(2)
-    b.data[].bitmap.unsafe_set[DType.bool](2, False)
+    b.data[].bitmap.set_bit(2, False)
     b.data[].null_count = 1
     b.data[].length = 3
     b.append(4)

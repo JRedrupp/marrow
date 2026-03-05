@@ -1,18 +1,12 @@
 """Boolean and bitwise kernels."""
 
-import std.math as math
-
 from marrow.arrays import PrimitiveArray
-from marrow.buffers import bitmap_count_ones
+from marrow.bitmap import Bitmap
 from marrow.dtypes import bool_ as bool_dt
-from . import bitmap_and
 
 
 fn count_true(array: PrimitiveArray[bool_dt]) -> Int:
     """Count True values in a bit-packed boolean array.
-
-    Composes `bitmap_and` (for null handling) and `bitmap_count_ones`
-    (SIMD popcount over bytes).
 
     Note: Arrow booleans are bit-packed — each buffer byte holds 8 elements.
     `reduce_simd` cannot be used here because it iterates by element count
@@ -28,7 +22,8 @@ fn count_true(array: PrimitiveArray[bool_dt]) -> Int:
         Number of True (and non-null) elements.
     """
     var n = len(array)
+    var data_bm = Bitmap(array.buffer, array.offset, n)
     if array.nulls > 0:
-        var combined = bitmap_and(array.buffer, array.bitmap, n)
-        return bitmap_count_ones(combined, math.ceildiv(n, 8))
-    return bitmap_count_ones(array.buffer, math.ceildiv(n, 8))
+        var combined = data_bm & array.bitmap.value()
+        return combined.count_set_bits()
+    return data_bm.count_set_bits()

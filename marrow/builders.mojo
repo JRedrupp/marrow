@@ -28,7 +28,8 @@ Example
 
 from std.memory import memcpy, ArcPointer
 from std.sys import size_of
-from .buffers import Buffer, BufferBuilder, bitmap_range_set
+from .buffers import Buffer, BufferBuilder
+from .bitmap import Bitmap, BitmapBuilder
 from .dtypes import *
 from .arrays import (
     Array,
@@ -62,7 +63,7 @@ struct BuilderData(Movable):
     var length: Int
     var capacity: Int
     var null_count: Int
-    var bitmap: BufferBuilder
+    var bitmap: BitmapBuilder
     # TODO: only required arcpointer for bufferbuilders because List requires copyable elements
     var buffers: List[ArcPointer[BufferBuilder]]
     var children: List[ArcPointer[BuilderData]]
@@ -72,7 +73,7 @@ struct BuilderData(Movable):
         var dtype: DataType,
         length: Int,
         capacity: Int,
-        var bitmap: BufferBuilder,
+        var bitmap: BitmapBuilder,
         var buffers: List[ArcPointer[BufferBuilder]],
         var children: List[ArcPointer[BuilderData]],
     ):
@@ -99,11 +100,9 @@ struct BuilderData(Movable):
         used size before calling this method.
         """
         var null_count = self.null_count
-        if null_count == 0:
-            self.bitmap.resize[DType.bool](0)
-        else:
-            self.bitmap.resize[DType.bool](self.length)
-        var frozen_bitmap = self.bitmap.finish()
+        var frozen_bitmap: Optional[Bitmap] = None
+        if null_count != 0:
+            frozen_bitmap = self.bitmap.finish(self.length)
         var result = Array(
             dtype=self.dtype.copy(),
             length=self.length,
@@ -229,7 +228,7 @@ struct PrimitiveBuilder[T: DataType](Movable, Sized):
                 dtype=Self.T,
                 length=0,
                 capacity=capacity,
-                bitmap=BufferBuilder.alloc[DType.bool](capacity),
+                bitmap=BitmapBuilder.alloc(capacity),
                 buffers=[
                     ArcPointer(BufferBuilder.alloc[Self.T.native](capacity))
                 ],
@@ -244,7 +243,7 @@ struct PrimitiveBuilder[T: DataType](Movable, Sized):
         return self.data[].length
 
     fn grow(mut self, capacity: Int) raises:
-        self.data[].bitmap.resize[DType.bool](capacity)
+        self.data[].bitmap.resize(capacity)
         self.data[].buffers[0][].resize[Self.T.native](capacity)
         self.data[].capacity = capacity
 
@@ -252,7 +251,7 @@ struct PrimitiveBuilder[T: DataType](Movable, Sized):
     fn append(mut self, value: Self.scalar) raises:
         if self.data[].length >= self.data[].capacity:
             self.grow(max(self.data[].capacity * 2, self.data[].length + 1))
-        self.data[].bitmap.unsafe_set[DType.bool](self.data[].length, True)
+        self.data[].bitmap.set_bit(self.data[].length, True)
         self.data[].buffers[0][].unsafe_set[Self.T.native](
             self.data[].length, value
         )
@@ -268,7 +267,7 @@ struct PrimitiveBuilder[T: DataType](Movable, Sized):
     fn append_null(mut self) raises:
         if self.data[].length >= self.data[].capacity:
             self.grow(max(self.data[].capacity * 2, self.data[].length + 1))
-        self.data[].bitmap.unsafe_set[DType.bool](self.data[].length, False)
+        self.data[].bitmap.set_bit(self.data[].length, False)
         self.data[].null_count += 1
         self.data[].length += 1
 
@@ -301,13 +300,16 @@ struct PrimitiveBuilder[T: DataType](Movable, Sized):
     fn finish(mut self) raises -> PrimitiveArray[Self.T]:
         self.shrink_to_fit()
 
-        var bitmap = self.data[].bitmap.finish()
+        var null_count = self.data[].null_count
+        var bm: Optional[Bitmap] = None
+        if null_count != 0:
+            bm = self.data[].bitmap.finish(self.data[].length)
         var values = self.data[].buffers[0][].finish()
         var result = PrimitiveArray[Self.T](
             length=self.data[].length,
-            nulls=self.data[].null_count,
+            nulls=null_count,
             offset=0,
-            bitmap=bitmap^,
+            bitmap=bm^,
             buffer=values^,
         )
 
@@ -340,7 +342,7 @@ struct StringBuilder(Movable, Sized):
                 dtype=string,
                 length=0,
                 capacity=capacity,
-                bitmap=BufferBuilder.alloc[DType.bool](capacity),
+                bitmap=BitmapBuilder.alloc(capacity),
                 buffers=[
                     ArcPointer(offsets^),
                     ArcPointer(BufferBuilder.alloc[DType.uint8](capacity)),
@@ -356,7 +358,7 @@ struct StringBuilder(Movable, Sized):
         return self.data[].length
 
     fn grow(mut self, capacity: Int) raises:
-        self.data[].bitmap.resize[DType.bool](capacity)
+        self.data[].bitmap.resize(capacity)
         self.data[].buffers[0][].resize[DType.uint32](capacity + 1)
         self.data[].capacity = capacity
 
@@ -367,7 +369,7 @@ struct StringBuilder(Movable, Sized):
         var last_offset = self.data[].buffers[0][].ptr.bitcast[UInt32]()[index]
         var next_offset = last_offset + UInt32(len(value))
         self.data[].length += 1
-        self.data[].bitmap.unsafe_set[DType.bool](index, True)
+        self.data[].bitmap.set_bit(index, True)
         self.data[].buffers[0][].unsafe_set[DType.uint32](
             index + 1, next_offset
         )
@@ -383,7 +385,7 @@ struct StringBuilder(Movable, Sized):
             self.grow(max(self.data[].capacity * 2, self.data[].length + 1))
         var index = self.data[].length
         var last_offset = self.data[].buffers[0][].ptr.bitcast[UInt32]()[index]
-        self.data[].bitmap.unsafe_set[DType.bool](index, False)
+        self.data[].bitmap.set_bit(index, False)
         self.data[].null_count += 1
         self.data[].length += 1
         self.data[].buffers[0][].unsafe_set[DType.uint32](
@@ -413,15 +415,17 @@ struct StringBuilder(Movable, Sized):
     fn finish(mut self) raises -> StringArray:
         self.shrink_to_fit()
 
-        # construct the StringArray from the finished buffers
-        var bitmap = self.data[].bitmap.finish()
+        var null_count = self.data[].null_count
+        var bm: Optional[Bitmap] = None
+        if null_count != 0:
+            bm = self.data[].bitmap.finish(self.data[].length)
         var offsets = self.data[].buffers[0][].finish()
         var values = self.data[].buffers[1][].finish()
         var result = StringArray(
             length=self.data[].length,
-            nulls=self.data[].null_count,
+            nulls=null_count,
             offset=0,
-            bitmap=bitmap^,
+            bitmap=bm^,
             offsets=offsets^,
             values=values^,
         )
@@ -457,7 +461,7 @@ struct ListBuilder(Movable, Sized):
                 dtype=list_(child_dtype^),
                 length=0,
                 capacity=capacity,
-                bitmap=BufferBuilder.alloc[DType.bool](capacity),
+                bitmap=BitmapBuilder.alloc(capacity),
                 buffers=[ArcPointer(offsets^)],
                 children=[child.data],
             )
@@ -473,14 +477,14 @@ struct ListBuilder(Movable, Sized):
         return Builder(self.data[].children[0])
 
     fn grow(mut self, capacity: Int) raises:
-        self.data[].bitmap.resize[DType.bool](capacity)
+        self.data[].bitmap.resize(capacity)
         self.data[].buffers[0][].resize[DType.uint32](capacity + 1)
         self.data[].capacity = capacity
 
     fn append(mut self, is_valid: Bool) raises:
         if self.data[].length >= self.data[].capacity:
             self.grow(max(self.data[].capacity * 2, self.data[].length + 1))
-        self.data[].bitmap.unsafe_set[DType.bool](self.data[].length, is_valid)
+        self.data[].bitmap.set_bit(self.data[].length, is_valid)
         if not is_valid:
             self.data[].null_count += 1
         var child_length = self.data[].children[0][].length
@@ -507,7 +511,10 @@ struct ListBuilder(Movable, Sized):
     fn finish(mut self) raises -> ListArray:
         self.shrink_to_fit()
 
-        var bitmap = self.data[].bitmap.finish()
+        var null_count = self.data[].null_count
+        var bm: Optional[Bitmap] = None
+        if null_count != 0:
+            bm = self.data[].bitmap.finish(self.data[].length)
         var offsets = self.data[].buffers[0][].finish()
         var child: Builder = self.values()
         # TODO: raise if child has been reset from the outside
@@ -515,9 +522,9 @@ struct ListBuilder(Movable, Sized):
         var result = ListArray(
             dtype=self.data[].dtype,
             length=self.data[].length,
-            nulls=self.data[].null_count,
+            nulls=null_count,
             offset=0,
-            bitmap=bitmap^,
+            bitmap=bm^,
             offsets=offsets^,
             values=values^,
         )
@@ -551,7 +558,7 @@ struct FixedSizeListBuilder(Movable, Sized):
                 dtype=fixed_size_list_(child_dtype^, list_size),
                 length=0,
                 capacity=capacity,
-                bitmap=BufferBuilder.alloc[DType.bool](capacity),
+                bitmap=BitmapBuilder.alloc(capacity),
                 buffers=List[ArcPointer[BufferBuilder]](),
                 children=[child.data],
             )
@@ -567,13 +574,13 @@ struct FixedSizeListBuilder(Movable, Sized):
         return Builder(self.data[].children[0])
 
     fn grow(mut self, capacity: Int) raises:
-        self.data[].bitmap.resize[DType.bool](capacity)
+        self.data[].bitmap.resize(capacity)
         self.data[].capacity = capacity
 
     fn append(mut self, is_valid: Bool) raises:
         if self.data[].length >= self.data[].capacity:
             self.grow(max(self.data[].capacity * 2, self.data[].length + 1))
-        self.data[].bitmap.unsafe_set[DType.bool](self.data[].length, is_valid)
+        self.data[].bitmap.set_bit(self.data[].length, is_valid)
         if not is_valid:
             self.data[].null_count += 1
         self.data[].length += 1
@@ -597,15 +604,18 @@ struct FixedSizeListBuilder(Movable, Sized):
     fn finish(mut self) raises -> FixedSizeListArray:
         self.shrink_to_fit()
 
-        var bitmap = self.data[].bitmap.finish()
+        var null_count = self.data[].null_count
+        var bm: Optional[Bitmap] = None
+        if null_count != 0:
+            bm = self.data[].bitmap.finish(self.data[].length)
         var child = self.values()
         var values = child.finish()
         var result = FixedSizeListArray(
             dtype=self.data[].dtype,
             length=self.data[].length,
-            nulls=self.data[].null_count,
+            nulls=null_count,
             offset=0,
-            bitmap=bitmap^,
+            bitmap=bm^,
             values=values^,
         )
 
@@ -643,7 +653,7 @@ struct StructBuilder(Movable, Sized):
                 dtype=struct_(fields),
                 length=0,
                 capacity=capacity,
-                bitmap=BufferBuilder.alloc[DType.bool](capacity),
+                bitmap=BitmapBuilder.alloc(capacity),
                 buffers=List[ArcPointer[BufferBuilder]](),
                 children=children^,
             )
@@ -659,13 +669,13 @@ struct StructBuilder(Movable, Sized):
         return Builder(self.data[].children[index])
 
     fn grow(mut self, capacity: Int) raises:
-        self.data[].bitmap.resize[DType.bool](capacity)
+        self.data[].bitmap.resize(capacity)
         self.data[].capacity = capacity
 
     fn append(mut self, is_valid: Bool) raises:
         if self.data[].length >= self.data[].capacity:
             self.grow(max(self.data[].capacity * 2, self.data[].length + 1))
-        self.data[].bitmap.unsafe_set[DType.bool](self.data[].length, is_valid)
+        self.data[].bitmap.set_bit(self.data[].length, is_valid)
         if not is_valid:
             self.data[].null_count += 1
         self.data[].length += 1
@@ -687,7 +697,10 @@ struct StructBuilder(Movable, Sized):
 
     fn finish(mut self) raises -> StructArray:
         self.shrink_to_fit()
-        var frozen_bitmap = self.data[].bitmap.finish()
+        var null_count = self.data[].null_count
+        var bm: Optional[Bitmap] = None
+        if null_count != 0:
+            bm = self.data[].bitmap.finish(self.data[].length)
         var frozen_children = List[Array]()
         for i in range(len(self.data[].children)):
             var child = Builder(self.data[].children[i])
@@ -695,8 +708,8 @@ struct StructBuilder(Movable, Sized):
         var result = Array(
             dtype=self.data[].dtype.copy(),
             length=self.data[].length,
-            nulls=self.data[].null_count,
-            bitmap=frozen_bitmap^,
+            nulls=null_count,
+            bitmap=bm^,
             buffers=List[Buffer](),
             children=frozen_children^,
             offset=0,

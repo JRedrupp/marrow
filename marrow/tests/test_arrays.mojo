@@ -10,11 +10,8 @@ from marrow.builders import (
     StructBuilder,
 )
 from marrow.dtypes import *
-from marrow.buffers import (
-    Buffer,
-    BufferBuilder,
-    bitmap_range_set,
-)
+from marrow.buffers import Buffer, BufferBuilder
+from marrow.bitmap import Bitmap, BitmapBuilder
 from marrow.kernels.filter import drop_nulls
 from std.reflection import call_location
 
@@ -47,7 +44,7 @@ from std.reflection import call_location
 def test_array_data_with_offset():
     """Test ArrayData with offset functionality."""
     # Create ArrayData with offset
-    var bitmap = BufferBuilder.alloc[DType.bool](10)
+    var bitmap = BitmapBuilder.alloc(10)
     var buffer = BufferBuilder.alloc[int8.native](10)
 
     # Set some data in the buffer
@@ -55,10 +52,10 @@ def test_array_data_with_offset():
     buffer.unsafe_set[int8.native](3, 200)
     buffer.unsafe_set[int8.native](4, 300)
 
-    # Set validity bits
-    bitmap.unsafe_set[DType.bool](2, True)
-    bitmap.unsafe_set[DType.bool](3, True)
-    bitmap.unsafe_set[DType.bool](4, True)
+    # Set validity bits (bits 2, 3, 4 are set; offset=2 maps index 0→bit2, etc.)
+    bitmap.set_bit(2, True)
+    bitmap.set_bit(3, True)
+    bitmap.set_bit(4, True)
 
     # Create ArrayData with offset=2
     var buffers = List[Buffer]()
@@ -67,7 +64,7 @@ def test_array_data_with_offset():
         dtype=int8,
         length=3,
         nulls=0,
-        bitmap=bitmap.finish(),
+        bitmap=bitmap.finish(10),
         buffers=buffers^,
         children=List[Array](),
         offset=2,
@@ -83,8 +80,6 @@ def test_array_data_with_offset():
 
 def test_array_data_fieldwise_init():
     """Test that @fieldwise_init decorator works with offset field."""
-    var bitmap_b = BufferBuilder.alloc[DType.bool](5)
-    var bitmap = bitmap_b.finish()
     var buffer_b = BufferBuilder.alloc[int8.native](5)
     var buffer = buffer_b.finish()
 
@@ -95,7 +90,7 @@ def test_array_data_fieldwise_init():
         dtype=int8,
         length=5,
         nulls=0,
-        bitmap=bitmap,
+        bitmap=None,
         buffers=buffers^,
         children=List[Array](),
         offset=3,
@@ -137,12 +132,11 @@ def test_array_copy():
     var src_buffers = List[Buffer]()
     var _sb = BufferBuilder.alloc[int8.native](3)
     src_buffers.append(_sb.finish())
-    var _bb = BufferBuilder.alloc[DType.bool](3)
     var src = Array(
         dtype=int8,
         length=3,
         nulls=0,
-        bitmap=_bb.finish(),
+        bitmap=None,
         buffers=src_buffers^,
         children=List[Array](),
         offset=0,
@@ -160,12 +154,11 @@ def test_array_move():
     var a_buffers = List[Buffer]()
     var _ab = BufferBuilder.alloc[int8.native](5)
     a_buffers.append(_ab.finish())
-    var _bb2 = BufferBuilder.alloc[DType.bool](5)
     var a = Array(
         dtype=int8,
         length=5,
         nulls=0,
-        bitmap=_bb2.finish(),
+        bitmap=None,
         buffers=a_buffers^,
         children=List[Array](),
         offset=0,

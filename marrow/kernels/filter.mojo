@@ -50,12 +50,8 @@ from std.bit import count_trailing_zeros
 from std.memory import memcpy
 
 from marrow.arrays import PrimitiveArray, StringArray, Array
-from marrow.buffers import (
-    Buffer,
-    BufferBuilder,
-    bitmap_range_set,
-    bitmap_count_ones,
-)
+from marrow.buffers import Buffer, BufferBuilder
+from marrow.bitmap import Bitmap, BitmapBuilder
 from marrow.dtypes import DataType, bool_, uint32, string, all_numeric_dtypes
 
 from .boolean import count_true
@@ -67,35 +63,34 @@ from .sum import sum as sum_kernel
 # ---------------------------------------------------------------------------
 
 
-fn _bitmap_as_bool_array(bitmap: Buffer, length: Int) -> PrimitiveArray[bool_]:
+fn _bitmap_as_bool_array(
+    bitmap: Optional[Bitmap], length: Int
+) -> PrimitiveArray[bool_]:
     """Wrap a validity bitmap as a BoolArray (for use as a filter selection).
 
-    The bitmap buffer becomes the `buffer` field (bit-packed data), and a fresh
-    all-valid bitmap is constructed for the wrapper's own validity field.
+    The bitmap buffer becomes the `buffer` field (bit-packed data), and the
+    wrapper's own validity is all-valid (None).
 
     Args:
-        bitmap: A bit-packed validity bitmap (1 bit per element).
+        bitmap: A validity bitmap (None = all valid).
         length: Number of elements represented by the bitmap.
 
     Returns:
         A PrimitiveArray[bool_] where element i is True iff bit i of `bitmap` is set.
     """
-    var all_valid = BufferBuilder.alloc[DType.bool](length)
-    bitmap_range_set(all_valid.ptr, 0, length, True)
-    # When bitmap is empty (size==0), the array has no nulls and all elements
-    # are valid. Build an all-True data buffer so the selection is all-selected.
     var data: Buffer
-    if bitmap.size == 0:
-        var all_ones = BufferBuilder.alloc[DType.bool](length)
-        bitmap_range_set(all_ones.ptr, 0, length, True)
-        data = all_ones.finish()
+    if not bitmap:
+        # All valid: build an all-True data buffer so the selection is all-selected.
+        var bm = BitmapBuilder.alloc(length)
+        bm.set_range(0, length, True)
+        data = bm._builder.finish()
     else:
-        data = bitmap
+        data = bitmap.value()._buffer
     return PrimitiveArray[bool_](
         length=length,
         nulls=0,
         offset=0,
-        bitmap=all_valid.finish(),
+        bitmap=None,  # wrapper is all-valid
         buffer=data,
     )
 
@@ -113,8 +108,6 @@ fn _string_lengths(array: StringArray) -> PrimitiveArray[uint32]:
     """
     var n = len(array)
     var buf = BufferBuilder.alloc[DType.uint32](n)
-    var bm = BufferBuilder.alloc[DType.bool](n)
-    bitmap_range_set(bm.ptr, 0, n, True)
     for i in range(n):
         var start = array.offsets.unsafe_get[DType.uint32](i)
         var end = array.offsets.unsafe_get[DType.uint32](i + 1)
@@ -123,7 +116,7 @@ fn _string_lengths(array: StringArray) -> PrimitiveArray[uint32]:
         length=n,
         nulls=0,
         offset=0,
-        bitmap=bm.finish(),
+        bitmap=None,  # all valid
         buffer=buf.finish(),
     )
 
@@ -169,12 +162,15 @@ fn filter[
     comptime native = T.native
     comptime elem_size = size_of[Scalar[native]]()
     var buf = BufferBuilder.alloc[native](out_len)
-    var bm = BufferBuilder.alloc[DType.bool](out_len)
+    var bm = BitmapBuilder.alloc(out_len)
 
     if out_len == n:
         # All selected: single bulk copy of data and validity.
         var bm_bytes = math.ceildiv(n, 8)
-        memcpy(dest=bm.ptr, src=array.bitmap.unsafe_ptr(), count=bm_bytes)
+        if array.bitmap:
+            memcpy(dest=bm.unsafe_ptr(), src=array.bitmap.value()._buffer.unsafe_ptr(), count=bm_bytes)
+        else:
+            bm.set_range(0, n, True)
         comptime if native == DType.bool:
             # bool_ is bit-packed: copy bitmap-sized bytes, not n bytes
             memcpy(dest=buf.ptr, src=array.buffer.unsafe_ptr(), count=bm_bytes)
@@ -193,7 +189,7 @@ fn filter[
         # bulk-copy each run.  Threshold: out_len / n > 0.8 ↔ out_len * 10 > n * 8
         if out_len * 10 > n * 8:
             var has_nulls = array.nulls > 0
-            var src_bm_ptr = array.bitmap.unsafe_ptr()
+            var src_bm_ptr = array.bitmap.value()._buffer.unsafe_ptr() if has_nulls else UnsafePointer[UInt8, ImmutExternalOrigin]()
             for word_i in range(word_count):
                 var word = word_ptr[word_i]
                 if word == 0:
@@ -237,9 +233,9 @@ fn filter[
                             var si = run_start + i
                             if Bool((src_bm_ptr[si >> 3] >> UInt8(si & 7)) & 1):
                                 var di = out_idx + i
-                                bm.ptr[di >> 3] |= UInt8(1) << UInt8(di & 7)
+                                bm.unsafe_ptr()[di >> 3] |= UInt8(1) << UInt8(di & 7)
                     else:
-                        bitmap_range_set(bm.ptr, out_idx, run_len, True)
+                        bm.set_range(out_idx, run_len, True)
                     out_idx += run_len
         else:
             # Selectivity ≤ 80%: IndexIterator — scatter individual elements.
@@ -254,18 +250,18 @@ fn filter[
                     if elem_i >= n:
                         break
                     buf.unsafe_set[native](out_idx, array.unsafe_get(elem_i))
-                    bm.unsafe_set[DType.bool](out_idx, array.is_valid(elem_i))
+                    bm.set_bit(out_idx, array.is_valid(elem_i))
                     out_idx += 1
                     word &= word - 1  # clear lowest set bit
 
-    var bm_buf = bm.finish()
-    var ones = bitmap_count_ones(bm_buf, math.ceildiv(out_len, 8))
-
+    var bm_bitmap = bm.finish(out_len)
+    var ones = bm_bitmap.count_set_bits()
+    var null_count = out_len - ones
     return PrimitiveArray[T](
         length=out_len,
-        nulls=out_len - ones,
+        nulls=null_count,
         offset=0,
-        bitmap=bm_buf,
+        bitmap=Optional[Bitmap](bm_bitmap) if null_count > 0 else None,
         buffer=buf.finish(),
     )
 
@@ -414,14 +410,14 @@ fn filter(
         )
 
     # out_validity.buffer holds the bit-packed validity for the output elements.
-    var out_valid_count = bitmap_count_ones(
-        out_validity.buffer, math.ceildiv(out_len, 8)
-    )
+    var validity_bm = Bitmap(out_validity.buffer, 0, out_len)
+    var out_valid_count = validity_bm.count_set_bits()
+    var null_count = out_len - out_valid_count
     return StringArray(
         length=out_len,
-        nulls=out_len - out_valid_count,
+        nulls=null_count,
         offset=0,
-        bitmap=out_validity.buffer,
+        bitmap=Optional[Bitmap](validity_bm) if null_count > 0 else None,
         offsets=offsets_buf.finish(),
         values=values_buf.finish(),
     )
