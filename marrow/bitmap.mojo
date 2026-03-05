@@ -23,7 +23,7 @@ Call `finish(length)` to freeze into an immutable `Bitmap`.
 from std.sys.info import simd_width_of
 from std.bit import pop_count
 import std.math as math
-from std.memory import memset
+from std.memory import bitcast, memset
 
 from .buffers import Buffer, BufferBuilder
 
@@ -82,14 +82,36 @@ struct Bitmap(ImplicitlyCopyable, Movable, Sized, Writable):
         var lead = bit_start & 7
         var trail = bit_end & 7
         var byte_end_ceil = byte_end + Int(trail != 0)
+        # 2 interleaved accumulators, each 128-bit (1 NEON register).
+        # 31 iters/acc: 31×8=248 ≤ 255 per lane ✓.  992 bytes per drain block.
+        comptime drain_iters = 31  # per accumulator
+        comptime drain_bytes = drain_iters * 2 * width  # 31 × 2 × 16 = 992
+        var drain_end = byte_start + ((byte_end_ceil - byte_start) // drain_bytes) * drain_bytes
         var count = 0
-        var i = byte_start
-        while i + width <= byte_end_ceil:
-            count += Int(pop_count((ptr + i).load[width=width]()).reduce_add())
-            i += width
-        while i < byte_end_ceil:
+        for i in range(byte_start, drain_end, drain_bytes):
+            var acc0 = SIMD[DType.uint8, width](0)
+            var acc1 = SIMD[DType.uint8, width](0)
+            comptime for j in range(drain_iters):
+                acc0 += pop_count((ptr + i + (j * 2) * width).load[width=width]())
+                acc1 += pop_count((ptr + i + (j * 2 + 1) * width).load[width=width]())
+            count += Int((acc0 + acc1).cast[DType.uint16]().reduce_add())
+        # Tier 2: tail < 1488 bytes — unrolled single-acc, 30 iters (30×8=240 ≤ 255 ✓)
+        comptime t2_iters = 30
+        comptime t2_bytes = t2_iters * width  # 30 × 16 = 480
+        var t2_end = drain_end + ((byte_end_ceil - drain_end) // t2_bytes) * t2_bytes
+        for i in range(drain_end, t2_end, t2_bytes):
+            var acc = SIMD[DType.uint8, width](0)
+            comptime for j in range(t2_iters):
+                acc += pop_count((ptr + i + j * width).load[width=width]())
+            count += Int(acc.cast[DType.uint16]().reduce_add())
+        # Tier 3: < 480 bytes — non-unrolled, at most 29 chunks (29×8=232 ≤ 255 ✓)
+        var simd_end = t2_end + ((byte_end_ceil - t2_end) // width) * width
+        var tail_acc = SIMD[DType.uint8, width](0)
+        for i in range(t2_end, simd_end, width):
+            tail_acc += pop_count((ptr + i).load[width=width]())
+        count += Int(tail_acc.cast[DType.uint16]().reduce_add())
+        for i in range(simd_end, byte_end_ceil):
             count += Int(pop_count(ptr[i]))
-            i += 1
         if lead != 0:
             count -= Int(pop_count(ptr[byte_start] & UInt8((1 << lead) - 1)))
         if trail != 0:
@@ -150,6 +172,7 @@ struct Bitmap(ImplicitlyCopyable, Movable, Sized, Writable):
         """
         comptime width = simd_width_of[DType.uint8]()
         comptime assert 64 % width == 0
+        comptime unroll = 64 // width
 
         var start, end = self._simd_offset_range()
         var total_bytes = end - start
@@ -157,8 +180,10 @@ struct Bitmap(ImplicitlyCopyable, Movable, Sized, Writable):
 
         var src = self._buffer.unsafe_ptr() + start
         var dst = builder.unsafe_ptr()
-        for i in range(0, total_bytes, width):
-            (dst + i).store(~(src + i).load[width=width]())
+        for i in range(0, total_bytes, 64):
+            comptime for j in range(unroll):
+                comptime k = j * width
+                (dst + i + k).store(~(src + i + k).load[width=width]())
 
         var new_bit_offset = self._offset - (start << 3)
         return Bitmap(builder.finish(), new_bit_offset, self._length)
@@ -206,8 +231,6 @@ struct Bitmap(ImplicitlyCopyable, Movable, Sized, Writable):
         # 64-byte-aligned ranges terminate exactly with no remainder.
         comptime width = simd_width_of[DType.uint8]()
         comptime assert 64 % width == 0
-        # Process one 64-byte cache line per outer iteration, fully
-        # unrolled into width-byte SIMD ops at compile time.
         comptime unroll = 64 // width
 
         # Sub-byte bit offset within the first byte of each operand.
@@ -241,9 +264,8 @@ struct Bitmap(ImplicitlyCopyable, Movable, Sized, Writable):
         var new_bit_offset = lead_a * 8 + shift_a
 
         if shift_a == shift_b:
-            # Fast path (~445 GElems/s at 10M): both operands share the
-            # same sub-byte alignment, so bytes correspond 1:1 and we
-            # can apply the op directly without any bit shifting.
+            # Fast path: both operands share the same sub-byte alignment,
+            # so bytes correspond 1:1 and we can apply the op directly.
             for i in range(0, total_bytes, 64):
                 comptime for j in range(unroll):
                     comptime k = j * width
@@ -254,13 +276,8 @@ struct Bitmap(ImplicitlyCopyable, Movable, Sized, Writable):
                         )
                     )
         else:
-            # Shift path (~340 GElems/s at 10M): sub-byte offsets differ.
-            # Only other is shifted to align with self — shifting one
-            # operand instead of both saves ~25% vs normalizing both to
-            # offset 0.  delta is the bit distance to rotate other's
-            # bytes rightward; each output byte is assembled from two
-            # overlapping source bytes: (lo >> delta) | (hi << (8-delta)).
-            # The +1 overread in hi is safe due to Arrow's 64-byte padding.
+            # Shift path: sub-byte offsets differ.  Only other is shifted
+            # to align with self via overlapping loads.
             var delta = (shift_b - shift_a) & 7
             var rs = UInt8(delta)
             var ls = UInt8(8 - delta)
