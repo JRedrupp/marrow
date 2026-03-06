@@ -345,7 +345,7 @@ def test_count_set_bits_vs_naive_all_patterns():
 
 
 def test_count_set_bits_interior_slices():
-    """count_set_bits on slices that end BEFORE the buffer end.
+    """Test count_set_bits on slices that end BEFORE the buffer end.
 
     The aligned range includes trailing bytes with real data from the larger
     buffer, exercising the trail_bytes correction in trail_bits.
@@ -388,7 +388,7 @@ def test_count_set_bits_interior_slices():
 
 
 def test_count_set_bits_trail_bits_exact_boundary():
-    """trail_bits == 0 when bit_end lands exactly on a 64-byte boundary."""
+    # trail_bits == 0 when bit_end lands exactly on a 64-byte boundary
     # 512 bits = 64 bytes, exact fit: no lead or trail correction needed.
     var b = BitmapBuilder.alloc(512)
     b.set_range(0, 512, True)
@@ -403,7 +403,7 @@ def test_count_set_bits_trail_bits_exact_boundary():
 
 
 def test_count_set_bits_trail_bytes_only():
-    """trail_bytes > 0, trail_sub_byte == 0: byte-aligned end, non-zero trailing bytes."""
+    # trail_bytes > 0, trail_sub_byte == 0: byte-aligned end, non-zero trailing bytes
     # Slice of 8 bits (1 byte) at offset 0 in a large all-ones bitmap.
     # byte_end=1, aligned_end=64, trail_bytes=63, trail_sub_byte=0.
     var full = BitmapBuilder.alloc(1000)
