@@ -753,5 +753,11 @@ def test_string_getitem_bounds_check():
         pass
 
 
+def test_pretty_printing():
+    var a = array[int32]([1, 2, 3])
+    var s = String(a)
+    print(s)
+
+
 def main():
     TestSuite.discover_tests[__functions_in_module()]().run()

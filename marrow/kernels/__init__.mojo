@@ -289,7 +289,7 @@ fn reduce[
 
 fn _bitmap_mask[
     dtype: DType, W: Int
-](bp: UnsafePointer[UInt8], abs_pos: Int) -> SIMD[DType.bool, W]:
+](bp: UnsafePointer[UInt8, _], abs_pos: Int) -> SIMD[DType.bool, W]:
     """Expand W consecutive bitmap bits starting at abs_pos into a SIMD bool vector.
 
     Each lane j of the result is True iff bit (abs_pos + j) is set in the bitmap.

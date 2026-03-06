@@ -18,7 +18,7 @@ fn _make_array[T: DataType](size: Int) raises -> PrimitiveArray[T]:
 fn bench_simd_int32_1k() raises:
     var lhs = _make_array[int32](1_000)
     var rhs = _make_array[int32](1_000)
-    var result = binary_simd[int32, _add[int32.native]](lhs, rhs)
+    var result = binary_simd[int32, func=_add[int32.native, _]](lhs, rhs)
     keep(result.unsafe_get(0))
 
 
@@ -26,7 +26,7 @@ fn bench_simd_int32_1k() raises:
 fn bench_simd_int32_10k() raises:
     var lhs = _make_array[int32](10_000)
     var rhs = _make_array[int32](10_000)
-    var result = binary_simd[int32, _add[int32.native]](lhs, rhs)
+    var result = binary_simd[int32, func=_add[int32.native, _]](lhs, rhs)
     keep(result.unsafe_get(0))
 
 

@@ -93,14 +93,14 @@ fn add[
         Null if either input is null at that position.
     """
     if ctx:
-        return binary_gpu[T, _add[T.native], "add"](left, right, ctx.value())
+        return binary_gpu[T, func=_add[T.native, _], name="add"](left, right, ctx.value())
     else:
-        return binary_simd[T, _add[T.native], "add"](left, right)
+        return binary_simd[T, func=_add[T.native, _], name="add"](left, right)
 
 
 fn add(left: Array, right: Array) raises -> Array:
     """Runtime-typed add."""
-    return binary_array_dispatch["add", add](left, right)
+    return binary_array_dispatch["add", add[_]](left, right)
 
 
 # ---------------------------------------------------------------------------
@@ -127,14 +127,14 @@ fn sub[
         Null if either input is null at that position.
     """
     if ctx:
-        return binary_gpu[T, _sub[T.native], "sub"](left, right, ctx.value())
+        return binary_gpu[T, func=_sub[T.native, _], name="sub"](left, right, ctx.value())
     else:
-        return binary_simd[T, _sub[T.native], "sub"](left, right)
+        return binary_simd[T, func=_sub[T.native, _], name="sub"](left, right)
 
 
 fn sub(left: Array, right: Array) raises -> Array:
     """Runtime-typed sub."""
-    return binary_array_dispatch["sub", sub](left, right)
+    return binary_array_dispatch["sub", sub[_]](left, right)
 
 
 # ---------------------------------------------------------------------------
@@ -161,14 +161,14 @@ fn mul[
         Null if either input is null at that position.
     """
     if ctx:
-        return binary_gpu[T, _mul[T.native], "mul"](left, right, ctx.value())
+        return binary_gpu[T, func=_mul[T.native, _], name="mul"](left, right, ctx.value())
     else:
-        return binary_simd[T, _mul[T.native], "mul"](left, right)
+        return binary_simd[T, func=_mul[T.native, _], name="mul"](left, right)
 
 
 fn mul(left: Array, right: Array) raises -> Array:
     """Runtime-typed mul."""
-    return binary_array_dispatch["mul", mul](left, right)
+    return binary_array_dispatch["mul", mul[_]](left, right)
 
 
 # ---------------------------------------------------------------------------
@@ -195,14 +195,14 @@ fn div[
         Null if either input is null at that position.
     """
     if ctx:
-        return binary_gpu[T, _div[T.native], "div"](left, right, ctx.value())
+        return binary_gpu[T, func=_div[T.native, _], name="div"](left, right, ctx.value())
     else:
-        return binary_simd[T, _div[T.native], "div"](left, right)
+        return binary_simd[T, func=_div[T.native, _], name="div"](left, right)
 
 
 fn div(left: Array, right: Array) raises -> Array:
     """Runtime-typed div."""
-    return binary_array_dispatch["div", div](left, right)
+    return binary_array_dispatch["div", div[_]](left, right)
 
 
 # ---------------------------------------------------------------------------
@@ -229,16 +229,16 @@ fn floordiv[
         Null if either input is null at that position.
     """
     if ctx:
-        return binary_gpu[T, _floordiv[T.native], "floordiv"](
+        return binary_gpu[T, func=_floordiv[T.native, _], name="floordiv"](
             left, right, ctx.value()
         )
     else:
-        return binary_simd[T, _floordiv[T.native], "floordiv"](left, right)
+        return binary_simd[T, func=_floordiv[T.native, _], name="floordiv"](left, right)
 
 
 fn floordiv(left: Array, right: Array) raises -> Array:
     """Runtime-typed floordiv."""
-    return binary_array_dispatch["floordiv", floordiv](left, right)
+    return binary_array_dispatch["floordiv", floordiv[_]](left, right)
 
 
 # ---------------------------------------------------------------------------
@@ -265,14 +265,14 @@ fn mod[
         Null if either input is null at that position.
     """
     if ctx:
-        return binary_gpu[T, _mod[T.native], "mod"](left, right, ctx.value())
+        return binary_gpu[T, func=_mod[T.native, _], name="mod"](left, right, ctx.value())
     else:
-        return binary_simd[T, _mod[T.native], "mod"](left, right)
+        return binary_simd[T, func=_mod[T.native, _], name="mod"](left, right)
 
 
 fn mod(left: Array, right: Array) raises -> Array:
     """Runtime-typed mod."""
-    return binary_array_dispatch["mod", mod](left, right)
+    return binary_array_dispatch["mod", mod[_]](left, right)
 
 
 # ---------------------------------------------------------------------------
@@ -299,14 +299,14 @@ fn min_[
         Null if either input is null at that position.
     """
     if ctx:
-        return binary_gpu[T, _min[T.native], "min_"](left, right, ctx.value())
+        return binary_gpu[T, func=_min[T.native, _], name="min_"](left, right, ctx.value())
     else:
-        return binary_simd[T, _min[T.native], "min_"](left, right)
+        return binary_simd[T, func=_min[T.native, _], name="min_"](left, right)
 
 
 fn min_(left: Array, right: Array) raises -> Array:
     """Runtime-typed min_."""
-    return binary_array_dispatch["min_", min_](left, right)
+    return binary_array_dispatch["min_", min_[_]](left, right)
 
 
 # ---------------------------------------------------------------------------
@@ -333,14 +333,14 @@ fn max_[
         Null if either input is null at that position.
     """
     if ctx:
-        return binary_gpu[T, _max[T.native], "max_"](left, right, ctx.value())
+        return binary_gpu[T, func=_max[T.native, _], name="max_"](left, right, ctx.value())
     else:
-        return binary_simd[T, _max[T.native], "max_"](left, right)
+        return binary_simd[T, func=_max[T.native, _], name="max_"](left, right)
 
 
 fn max_(left: Array, right: Array) raises -> Array:
     """Runtime-typed max_."""
-    return binary_array_dispatch["max_", max_](left, right)
+    return binary_array_dispatch["max_", max_[_]](left, right)
 
 
 # ---------------------------------------------------------------------------
@@ -358,7 +358,7 @@ fn neg[T: DataType](array: PrimitiveArray[T]) -> PrimitiveArray[T]:
         A new PrimitiveArray where result[i] = -array[i].
         Null if the input is null at that position.
     """
-    return unary_simd[T, _neg[T.native]](array)
+    return unary_simd[T, func=_neg[T.native, _]](array)
 
 
 # ---------------------------------------------------------------------------
@@ -376,4 +376,4 @@ fn abs_[T: DataType](array: PrimitiveArray[T]) -> PrimitiveArray[T]:
         A new PrimitiveArray where result[i] = |array[i]|.
         Null if the input is null at that position.
     """
-    return unary_simd[T, _abs[T.native]](array)
+    return unary_simd[T, func=_abs[T.native, _]](array)

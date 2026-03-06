@@ -90,9 +90,9 @@ fn _horizontal_and[T: DType, W: Int](v: SIMD[T, W]) -> Scalar[T]:
 
 fn sum[T: DataType](array: PrimitiveArray[T]) -> Scalar[T.native]:
     """Sum all valid (non-null) elements. Returns 0 if empty or all null."""
-    return reduce_simd[T, _add[T.native], _horizontal_add[T.native]](
-        array, Scalar[T.native](0)
-    )
+    return reduce_simd[
+        T, combine=_add[T.native, _], horizontal=_horizontal_add[T.native, _]
+    ](array, Scalar[T.native](0))
 
 
 fn sum(array: Array) raises -> Scalar[DType.float64]:
@@ -113,9 +113,9 @@ fn sum(array: Array) raises -> Scalar[DType.float64]:
 fn product[T: DataType](array: PrimitiveArray[T]) -> Scalar[T.native]:
     """Multiply all valid (non-null) elements. Returns 1 if empty or all null.
     """
-    return reduce_simd[T, _mul[T.native], _horizontal_mul[T.native]](
-        array, Scalar[T.native](1)
-    )
+    return reduce_simd[
+        T, combine=_mul[T.native, _], horizontal=_horizontal_mul[T.native, _]
+    ](array, Scalar[T.native](1))
 
 
 fn product(array: Array) raises -> Scalar[DType.float64]:
@@ -138,9 +138,9 @@ fn min_[T: DataType](array: PrimitiveArray[T]) -> Scalar[T.native]:
 
     Returns Scalar[T].MAX_FINITE if empty or all null.
     """
-    return reduce_simd[T, _vmin[T.native], _horizontal_min[T.native]](
-        array, Scalar[T.native].MAX_FINITE
-    )
+    return reduce_simd[
+        T, combine=_vmin[T.native, _], horizontal=_horizontal_min[T.native, _]
+    ](array, Scalar[T.native].MAX_FINITE)
 
 
 fn min_(array: Array) raises -> Scalar[DType.float64]:
@@ -163,9 +163,9 @@ fn max_[T: DataType](array: PrimitiveArray[T]) -> Scalar[T.native]:
 
     Returns Scalar[T].MIN_FINITE if empty or all null.
     """
-    return reduce_simd[T, _vmax[T.native], _horizontal_max[T.native]](
-        array, Scalar[T.native].MIN_FINITE
-    )
+    return reduce_simd[
+        T, combine=_vmax[T.native, _], horizontal=_horizontal_max[T.native, _]
+    ](array, Scalar[T.native].MIN_FINITE)
 
 
 fn max_(array: Array) raises -> Scalar[DType.float64]:
@@ -186,16 +186,16 @@ fn max_(array: Array) raises -> Scalar[DType.float64]:
 fn any_(array: PrimitiveArray[bool_dt]) -> Bool:
     """True if any valid element is True. False if empty or all null."""
     return Bool(
-        reduce_simd[bool_dt, _or[DType.bool], _horizontal_or[DType.bool]](
-            array, Scalar[DType.bool](False)
-        )
+        reduce_simd[
+            bool_dt, combine=_or[DType.bool, _], horizontal=_horizontal_or[DType.bool, _]
+        ](array, Scalar[DType.bool](False))
     )
 
 
 fn all_(array: PrimitiveArray[bool_dt]) -> Bool:
     """True if all valid elements are True. True if empty or all null."""
     return Bool(
-        reduce_simd[bool_dt, _and[DType.bool], _horizontal_and[DType.bool]](
-            array, Scalar[DType.bool](True)
-        )
+        reduce_simd[
+            bool_dt, combine=_and[DType.bool, _], horizontal=_horizontal_and[DType.bool, _]
+        ](array, Scalar[DType.bool](True))
     )
