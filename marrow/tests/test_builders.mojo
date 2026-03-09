@@ -167,7 +167,7 @@ def test_primitive_builder_as_builder() raises:
     b.append(3)
     var builder: Builder = b^
     assert_equal(builder.data[].length, 3)
-    assert_equal(builder.data[].dtype, int64)
+    assert_equal(builder.dtype(), int64)
 
 
 def test_primitive_builder_null_count() raises:
@@ -279,7 +279,7 @@ def test_string_builder_as_builder() raises:
     b.append("test")
     var builder: Builder = b^
     assert_equal(builder.data[].length, 1)
-    assert_equal(builder.data[].dtype, string)
+    assert_equal(builder.dtype(), string)
 
 
 # ---------------------------------------------------------------------------
@@ -337,8 +337,8 @@ def test_list_builder_empty_list() raises:
 
 def test_list_builder_dtype() raises:
     var child = PrimitiveBuilder[int64]()
-    var b = ListBuilder(child^)
-    assert_equal(b.data[].dtype, list_(int64))
+    var b: Builder = ListBuilder(child^)
+    assert_equal(b.dtype(), list_(int64))
 
 
 def test_list_builder_child_accessor() raises:
@@ -434,8 +434,8 @@ def test_fixed_size_list_builder_with_nulls() raises:
 
 def test_fixed_size_list_builder_dtype() raises:
     var child = PrimitiveBuilder[int32]()
-    var b = FixedSizeListBuilder(child, list_size=3)
-    assert_equal(b.data[].dtype, fixed_size_list_(int32, 3))
+    var b: Builder = FixedSizeListBuilder(child, list_size=3)
+    assert_equal(b.dtype(), fixed_size_list_(int32, 3))
 
 
 def test_fixed_size_list_builder_child_accessor() raises:

@@ -26,7 +26,7 @@ from .dtypes import *
 
 
 @fieldwise_init
-struct Array(Copyable, Movable, Writable):
+struct Array(ConvertibleToPython, Copyable, Movable, Writable):
     """Array is the lower level abstraction directly usable by the library consumer.
 
     Equivalent with https://github.com/apache/arrow/blob/7184439dea96cd285e6de00e07c5114e4919a465/cpp/src/arrow/array/data.h#L62-L84.
@@ -123,6 +123,21 @@ struct Array(Copyable, Movable, Writable):
     fn write_repr_to[W: Writer](self, mut writer: W):
         writer.write("ANYAD")
 
+    fn to_python_object(var self) raises -> PythonObject:
+        comptime for T in primitive_dtypes:
+            if self.dtype == T:
+                return self.as_primitive[T]().to_python_object()
+        if self.dtype.is_string():
+            return self.as_string().to_python_object()
+        elif self.dtype.is_list():
+            return self.as_list().to_python_object()
+        elif self.dtype.is_fixed_size_list():
+            return self.as_fixed_size_list().to_python_object()
+        elif self.dtype.is_struct():
+            return self.as_struct().to_python_object()
+        else:
+            raise Error("unsupported type: " + String(self.dtype))
+
     fn as_primitive[T: DataType](self) raises -> PrimitiveArray[T]:
         return PrimitiveArray[T](self)
 
@@ -169,7 +184,7 @@ struct Array(Copyable, Movable, Writable):
         return FixedSizeListArray(self)
 
     fn as_struct(self) raises -> StructArray:
-        return StructArray(data=self)
+        return StructArray(self)
 
 
 @fieldwise_init
@@ -621,7 +636,7 @@ struct StructArray(
     var bitmap: Optional[Bitmap]
     var children: List[Array]
 
-    fn __init__(out self, *, ref data: Array):
+    fn __init__(out self, ref data: Array):
         self.dtype = data.dtype
         self.length = data.length
         self.nulls = data.nulls

@@ -3,6 +3,7 @@ from std.python.bindings import PythonModuleBuilder
 from std.collections import OwnedKwargsDict
 from std.python._cpython import CPython, PyObjectPtr, PyTypeObject, PyTypeObjectPtr
 import marrow.arrays as arr
+from marrow.builders import Builder
 import marrow.builders as bld
 import marrow.dtypes as dt
 
@@ -20,14 +21,14 @@ fn pymethod[
 
 
 # ---------------------------------------------------------------------------
-# TypeInferrer — mirrors PyArrow's TypeInferrer (inference.cc)
+# PyInferrer — mirrors PyArrow's PyInferrer (inference.cc)
 # ---------------------------------------------------------------------------
 
 
-struct TypeInferrer(Copyable, Movable):
+struct PyInferrer(Copyable, Movable):
     """Infers the Arrow DataType of a Python sequence.
 
-    Mirrors PyArrow's TypeInferrer (inference.cc): counts occurrences by Python
+    Mirrors PyArrow's PyInferrer (inference.cc): counts occurrences by Python
     type in a single pass, recursing into list/dict elements via _visit_list and
     _visit_dict, then resolves to a DataType without re-iterating the sequence.
     """
@@ -41,10 +42,10 @@ struct TypeInferrer(Copyable, Movable):
     var list_count: Int
     var struct_count: Int
 
-    # Child inferrers — List[TypeInferrer] works because TypeInferrer declares Copyable
-    var _list_child: List[TypeInferrer]      # 0 or 1 elements
+    # Child inferrers — List[PyInferrer] works because PyInferrer declares Copyable
+    var _list_child: List[PyInferrer]      # 0 or 1 elements
     var _field_order: List[String]
-    var _field_children: List[TypeInferrer]  # parallel to _field_order
+    var _field_children: List[PyInferrer]  # parallel to _field_order
 
     # Cached CPython type pointers (obtained once at init)
     var _none_ptr: PyObjectPtr
@@ -108,7 +109,7 @@ struct TypeInferrer(Copyable, Movable):
     fn _visit_list(mut self, list_obj: PythonObject) raises:
         """Mirrors PyArrow's VisitSequence: recurse into list element's children."""
         if len(self._list_child) == 0:
-            self._list_child.append(TypeInferrer())
+            self._list_child.append(PyInferrer())
         for element in list_obj:
             self._list_child[0].visit(element)
 
@@ -124,7 +125,7 @@ struct TypeInferrer(Copyable, Movable):
             if idx == -1:
                 idx = len(self._field_order)
                 self._field_order.append(name)
-                self._field_children.append(TypeInferrer())
+                self._field_children.append(PyInferrer())
             self._field_children[idx].visit(dict_obj[key_obj])
 
     fn _total_count(self) -> Int:
@@ -194,11 +195,11 @@ struct TypeInferrer(Copyable, Movable):
 
 
 # ---------------------------------------------------------------------------
-# PyArrayBuilder — Python-to-Arrow converter mirroring PyArrow's Converter
+# PyConverter — Python-to-Arrow converter mirroring PyArrow's Converter
 # ---------------------------------------------------------------------------
 
 
-struct PyArrayBuilder(Copyable, Movable):
+struct PyConverter(Copyable, Movable):
     """Python-to-Arrow converter. Mirrors PyArrow's Converter hierarchy.
 
     Public API: extend(sequence), append(value), finish() → PythonObject.
@@ -206,79 +207,59 @@ struct PyArrayBuilder(Copyable, Movable):
     for clarity, mirroring how PyArrow uses separate Converter subclasses per type.
     """
 
-    var _b: bld.Builder
+    var builder: Builder
 
     fn __init__(out self, dtype: dt.DataType, capacity: Int = 0) raises:
-        self._b = bld.Builder(dtype, capacity)
+        self.builder = Builder(dtype, capacity)
 
-    fn __init__(out self, var builder: bld.Builder):
-        self._b = builder^
+    fn __init__(out self, var builder: Builder):
+        self.builder = builder^
 
     # ── public dispatch ─────────────────────────────────────────────────────
 
     fn extend(mut self, obj: PythonObject) raises:
         """Append a full Python sequence. Dispatches once to a type-specific path."""
-        var dtype = self._b.data[].dtype
+        var dtype = self.builder.dtype()
         comptime for T in dt.primitive_dtypes:
             if dtype == T:
                 self._extend_primitive[T](obj)
                 return
-        if dtype == dt.string:
+        if dtype.is_string():
             self._extend_string(obj)
-            return
-        if dtype.is_binary():
+        elif dtype.is_binary():
             raise Error("binary array construction not yet supported")
-        if dtype.is_list():
+        elif dtype.is_list():
             self._extend_list(obj)
-            return
-        if dtype.is_struct():
+        elif dtype.is_struct():
             self._extend_struct(obj)
-            return
-        raise Error("unsupported type: " + String(dtype))
+        else:
+            raise Error("unsupported type: " + String(dtype))
 
     fn append(mut self, value: PythonObject) raises:
         """Append a single Python value."""
-        var dtype = self._b.data[].dtype
+        var dtype = self.builder.dtype()
         comptime for T in dt.primitive_dtypes:
             if dtype == T:
                 self._append_primitive[T](value)
                 return
-        if dtype == dt.string:
+        if dtype.is_string():
             self._append_string(value)
-            return
-        if dtype.is_list():
+        elif dtype.is_list():
             self._append_list(value)
-            return
-        if dtype.is_struct():
+        elif dtype.is_struct():
             self._append_struct(value)
-            return
-        raise Error("unsupported type: " + String(dtype))
+        else:
+            raise Error("unsupported type: " + String(dtype))
 
     fn finish(mut self) raises -> PythonObject:
-        var dtype = self._b.data[].dtype
-        comptime for T in dt.primitive_dtypes:
-            if dtype == T:
-                var b = bld.PrimitiveBuilder[T](self._b.data)
-                return b.finish().to_python_object()
-        if dtype == dt.string:
-            var b = bld.StringBuilder(self._b.data)
-            return b.finish().to_python_object()
-        if dtype.is_list():
-            var b = bld.ListBuilder(self._b.data)
-            return b.finish().to_python_object()
-        if dtype.is_struct():
-            var b = bld.StructBuilder(self._b.data)
-            return b.finish().to_python_object()
-        raise Error("unsupported type: " + String(dtype))
+        return self.builder.finish().to_python_object()
 
     # ── type-specific extend paths ───────────────────────────────────────────
 
     fn _extend_primitive[T: dt.DataType](mut self, obj: PythonObject) raises:
-        ref cpy = Python().cpython()
-        var none_ptr = cpy.Py_None()
-        var pb = bld.PrimitiveBuilder[T](self._b.data)
+        var pb = self.builder.as_primitive[T]()
         for element in obj:
-            if cpy.Py_Is(element._obj_ptr, none_ptr):
+            if element is None:
                 pb.append_null()
             else:
                 comptime if T == dt.bool_:
@@ -287,52 +268,45 @@ struct PyArrayBuilder(Copyable, Movable):
                     pb.append(Scalar[T.native](py=element))
 
     fn _extend_string(mut self, obj: PythonObject) raises:
-        ref cpy = Python().cpython()
-        var none_ptr = cpy.Py_None()
-        var sb = bld.StringBuilder(self._b.data)
+        var sb = self.builder.as_string()
         for element in obj:
-            if cpy.Py_Is(element._obj_ptr, none_ptr):
+            if element is None:
                 sb.append_null()
             else:
                 sb.append(String(py=element))
 
     fn _extend_list(mut self, obj: PythonObject) raises:
-        ref cpy = Python().cpython()
-        var none_ptr = cpy.Py_None()
-        var lb = bld.ListBuilder(self._b.data)
-        var child = PyArrayBuilder(bld.Builder(self._b.data[].children[0]))
+        var lb = self.builder.as_list()
+        var child = PyConverter(self.builder.child(0))
         for element in obj:
-            if cpy.Py_Is(element._obj_ptr, none_ptr):
+            if element is None:
                 lb.append_null()
             else:
                 child.extend(element)
                 lb.append(True)
 
     fn _extend_struct(mut self, obj: PythonObject) raises:
-        ref cpy = Python().cpython()
-        var none_ptr = cpy.Py_None()
-        var dtype = self._b.data[].dtype
-        var sb = bld.StructBuilder(self._b.data)
-        var field_builders = List[PyArrayBuilder]()
+        var dtype = self.builder.dtype()
+        var sb = self.builder.as_struct()
+        var children = List[PyConverter]()
         for i in range(len(dtype.fields)):
-            field_builders.append(
-                PyArrayBuilder(bld.Builder(self._b.data[].children[i]))
+            children.append(
+                PyConverter(self.builder.child(i))
             )
         for element in obj:
-            var is_null = cpy.Py_Is(element._obj_ptr, none_ptr)
+            var is_null = element is None
             for i in range(len(dtype.fields)):
                 if is_null:
-                    field_builders[i].append(PythonObject(None))
+                    children[i].append(PythonObject(None))
                 else:
-                    field_builders[i].append(element.get(dtype.fields[i].name))
+                    children[i].append(element.get(dtype.fields[i].name))
             sb.append(not is_null)
 
     # ── type-specific append paths ───────────────────────────────────────────
 
     fn _append_primitive[T: dt.DataType](mut self, value: PythonObject) raises:
-        ref cpy = Python().cpython()
-        var pb = bld.PrimitiveBuilder[T](self._b.data)
-        if cpy.Py_Is(value._obj_ptr, cpy.Py_None()):
+        var pb = self.builder.as_primitive[T]()
+        if value is None:
             pb.append_null()
         else:
             comptime if T == dt.bool_:
@@ -341,30 +315,27 @@ struct PyArrayBuilder(Copyable, Movable):
                 pb.append(Scalar[T.native](py=value))
 
     fn _append_string(mut self, value: PythonObject) raises:
-        ref cpy = Python().cpython()
-        var sb = bld.StringBuilder(self._b.data)
-        if cpy.Py_Is(value._obj_ptr, cpy.Py_None()):
+        var sb = self.builder.as_string()
+        if value is None:
             sb.append_null()
         else:
             sb.append(String(py=value))
 
     fn _append_list(mut self, value: PythonObject) raises:
-        ref cpy = Python().cpython()
-        var lb = bld.ListBuilder(self._b.data)
-        if cpy.Py_Is(value._obj_ptr, cpy.Py_None()):
+        var lb = self.builder.as_list()
+        if value is None:
             lb.append_null()
         else:
-            var child = PyArrayBuilder(bld.Builder(self._b.data[].children[0]))
+            var child = PyConverter(self.builder.child(0))
             child.extend(value)
             lb.append(True)
 
     fn _append_struct(mut self, value: PythonObject) raises:
-        ref cpy = Python().cpython()
-        var dtype = self._b.data[].dtype
-        var sb = bld.StructBuilder(self._b.data)
-        var is_null = cpy.Py_Is(value._obj_ptr, cpy.Py_None())
+        var dtype = self.builder.dtype()
+        var sb = self.builder.as_struct()
+        var is_null = value is None
         for i in range(len(dtype.fields)):
-            var child = PyArrayBuilder(bld.Builder(self._b.data[].children[i]))
+            var child = PyConverter(self.builder.child(i))
             if is_null:
                 child.append(PythonObject(None))
             else:
@@ -378,7 +349,7 @@ struct PyArrayBuilder(Copyable, Movable):
 
 
 fn infer_type(obj: PythonObject) raises -> PythonObject:
-    var inferrer = TypeInferrer()
+    var inferrer = PyInferrer()
     return inferrer.infer(obj).to_python_object()
 
 
@@ -389,7 +360,7 @@ fn array(
     if opt := kwargs.find("type"):
         dtype = opt.value().downcast_value_ptr[dt.DataType]()[]
     else:
-        var inferrer = TypeInferrer()
+        var inferrer = PyInferrer()
         dtype = inferrer.infer(obj)
 
     if dtype.is_null():
@@ -398,7 +369,7 @@ fn array(
             " (provide type= explicitly)"
         )
 
-    var builder = PyArrayBuilder(dtype, len(obj))
+    var builder = PyConverter(dtype, len(obj))
     builder.extend(obj)
     return builder.finish()
 

@@ -92,29 +92,25 @@ struct Builder(Copyable, Movable):
 
     fn __init__(out self, dtype: DataType, capacity: Int = 0) raises:
         """Create the right builder tree for any dtype."""
-        var builder: Builder
-
-        if dtype.is_primitive():
-            comptime for T in primitive_dtypes:
-                if dtype == T:
-                    builder = PrimitiveBuilder[T](capacity)
-        elif dtype == string:
-            builder = StringBuilder(capacity)
+        comptime for T in primitive_dtypes:
+            if dtype == T:
+                self = PrimitiveBuilder[T](capacity)
+                return
+        if dtype.is_string():
+            self = StringBuilder(capacity)
         elif dtype.is_list():
             var child = Builder(dtype.fields[0].dtype)
-            builder = ListBuilder(child^, capacity)
+            self = ListBuilder(child^, capacity)
         elif dtype.is_fixed_size_list():
             var child = Builder(dtype.fields[0].dtype)
-            builder = FixedSizeListBuilder(child^, dtype.size, capacity)
+            self = FixedSizeListBuilder(child^, dtype.size, capacity)
         elif dtype.is_struct():
             var children = List[Builder]()
             for i in range(len(dtype.fields)):
                 children.append(Builder(dtype.fields[i].dtype))
-            builder = StructBuilder(dtype.fields.copy(), children^, capacity)
+            self = StructBuilder(dtype.fields.copy(), children^, capacity)
         else:
             raise Error("unsupported type: " + String(dtype))
-
-        self.data = builder.data
 
     fn __init__(out self, *, copy: Self):
         self.data = copy.data
@@ -139,25 +135,46 @@ struct Builder(Copyable, Movable):
     fn __init__(out self, value: StructBuilder):
         self.data = value.data
 
+    fn dtype(self) -> DataType:
+        return self.data[].dtype
+
+    fn child(self, index: Int) -> Builder:
+        return Builder(self.data[].children[index])
+
+    fn as_primitive[T: DataType](self) -> PrimitiveBuilder[T]:
+        return PrimitiveBuilder[T](self.data)
+
+    fn as_string(self) -> StringBuilder:
+        return StringBuilder(self.data)
+
+    fn as_list(self) -> ListBuilder:
+        return ListBuilder(self.data)
+
+    fn as_fixed_size_list(self) -> FixedSizeListBuilder:
+        return FixedSizeListBuilder(self.data)
+
+    fn as_struct(self) -> StructBuilder:
+        return StructBuilder(self.data)
+
     fn finish(mut self) raises -> Array:
-        dtype = self.data[].dtype
+        dtype = self.dtype()
 
         comptime for T in primitive_dtypes:
             if dtype == T:
-                var b = PrimitiveBuilder[T](self.data)
+                var b = self.as_primitive[T]()
                 return b.finish()
 
         if dtype.is_string():
-            var b = StringBuilder(self.data)
+            var b = self.as_string()
             return b.finish()
         elif dtype.is_list():
-            var b = ListBuilder(self.data)
+            var b = self.as_list()
             return b.finish()
         elif dtype.is_fixed_size_list():
-            var b = FixedSizeListBuilder(self.data)
+            var b = self.as_fixed_size_list()
             return b.finish()
-        elif dtype.is_struct():  # struct
-            var b = StructBuilder(self.data)
+        elif dtype.is_struct():
+            var b = self.as_struct()
             return b.finish()
         else:
             raise Error(
@@ -416,7 +433,7 @@ struct ListBuilder(Movable, Sized):
     fn __init__(out self, var child: Builder, capacity: Int = 0):
         var offsets = BufferBuilder.alloc[DType.uint32](capacity + 1)
         offsets.unsafe_set[DType.uint32](0, 0)
-        var child_dtype = child.data[].dtype.copy()
+        var child_dtype = child.dtype().copy()
         self.data = ArcPointer(
             BuilderData(
                 dtype=list_(child_dtype^),
@@ -514,7 +531,7 @@ struct FixedSizeListBuilder(Movable, Sized):
     fn __init__(
         out self, var child: Builder, list_size: Int, capacity: Int = 0
     ):
-        var child_dtype = child.data[].dtype.copy()
+        var child_dtype = child.dtype().copy()
         self.data = ArcPointer(
             BuilderData(
                 dtype=fixed_size_list_(child_dtype^, list_size),

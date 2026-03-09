@@ -319,10 +319,6 @@ struct DataType(
         else:
             writer.write("unknown {}".format(self.code))
 
-    @always_inline
-    fn is_bool(self) -> Bool:
-        return self.code == BOOL
-
     fn bit_width(self) -> UInt8:
         if self.code == BOOL:
             return 1
@@ -351,6 +347,10 @@ struct DataType(
 
     fn byte_width(self) -> Int:
         return Int(self.bit_width()) // 8
+
+    @always_inline
+    fn is_bool(self) -> Bool:
+        return self.code == BOOL
 
     @always_inline
     fn is_fixed_size(self) -> Bool:
