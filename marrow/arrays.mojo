@@ -123,16 +123,6 @@ struct Array(Copyable, Movable, Writable):
     fn write_repr_to[W: Writer](self, mut writer: W):
         writer.write("ANYAD")
 
-    # fn __str__(self) -> String:
-    #     from .pretty import ArrayPrinter
-
-    #     var printer = ArrayPrinter()
-    #     try:
-    #         printer.visit(self)
-    #     except:
-    #         pass
-    #     return printer^.finish()
-
     fn as_primitive[T: DataType](self) raises -> PrimitiveArray[T]:
         return PrimitiveArray[T](self)
 
@@ -298,34 +288,6 @@ struct PrimitiveArray[T: DataType](
             buffer=self.buffer.to_cpu(ctx),
         )
 
-    @staticmethod
-    fn py_len(ptr: UnsafePointer[Self, MutAnyOrigin]) raises -> PythonObject:
-        return ptr[].length
-
-    @staticmethod
-    fn py_getitem(
-        ptr: UnsafePointer[Self, MutAnyOrigin], index: PythonObject
-    ) raises -> PythonObject:
-        var i = Int(py=index)
-        if i < 0 or i >= ptr[].length:
-            raise Error(
-                "index "
-                + String(i)
-                + " out of bounds for length "
-                + String(ptr[].length)
-            )
-        return PythonObject(ptr[].unsafe_get(i))
-
-    @staticmethod
-    fn py_dtype(ptr: UnsafePointer[Self, MutAnyOrigin]) raises -> PythonObject:
-        return PythonObject(alloc=Self.T.copy())
-
-    @staticmethod
-    fn py_is_valid(
-        ptr: UnsafePointer[Self, MutAnyOrigin], index: PythonObject
-    ) raises -> PythonObject:
-        return ptr[].is_valid(Int(py=index))
-
     fn to_python_object(var self) raises -> PythonObject:
         return PythonObject(alloc=self^)
 
@@ -390,6 +352,9 @@ struct StringArray(
         """Return the number of elements in the array."""
         return self.length
 
+    fn null_count(self) -> Int:
+        return self.nulls
+
     fn with_offset(self, offset) -> Self:
         """Return a new StringArray with the given offset added to the current offset.
         """
@@ -446,34 +411,6 @@ struct StringArray(
             )
         return self.unsafe_get(UInt(index))
 
-    @staticmethod
-    fn py_len(ptr: UnsafePointer[Self, MutAnyOrigin]) raises -> PythonObject:
-        return ptr[].length
-
-    @staticmethod
-    fn py_getitem(
-        ptr: UnsafePointer[Self, MutAnyOrigin], index: PythonObject
-    ) raises -> PythonObject:
-        var i = Int(py=index)
-        if i < 0 or i >= ptr[].length:
-            raise Error(
-                "index "
-                + String(i)
-                + " out of bounds for length "
-                + String(ptr[].length)
-            )
-        return String(ptr[].unsafe_get(UInt(i)))
-
-    @staticmethod
-    fn py_dtype(ptr: UnsafePointer[Self, MutAnyOrigin]) raises -> PythonObject:
-        return PythonObject(alloc=string.copy())
-
-    @staticmethod
-    fn py_is_valid(
-        ptr: UnsafePointer[Self, MutAnyOrigin], index: PythonObject
-    ) raises -> PythonObject:
-        return ptr[].is_valid(Int(py=index))
-
     fn to_python_object(var self) raises -> PythonObject:
         return PythonObject(alloc=self^)
 
@@ -521,8 +458,17 @@ struct ListArray(
         self.offsets = data.buffers[0]
         self.values = data.children[0].copy()
 
+    fn __init__(out self, *, py: PythonObject) raises:
+        self = py.downcast_value_ptr[Self]()[].copy()
+
+    fn to_python_object(var self) raises -> PythonObject:
+        return PythonObject(alloc=self^)
+
     fn __len__(self) -> Int:
         return self.length
+
+    fn null_count(self) -> Int:
+        return self.nulls
 
     fn write_to[W: Writer](self, mut writer: W):
         writer.write("ANYAD")
@@ -548,12 +494,6 @@ struct ListArray(
         result.length = end - start
         result.nulls = 0
         return result^
-
-    fn to_python_object(var self) raises -> PythonObject:
-        return PythonObject(alloc=self^)
-
-    fn __init__(out self, *, py: PythonObject) raises:
-        self = py.downcast_value_ptr[Self]()[].copy()
 
 
 @fieldwise_init
@@ -603,6 +543,9 @@ struct FixedSizeListArray(
     fn __len__(self) -> Int:
         return self.length
 
+    fn null_count(self) -> Int:
+        return self.nulls
+
     fn write_to[W: Writer](self, mut writer: W):
         writer.write("ANYAD")
 
@@ -627,46 +570,6 @@ struct FixedSizeListArray(
             children=self.values.children.copy(),
             offset=start,
         )
-
-    @staticmethod
-    fn py_len(ptr: UnsafePointer[Self, MutAnyOrigin]) raises -> PythonObject:
-        return ptr[].length
-
-    @staticmethod
-    fn py_getitem(
-        py_self: PythonObject, index: PythonObject
-    ) raises -> PythonObject:
-        var ptr = py_self.downcast_value_ptr[Self]()
-        var i = Int(py=index)
-        if i < 0 or i >= ptr[].length:
-            raise Error(
-                "index "
-                + String(i)
-                + " out of bounds for length "
-                + String(ptr[].length)
-            )
-        var sub = ptr[].unsafe_get(i)
-        var child_dtype = sub.dtype
-        comptime for T in all_numeric_dtypes:
-            if child_dtype == T:
-                return PythonObject(alloc=PrimitiveArray[T](sub))
-        raise Error("unsupported child dtype: " + String(child_dtype))
-
-    @staticmethod
-    fn py_list_size(
-        ptr: UnsafePointer[Self, MutAnyOrigin]
-    ) raises -> PythonObject:
-        return ptr[].dtype.size
-
-    @staticmethod
-    fn py_dtype(ptr: UnsafePointer[Self, MutAnyOrigin]) raises -> PythonObject:
-        return PythonObject(alloc=ptr[].dtype.copy())
-
-    @staticmethod
-    fn py_is_valid(
-        ptr: UnsafePointer[Self, MutAnyOrigin], index: PythonObject
-    ) raises -> PythonObject:
-        return ptr[].is_valid(Int(py=index))
 
     fn to_device(self, ctx: DeviceContext) raises -> FixedSizeListArray:
         """Upload child values to the GPU."""
@@ -734,7 +637,13 @@ struct StructArray(
     fn __len__(self) -> Int:
         return self.length
 
+    fn null_count(self) -> Int:
+        return self.nulls
+
     fn write_to[W: Writer](self, mut writer: W):
+        writer.write("ANYAD")
+
+    fn write_repr_to[W: Writer](self, mut writer: W):
         writer.write("ANYAD")
 
     fn _index_for_field_name(self, name: StringSlice) raises -> Int:
@@ -776,16 +685,6 @@ struct ChunkedArray(Movable, Writable):
 
     fn write_to[W: Writer](self, mut writer: W):
         writer.write("ANYAD")
-
-    # fn __str__(self) -> String:
-    #     from .pretty import ArrayPrinter
-
-    #     var printer = ArrayPrinter()
-    #     try:
-    #         printer.visit(self)
-    #     except:
-    #         pass
-    #     return printer^.finish()
 
     fn chunk(self, index: Int) -> ref[self.chunks] Array:
         """Returns the chunk at the given index.

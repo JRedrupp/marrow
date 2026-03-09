@@ -2,6 +2,69 @@ from .arrays import *
 from .dtypes import *
 
 
+trait DataTypeVisitor:
+    """Dispatch operations based on a runtime DataType value.
+
+    Implement this trait and call `visitor.visit(dtype)` to receive a
+    dispatch to the appropriate typed overload.
+
+    `visit[T: DataType]` is invoked for primitive types (bool, int*, uint*,
+    float*). `visit_string` is invoked for string. Nested type overloads
+    (`visit_list`, `visit_fixed_size_list`, `visit_struct`) raise by default.
+    `visit(DataType)` dispatches to the typed overloads by runtime dtype.
+    """
+
+    fn visit[T: DataType](mut self) raises:
+        pass
+
+    fn visit_string(mut self) raises:
+        pass
+
+    fn visit_binary(mut self) raises:
+        raise Error("visit_binary: not implemented")
+
+    fn visit_list(mut self, child: DataType) raises:
+        raise Error("visit_list: not implemented")
+
+    fn visit_fixed_size_list(mut self, child: DataType, size: Int) raises:
+        raise Error("visit_fixed_size_list: not implemented")
+
+    fn visit_struct(mut self, fields: List[Field]) raises:
+        raise Error("visit_struct: not implemented")
+
+    fn visit(mut self, dtype: DataType) raises:
+        """Dispatch to the typed overload matching the runtime dtype."""
+        comptime for dt in [
+            bool_,
+            int8,
+            int16,
+            int32,
+            int64,
+            uint8,
+            uint16,
+            uint32,
+            uint64,
+            float32,
+            float64,
+        ]:
+            if dtype == dt:
+                self.visit[dt]()
+                return
+
+        if dtype.is_string():
+            self.visit_string()
+        elif dtype.is_binary():
+            self.visit_binary()
+        elif dtype.is_list():
+            self.visit_list(dtype.fields[0].dtype)
+        elif dtype.is_fixed_size_list():
+            self.visit_fixed_size_list(dtype.fields[0].dtype, dtype.size)
+        elif dtype.is_struct():
+            self.visit_struct(dtype.fields)
+        else:
+            raise Error("visit: unsupported dtype: " + String(dtype))
+
+
 trait ArrayVisitor:
     """Trait for type-dispatched array operations.
 

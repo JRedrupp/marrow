@@ -278,6 +278,9 @@ struct Bitmap(ImplicitlyCopyable, Movable, Sized, Writable):
             "Bitmap(offset=", self.bit_offset(), ", length=", self._length, ")"
         )
 
+    fn write_repr_to[W: Writer](self, mut writer: W):
+        self.write_to(writer)
+
 
 @always_inline
 fn _and[

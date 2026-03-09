@@ -13,7 +13,7 @@ def test_list_type() raises:
     assert_true(dt.list_(dt.int64) == dt.list_(dt.int64))
     assert_false(dt.list_(dt.int64) == dt.list_(dt.int32))
     t1 = dt.list_(dt.list_(dt.int64))
-    assert_equal(String(t1), "list(list(int64))")
+    assert_equal(String(t1), "list<list<int64>>")
 
 
 def test_field() raises:

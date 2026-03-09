@@ -80,6 +80,21 @@ fn binary() raises -> PythonObject:
     return dt.binary.to_python_object()
 
 
+fn field(name: PythonObject, dtype: PythonObject) raises -> PythonObject:
+    """Create a Field with the given name and data type."""
+    var d = dtype.downcast_value_ptr[dt.DataType]()[]
+    var f = dt.Field(String(py=name), d^)
+    return f.to_python_object()
+
+
+fn struct_(fields_obj: PythonObject) raises -> PythonObject:
+    """Create a struct DataType from a list of Fields."""
+    var fields = List[dt.Field]()
+    for f in fields_obj:
+        fields.append(f.downcast_value_ptr[dt.Field]()[])
+    return dt.struct_(fields).to_python_object()
+
+
 def add_to_module(mut mb: PythonModuleBuilder) raises -> None:
     """Add DataType related data to the Python API."""
 
@@ -106,3 +121,5 @@ def add_to_module(mut mb: PythonModuleBuilder) raises -> None:
     )
     mb.def_function[string]("string", docstring="Create a string DataType.")
     mb.def_function[binary]("binary", docstring="Create a binary DataType.")
+    mb.def_function[field]("field", docstring="Create an Arrow field.")
+    mb.def_function[struct_]("struct", docstring="Create a struct DataType.")

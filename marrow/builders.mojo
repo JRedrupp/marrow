@@ -153,6 +153,39 @@ struct Builder(Copyable, Movable):
     fn __init__(out self, var data: ArcPointer[BuilderData]):
         self.data = data^
 
+    fn __init__(out self, dtype: DataType, capacity: Int = 0) raises:
+        """Create the right builder tree for any dtype."""
+        comptime for T in [
+            bool_,
+            int8,
+            int16,
+            int32,
+            int64,
+            uint8,
+            uint16,
+            uint32,
+            uint64,
+            float32,
+            float64,
+        ]:
+            if dtype == T:
+                self.data = PrimitiveBuilder[T](capacity).data
+                return
+        if dtype == string:
+            self.data = StringBuilder(capacity).data
+            return
+        if dtype.is_list():
+            var child = Builder(dtype.fields[0].dtype)
+            self.data = ListBuilder(child^, capacity).data
+            return
+        if dtype.is_struct():
+            var field_builders = List[Builder]()
+            for i in range(len(dtype.fields)):
+                field_builders.append(Builder(dtype.fields[i].dtype))
+            self.data = StructBuilder(dtype.fields.copy(), field_builders^, capacity).data
+            return
+        raise Error("unsupported type: " + String(dtype))
+
     fn __copyinit__(out self, copy: Self):
         self.data = copy.data
 

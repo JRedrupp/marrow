@@ -300,11 +300,22 @@ struct DataType(
         elif self.code == BINARY:
             writer.write("binary")
         elif self.code == LIST:
-            writer.write("list(", self.fields[0].dtype, ")")
+            writer.write("list<")
+            writer.write(self.fields[0].dtype)
+            writer.write(">")
         elif self.code == FIXED_SIZE_LIST:
-            writer.write("fixed_size_list")
+            writer.write("fixed_size_list<")
+            writer.write(self.fields[0].dtype)
+            writer.write(">")
         elif self.code == STRUCT:
-            writer.write("struct")
+            writer.write("struct<")
+            for i in range(len(self.fields)):
+                if i > 0:
+                    writer.write(", ")
+                writer.write(self.fields[i].name)
+                writer.write(": ")
+                writer.write(String(self.fields[i].dtype))
+            writer.write(">")
         else:
             writer.write("unknown {}".format(self.code))
 
@@ -394,6 +405,14 @@ struct DataType(
     @always_inline
     fn is_fixed_size_list(self) -> Bool:
         return self.code == FIXED_SIZE_LIST
+
+    @always_inline
+    fn is_null(self) -> Bool:
+        return self.code == NA
+
+    @always_inline
+    fn is_binary(self) -> Bool:
+        return self.code == BINARY
 
     @always_inline
     fn is_struct(self) -> Bool:
