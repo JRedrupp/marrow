@@ -15,6 +15,17 @@ float_data_with_nulls = [float(i) if i % 10 != 0 else None for i in range(N)]
 string_data_with_nulls = [f"item-{i}" if i % 10 != 0 else None for i in range(N)]
 nested_list_data = [[i, i + 1, i + 2] for i in range(N // 3)]
 struct_data = [{"x": i, "y": float(i), "z": f"s{i}"} for i in range(N // 3)]
+struct_prim_data = [{"a": i, "b": float(i), "c": i * 2} for i in range(N)]
+struct_prim_type = ma.struct([
+    ma.field("a", ma.int64()),
+    ma.field("b", ma.float64()),
+    ma.field("c", ma.int64()),
+])
+struct_prim_pa_type = pa.struct([
+    ("a", pa.int64()),
+    ("b", pa.float64()),
+    ("c", pa.int64()),
+])
 
 
 # ── int64 ──────────────────────────────────────────────────────────────────
@@ -113,3 +124,25 @@ def test_marrow_struct(benchmark):
 
 def test_pyarrow_struct(benchmark):
     benchmark(pa.array, struct_data)
+
+
+# ── struct (primitive fields only) ────────────────────────────────────────
+
+
+def test_marrow_struct_primitives(benchmark):
+    benchmark(ma.array, struct_prim_data, type=struct_prim_type)
+
+
+def test_pyarrow_struct_primitives(benchmark):
+    benchmark(pa.array, struct_prim_data, type=struct_prim_pa_type)
+
+
+# ── struct (primitive fields, infer) ──────────────────────────────────────
+
+
+def test_marrow_struct_primitives_infer(benchmark):
+    benchmark(ma.array, struct_prim_data)
+
+
+def test_pyarrow_struct_primitives_infer(benchmark):
+    benchmark(pa.array, struct_prim_data)

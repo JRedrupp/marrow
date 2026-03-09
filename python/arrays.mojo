@@ -387,19 +387,31 @@ struct PyConverter(Copyable, Movable):
     fn _extend_struct(mut self, obj: PythonObject) raises:
         var dtype = self.builder.dtype()
         var sb = self.builder.as_struct()
+        var n_fields = len(dtype.fields)
         var children = List[PyConverter]()
-        for i in range(len(dtype.fields)):
-            children.append(
-                PyConverter(self.builder.child(i))
-            )
-        for element in obj:
-            var is_null = element is None
-            for i in range(len(dtype.fields)):
-                if is_null:
+        for i in range(n_fields):
+            children.append(PyConverter(self.builder.child(i)))
+
+        # Cache field name PythonObjects to avoid repeated string creation
+        var field_keys = List[PythonObject]()
+        for i in range(n_fields):
+            field_keys.append(PythonObject(dtype.fields[i].name))
+
+        ref cpy = Python().cpython()
+        var list_ptr = obj._obj_ptr
+        var n = len(obj)
+        var none_ptr = cpy.Py_None()
+        for row in range(n):
+            var item = cpy.PyList_GetItem(list_ptr, row)
+            if cpy.Py_Is(item, none_ptr):
+                for i in range(n_fields):
                     children[i].append(PythonObject(None))
-                else:
-                    children[i].append(element.get(dtype.fields[i].name))
-            sb.append(not is_null)
+                sb.append(False)
+            else:
+                var dict_obj = PythonObject(from_borrowed=item)
+                for i in range(n_fields):
+                    children[i].append(dict_obj[field_keys[i]])
+                sb.append(True)
 
     # ── type-specific append paths ───────────────────────────────────────────
 
