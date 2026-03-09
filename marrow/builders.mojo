@@ -228,6 +228,11 @@ struct PrimitiveBuilder[T: DataType](Movable, Sized):
     fn append(mut self, value: Self.scalar) raises:
         if self.data[].length >= self.data[].capacity:
             self.grow(max(self.data[].capacity * 2, self.data[].length + 1))
+        self.unsafe_append(value)
+
+    @always_inline
+    fn unsafe_append(mut self, value: Self.scalar):
+        """Append without bounds checking. Caller must ensure capacity."""
         self.data[].bitmap.set_bit(self.data[].length, True)
         self.data[].buffers[0][].unsafe_set[Self.T.native](
             self.data[].length, value
@@ -244,6 +249,11 @@ struct PrimitiveBuilder[T: DataType](Movable, Sized):
     fn append_null(mut self) raises:
         if self.data[].length >= self.data[].capacity:
             self.grow(max(self.data[].capacity * 2, self.data[].length + 1))
+        self.unsafe_append_null()
+
+    @always_inline
+    fn unsafe_append_null(mut self):
+        """Append null without bounds checking. Caller must ensure capacity."""
         self.data[].bitmap.set_bit(self.data[].length, False)
         self.data[].null_count += 1
         self.data[].length += 1
@@ -386,9 +396,47 @@ struct StringBuilder(Movable, Sized):
         if needed > self.data[].capacity:
             self.grow(needed)
 
+    fn reserve_bytes(mut self, additional: Int) raises:
+        """Pre-allocate space in the byte data buffer."""
+        var needed = self.data[].buffers[1][].size + additional
+        self.data[].buffers[1][].resize[DType.uint8](needed)
+
+    @always_inline
+    fn unsafe_append(mut self, ptr: UnsafePointer[mut=False, Byte, _], length: Int):
+        """Append string bytes without capacity checks. Caller must ensure capacity."""
+        var index = self.data[].length
+        var last_offset = self.data[].buffers[0][].ptr.bitcast[UInt32]()[index]
+        var next_offset = last_offset + UInt32(length)
+        self.data[].bitmap.set_bit(index, True)
+        self.data[].buffers[0][].unsafe_set[DType.uint32](
+            index + 1, next_offset
+        )
+        memcpy(
+            dest=self.data[].buffers[1][].ptr + Int(last_offset),
+            src=ptr,
+            count=length,
+        )
+        self.data[].length += 1
+
+    @always_inline
+    fn unsafe_append_null(mut self):
+        """Append null without capacity checks. Caller must ensure capacity."""
+        var index = self.data[].length
+        var last_offset = self.data[].buffers[0][].ptr.bitcast[UInt32]()[index]
+        self.data[].bitmap.set_bit(index, False)
+        self.data[].null_count += 1
+        self.data[].buffers[0][].unsafe_set[DType.uint32](
+            index + 1, last_offset
+        )
+        self.data[].length += 1
+
     fn shrink_to_fit(mut self) raises:
         self.data[].buffers[0][].resize[DType.uint32](self.data[].length + 1)
-        # buffers[1] (byte data) is already exactly sized — grown per-append
+        # shrink byte buffer to actual used size
+        var used = Int(
+            self.data[].buffers[0][].ptr.bitcast[UInt32]()[self.data[].length]
+        )
+        self.data[].buffers[1][].resize[DType.uint8](used)
 
     fn finish(mut self) raises -> StringArray:
         self.shrink_to_fit()

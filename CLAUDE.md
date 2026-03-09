@@ -35,67 +35,88 @@ The `-I .` flag is important as it adds the current directory to the import path
 
 ## Core Architecture
 
-### Memory Ownership Model
+### Type-Erased Containers
 
-The codebase follows a strict ownership hierarchy (documented in `marrow/MEMORY.md`):
+Mojo lacks dynamic dispatch, so the codebase uses **type-erased containers** with **implicit conversions** to/from typed wrappers. Implicit conversions are cheap (O(1) ref-count bumps).
 
-1. **ArrayData** - Low-level structure that owns:
-   - Data type (`dtype`)
-   - Validity bitmap (`bitmap`)
-   - Data buffers (`buffers`)
-   - Child arrays (`children` for nested types)
+#### Arrays (`marrow/arrays.mojo`)
 
-2. **Typed Arrays** - High-level views that own an `ArrayData`:
-   - `PrimitiveArray[T]` for numeric/boolean types
-   - `StringArray` for UTF-8 strings
-   - `ListArray` for variable-length nested lists
-   - `FixedSizeListArray` for fixed-size nested lists (e.g. embedding vectors)
-   - `StructArray` for nested structs
-   - `ChunkedArray` for arrays split across multiple chunks
+- **`Array`** - Type-erased, immutable array container (analogous to `ArrayData` in C++ Arrow). Holds `dtype`, `length`, `nulls`, `bitmap`, `buffers`, `children`, `offset`. Copying is O(1) via `ArcPointer` ref-counting inside `Buffer`/`Bitmap`.
+- **Typed arrays** convert implicitly to/from `Array`:
+  - `PrimitiveArray[T]` - numeric/boolean types
+  - `StringArray` - UTF-8 strings
+  - `ListArray` - variable-length nested lists
+  - `FixedSizeListArray` - fixed-size nested lists (e.g. embedding vectors)
+  - `StructArray` - nested structs
+  - `ChunkedArray` - array split across multiple chunks
 
-3. **Array Trait** - All typed arrays implement:
-   - `fn take_data(deinit self) -> ArrayData` - Consumes self to create standalone ArrayData
-   - `fn as_data[self_origin](ref [self_origin]self) -> LegacyUnsafePointer[ArrayData]` - Read-only reference to wrapped ArrayData
+Usage: `var arr: Array = my_primitive_array` and `var prim: PrimitiveArray[int64] = some_array` both work transparently.
+
+#### Builders (`marrow/builders.mojo`)
+
+- **`BuilderData`** - Internal mutable builder state, always accessed through `ArcPointer[BuilderData]` for shared ownership.
+- **`Builder`** - Type-erased builder wrapping `ArcPointer[BuilderData]`. Can be constructed from a `DataType` at runtime. `finish()` returns `Array`.
+- **Typed builders** convert implicitly to `Builder` by cloning the `ArcPointer`, so the original typed builder remains usable after passing to a composite builder:
+  - `PrimitiveBuilder[T]` → `PrimitiveArray[T]`
+  - `StringBuilder` → `StringArray`
+  - `ListBuilder` → `ListArray`
+  - `FixedSizeListBuilder` → `FixedSizeListArray`
+  - `StructBuilder` → `StructArray`
 
 ### Key Abstractions
 
-**Buffer & Bitmap** (`marrow/buffers.mojo`):
-- `Buffer` - Manages contiguous memory regions with reference counting via `ArcPointer`
-- `Bitmap` - Tracks null/validity for array elements using bit-packing
-- Both use 64-byte alignment for SIMD optimization
+**Buffer** (`marrow/buffers.mojo`):
+- Immutable, ref-counted via `ArcPointer[Allocation]`
+- Allocation kinds: CPU (owned heap), FOREIGN (external with release callback), HOST (pinned GPU host memory), DEVICE (GPU memory)
+- `BufferBuilder` is the mutable counterpart; `finish()` transfers ownership to immutable `Buffer`
+
+**Bitmap** (`marrow/bitmap.mojo`):
+- Immutable, bit-packed validity buffer wrapping a `Buffer`
+- Copying is O(1) (ref-count bump)
+- `BitmapBuilder` is the mutable counterpart; `finish()` transfers to immutable `Bitmap`
 
 **DataType** (`marrow/dtypes.mojo`):
-- Enum-based type system matching Arrow specification
+- Struct-based type system matching Arrow specification
 - Supports primitive types (bool, int8-64, uint8-64, float32/64)
 - Nested types via `list_(DataType)`, `fixed_size_list_(DataType, size)`, and `struct_(Field, ...)`
-- `DataType.size` field stores the fixed size for FixedSizeList (and future FixedSizeBinary)
 - Uses `code` field for type identification and optional `native` field for DType mapping
+
+**Visitor** (`marrow/visitor.mojo`):
+- `DataTypeVisitor` - runtime dispatch based on `DataType` value
+- `ArrayVisitor` - runtime dispatch from `Array` to typed array overloads
 
 **C Data Interface** (`marrow/c_data.mojo`):
 - `CArrowSchema` and `CArrowArray` for zero-copy data exchange
 - Primary use case: interop with PyArrow via `from_pyarrow()` and `to_pyarrow()`
-- Release callbacks not yet fully implemented (Mojo limitation with C function callbacks)
+
+**Tabular** (`marrow/tabular.mojo`):
+- `RecordBatch` - schema + column arrays
 
 ### Directory Structure
 
 ```
 marrow/
 ├── dtypes.mojo           # Type system (DataType, Field)
-├── buffers.mojo          # Memory management (Buffer, Bitmap)
-├── arrays.mojo           # Array, PrimitiveArray, StringArray, ListArray, FixedSizeListArray, StructArray
-├── builders.mojo         # PrimitiveBuilder, FixedSizeListBuilder, etc.
-├── compute/
-│   ├── arithmetic.mojo   # Element-wise add (CPU SIMD)
+├── buffers.mojo          # Memory management (Buffer, BufferBuilder, Allocation)
+├── bitmap.mojo           # Bitmap, BitmapBuilder
+├── arrays.mojo           # Array, PrimitiveArray, StringArray, ListArray,
+│                         # FixedSizeListArray, StructArray, ChunkedArray
+├── builders.mojo         # Builder, BuilderData, PrimitiveBuilder, StringBuilder,
+│                         # ListBuilder, FixedSizeListBuilder, StructBuilder
+├── kernels/
+│   ├── arithmetic.mojo   # Element-wise add, subtract, multiply, divide
 │   ├── similarity.mojo   # Batch cosine similarity (CPU SIMD + GPU dispatch)
-│   ├── gpu.mojo          # GPU kernels (add, cosine similarity)
-│   └── tests/            # Compute benchmarks and GPU tests
-├── module/               # Export functions for the python module
+│   ├── aggregate.mojo    # Sum, mean, min, max
+│   ├── boolean.mojo      # Logical operations
+│   ├── filter.mojo       # Array filtering
+│   ├── sum.mojo          # Specialized sum kernel
+│   └── tests/            # Benchmarks and GPU tests
 ├── c_data.mojo           # Arrow C Data Interface
 ├── schema.mojo           # Schema with Fields and metadata
-├── visitor.mojo          # Visitor pattern for array dispatch
-├── pretty.mojo           # Pretty printing
-├── tests/                # Core module tests
-└── test_fixtures/        # Shared test utilities
+├── tabular.mojo          # RecordBatch
+├── visitor.mojo          # DataTypeVisitor, ArrayVisitor traits
+├── pretty.mojo           # Visitor-based pretty printing
+└── tests/                # Core module tests
 python/                   # The Python module top level
 ```
 
@@ -130,15 +151,16 @@ Arrays use a validity bitmap where `True` = valid, `False` = null:
 ### Type Constraints
 
 Mojo lacks dynamic dispatch, so the codebase uses:
+- Type-erased containers (`Array`, `Builder`) with implicit conversions to/from typed wrappers
 - Compile-time parameterization (`PrimitiveArray[int64]`)
-- Common `ArrayData` layout with specialized typed views
+- Visitor pattern (`ArrayVisitor`, `DataTypeVisitor`) for runtime type dispatch
 - Runtime type checking via `DataType.code` comparison
 
 ## GPU Compute
 
 ### Architecture
 
-GPU kernels live in `marrow/compute/gpu.mojo` and are imported lazily from CPU-side modules (e.g. `similarity.mojo`, `arithmetic.mojo`) only when a `DeviceContext` is passed. This avoids requiring GPU compilation tools for CPU-only usage.
+GPU kernels live in `marrow/kernels/` and are imported lazily from CPU-side modules (e.g. `similarity.mojo`, `arithmetic.mojo`) only when a `DeviceContext` is passed. This avoids requiring GPU compilation tools for CPU-only usage.
 
 The `Buffer` struct has an optional `device` field (`Optional[DeviceBuffer]`). When set, the buffer has a GPU-resident copy. GPU kernel orchestration functions (e.g. `_add_gpu`, `_cosine_similarity_gpu`) check `buffer.has_device()` to skip uploads when data is already on the GPU.
 
@@ -191,16 +213,22 @@ pixi run bench_gpu          # GPU arithmetic benchmarks
 2. **C callbacks**: Release callbacks in C Data Interface not called (Mojo limitation)
 3. **Testing**: Relies on PyArrow for conformance testing until Mojo has JSON library
 4. **Coverage**: Only bool, numeric, string, list, fixed-size list, struct types implemented
-5. **RecordBatch/Table**: Not yet implemented
+5. **Table**: Not yet implemented (RecordBatch is available)
 
 ## Dependencies
 
 - Mojo `<1.0.0` (nightly builds from conda-forge and modular channels)
 - PyArrow `>=19.0.1, <21` (for testing and C Data Interface validation)
 
+## Coding Guidelines
+
+- Prefer explicit `if/else` over early-return `if + return` guard clauses. Keep the control flow flat and readable with `if/else` branches.
+- The Python binding API (under `python/`) should align with PyArrow's API surface (naming, signatures, behavior).
+
 ## Mojo Version Notes
 
-This codebase targets recent Mojo versions (as of Sept 2025 commits, using ~v25.7.0). Lifetime enforcement is being phased in. When working on this code:
+Mojo is a moving target with very frequent breaking changes. On confusing compile errors, check the changelog: https://docs.modular.com/mojo/changelog/
+
 - Use `var ^` for move semantics
 - Use `deinit` for consuming parameters
 - ArcPointer is used for shared ownership of buffers/bitmaps

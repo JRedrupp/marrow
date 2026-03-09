@@ -7,6 +7,7 @@ version = "0.1.0"
 
 [tasks]
 build_python = {cmd="mojo build -I . python/lib.mojo --emit shared-lib -o python/marrow.so"}
+install_python = {cmd="cp python/marrow.so $(python -c 'import site; print(site.getsitepackages()[0])')/marrow.so", depends-on=["build_python"]}
 test_mojo = {cmd = "bash run_tests.sh" }
 test_gpu = {cmd = "bash -c 'for f in $(find . -name test_gpu_\\*.mojo -type f -not -path \\*/.pixi/\\* | sort); do mojo run -I . $f; done'"}
 test_python = {cmd = "pytest -s -v python/tests", depends-on=["build_python"]}
@@ -14,6 +15,8 @@ test = {depends-on = ["test_mojo", "test_python"]}
 bench = {cmd = "mojo build -I . -O3 marrow/kernels/tests/bench_arithmetic.mojo -o .bench && ./.bench && rm -f .bench"}
 bench_similarity = {cmd = "mojo build -I . -O3 marrow/kernels/tests/bench_similarity.mojo -o .bench_sim && ./.bench_sim && rm -f .bench_sim"}
 bench_bitmap = {cmd = "mojo build -I . -O3 marrow/tests/bench_bitmap.mojo -o .bench_bitmap && ./.bench_bitmap && rm -f .bench_bitmap"}
+build_python_opt = {cmd="mojo build -I . -O3 python/lib.mojo --emit shared-lib -o python/marrow.so"}
+bench_python = {cmd = "pytest -v python/tests/bench_arrays.py", depends-on=["build_python_opt"]}
 fmt_mojo = {cmd = "mojo format marrow"}
 fmt_python = {cmd = "ruff format python" }
 fmt = {depends-on = ["fmt_mojo", "fmt_python"]}
@@ -24,6 +27,8 @@ python = ">=3.14.2,<3.15"
 pytest = ">=9.0.2,<10"
 ruff = ">=0.14.14,<0.15"
 mojo = ">=0.26.2.0.dev2026030405,<0.27"
+ipython = ">=9.11.0,<10"
+pytest-benchmark = ">=5.2.3,<6"
 
 [pypi-dependencies]
 pyarrow = ">=23.0.0, <24"

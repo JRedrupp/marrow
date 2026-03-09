@@ -38,6 +38,7 @@ struct PyInferrer(Copyable, Movable):
     var int_count: Int
     var float_count: Int
     var unicode_count: Int
+    var unicode_bytes: Int
     var bytes_count: Int
     var list_count: Int
     var struct_count: Int
@@ -61,6 +62,7 @@ struct PyInferrer(Copyable, Movable):
         self.int_count = 0
         self.float_count = 0
         self.unicode_count = 0
+        self.unicode_bytes = 0
         self.bytes_count = 0
         self.list_count = 0
         self.struct_count = 0
@@ -77,8 +79,11 @@ struct PyInferrer(Copyable, Movable):
 
     fn visit(mut self, element: PythonObject) raises:
         """Count one element's Python type, following PyArrow's Visit() order."""
+        self.visit_ptr(element._obj_ptr)
+
+    fn visit_ptr(mut self, ptr: PyObjectPtr) raises:
+        """Count one element's Python type from a raw pointer."""
         ref cpy = Python().cpython()
-        var ptr = element._obj_ptr
         if cpy.Py_Is(ptr, self._none_ptr):
             self.none_count += 1
         elif cpy.PyBool_Check(ptr) != 0:  # exact bool check before PyLong_Check
@@ -89,21 +94,22 @@ struct PyInferrer(Copyable, Movable):
             self.int_count += 1
         elif cpy.PyObject_TypeCheck(ptr, self._unicode_type) != 0:
             self.unicode_count += 1
+            self.unicode_bytes += len(cpy.PyUnicode_AsUTF8AndSize(ptr))
         elif cpy.PyObject_TypeCheck(ptr, self._bytes_type) != 0:
             self.bytes_count += 1
         elif cpy.PyObject_TypeCheck(ptr, self._dict_type) != 0:
             self.struct_count += 1
-            self._visit_dict(element)
+            self._visit_dict(PythonObject(from_borrowed=ptr))
         elif cpy.PyObject_TypeCheck(ptr, self._list_type) != 0:
             self.list_count += 1
-            self._visit_list(element)
+            self._visit_list(PythonObject(from_borrowed=ptr))
         elif cpy.PyObject_TypeCheck(ptr, self._tuple_type) != 0:
             self.list_count += 1
-            self._visit_list(element)
+            self._visit_list(PythonObject(from_borrowed=ptr))
         else:
             raise Error(
                 "cannot include value of type: "
-                + String(element.__class__.__name__)
+                + String(PythonObject(from_borrowed=ptr).__class__.__name__)
             )
 
     fn _visit_list(mut self, list_obj: PythonObject) raises:
@@ -189,9 +195,53 @@ struct PyInferrer(Copyable, Movable):
 
     fn infer(mut self, obj: PythonObject) raises -> dt.DataType:
         """Single pass: visit all elements, then resolve to a DataType."""
-        for element in obj:
-            self.visit(element)
+        ref cpy = Python().cpython()
+        var list_ptr = obj._obj_ptr
+        var n = len(obj)
+        for i in range(n):
+            var item_ptr = cpy.PyList_GetItem(list_ptr, i)
+            self.visit_ptr(item_ptr)
         return self._get_type()
+
+
+# ---------------------------------------------------------------------------
+# PyList — lightweight helper for fast CPython list access
+# ---------------------------------------------------------------------------
+
+
+struct PyList:
+    """Zero-overhead access to CPython list internals via borrowed references."""
+
+    var _ptr: PyObjectPtr
+    var _n: Int
+    var _none: PyObjectPtr
+
+    fn __init__(out self, obj: PythonObject) raises:
+        ref cpy = Python().cpython()
+        self._ptr = obj._obj_ptr
+        self._n = len(obj)
+        self._none = cpy.Py_None()
+
+    @always_inline
+    fn __len__(self) -> Int:
+        return self._n
+
+    @always_inline
+    fn get(self, i: Int) -> PyObjectPtr:
+        """Get item at index i (borrowed reference)."""
+        return Python().cpython().PyList_GetItem(self._ptr, i)
+
+    @always_inline
+    fn is_none(self, item: PyObjectPtr) -> Bool:
+        return Python().cpython().Py_Is(item, self._none)
+
+    @always_inline
+    fn as_int(self, item: PyObjectPtr) -> Int:
+        return Python().cpython().PyLong_AsSsize_t(item)
+
+    @always_inline
+    fn as_float(self, item: PyObjectPtr) -> Float64:
+        return Python().cpython().PyFloat_AsDouble(item)
 
 
 # ---------------------------------------------------------------------------
@@ -208,12 +258,24 @@ struct PyConverter(Copyable, Movable):
     """
 
     var builder: Builder
+    var has_nulls: Bool
+    var total_bytes: Int
 
-    fn __init__(out self, dtype: dt.DataType, capacity: Int = 0) raises:
+    fn __init__(
+        out self,
+        dtype: dt.DataType,
+        capacity: Int = 0,
+        has_nulls: Bool = True,
+        total_bytes: Int = 0,
+    ) raises:
         self.builder = Builder(dtype, capacity)
+        self.has_nulls = has_nulls
+        self.total_bytes = total_bytes
 
-    fn __init__(out self, var builder: Builder):
+    fn __init__(out self, var builder: Builder, has_nulls: Bool = True):
         self.builder = builder^
+        self.has_nulls = has_nulls
+        self.total_bytes = 0
 
     # ── public dispatch ─────────────────────────────────────────────────────
 
@@ -258,22 +320,59 @@ struct PyConverter(Copyable, Movable):
 
     fn _extend_primitive[T: dt.DataType](mut self, obj: PythonObject) raises:
         var pb = self.builder.as_primitive[T]()
-        for element in obj:
-            if element is None:
-                pb.append_null()
-            else:
-                comptime if T == dt.bool_:
-                    pb.append(element.__bool__())
+        ref cpy = Python().cpython()
+        var n = len(obj)
+        var list_ptr = obj._obj_ptr
+        var none_ptr = cpy.Py_None()
+        pb.reserve(n)
+        if self.has_nulls:
+            for i in range(n):
+                var item = cpy.PyList_GetItem(list_ptr, i)
+                if cpy.Py_Is(item, none_ptr):
+                    pb.unsafe_append_null()
                 else:
-                    pb.append(Scalar[T.native](py=element))
+                    comptime if T.native.is_floating_point():
+                        pb.unsafe_append(Scalar[T.native](cpy.PyFloat_AsDouble(item)))
+                    else:
+                        pb.unsafe_append(Scalar[T.native](cpy.PyLong_AsSsize_t(item)))
+        else:
+            for i in range(n):
+                var item = cpy.PyList_GetItem(list_ptr, i)
+                comptime if T.native.is_floating_point():
+                    pb.unsafe_append(Scalar[T.native](cpy.PyFloat_AsDouble(item)))
+                else:
+                    pb.unsafe_append(Scalar[T.native](cpy.PyLong_AsSsize_t(item)))
 
     fn _extend_string(mut self, obj: PythonObject) raises:
         var sb = self.builder.as_string()
-        for element in obj:
-            if element is None:
-                sb.append_null()
-            else:
-                sb.append(String(py=element))
+        ref cpy = Python().cpython()
+        var n = len(obj)
+        var list_ptr = obj._obj_ptr
+        var none_ptr = cpy.Py_None()
+
+        sb.reserve(n)
+        # Pre-compute total bytes if not already known from inference.
+        var total_bytes = self.total_bytes
+        if total_bytes == 0:
+            for i in range(n):
+                var item = cpy.PyList_GetItem(list_ptr, i)
+                if not cpy.Py_Is(item, none_ptr):
+                    total_bytes += len(cpy.PyUnicode_AsUTF8AndSize(item))
+        sb.reserve_bytes(total_bytes)
+
+        if self.has_nulls:
+            for i in range(n):
+                var item = cpy.PyList_GetItem(list_ptr, i)
+                if cpy.Py_Is(item, none_ptr):
+                    sb.unsafe_append_null()
+                else:
+                    var s = cpy.PyUnicode_AsUTF8AndSize(item)
+                    sb.unsafe_append(s.unsafe_ptr(), len(s))
+        else:
+            for i in range(n):
+                var item = cpy.PyList_GetItem(list_ptr, i)
+                var s = cpy.PyUnicode_AsUTF8AndSize(item)
+                sb.unsafe_append(s.unsafe_ptr(), len(s))
 
     fn _extend_list(mut self, obj: PythonObject) raises:
         var lb = self.builder.as_list()
@@ -357,11 +456,15 @@ fn array(
     obj: PythonObject, kwargs: OwnedKwargsDict[PythonObject]
 ) raises -> PythonObject:
     var dtype: dt.DataType
+    var has_nulls = True
+    var total_bytes = 0
     if opt := kwargs.find("type"):
         dtype = opt.value().downcast_value_ptr[dt.DataType]()[]
     else:
         var inferrer = PyInferrer()
         dtype = inferrer.infer(obj)
+        has_nulls = inferrer.none_count > 0
+        total_bytes = inferrer.unicode_bytes
 
     if dtype.is_null():
         raise Error(
@@ -369,7 +472,7 @@ fn array(
             " (provide type= explicitly)"
         )
 
-    var builder = PyConverter(dtype, len(obj))
+    var builder = PyConverter(dtype, len(obj), has_nulls, total_bytes)
     builder.extend(obj)
     return builder.finish()
 
