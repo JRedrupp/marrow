@@ -10,7 +10,7 @@ from benchmark import keep
 from gpu.host import DeviceContext
 
 from marrow.arrays import Array, PrimitiveArray, FixedSizeListArray
-from marrow.builders import PrimitiveBuilder, FixedSizeListBuilder
+from marrow.builders import AnyBuilder, PrimitiveBuilder, FixedSizeListBuilder
 from marrow.dtypes import float32
 from marrow.kernels.similarity import cosine_similarity
 
@@ -24,8 +24,10 @@ fn _make_vectors(n_vectors: Int, dim: Int) raises -> FixedSizeListArray:
         b.unsafe_append(
             Scalar[float32.native](((i * 7 + 13) % 1000) / 1000.0 - 0.5)
         )
-    var arr = b.finish()
-    return FixedSizeListBuilder.from_values(Array(arr^), list_size=dim).finish()
+    var builder = FixedSizeListBuilder(AnyBuilder(b^), list_size=dim)
+    for _ in range(n_vectors):
+        builder.append(True)
+    return builder.finish_typed()
 
 
 fn _make_query(dim: Int) -> PrimitiveArray[float32]:
@@ -35,7 +37,7 @@ fn _make_query(dim: Int) -> PrimitiveArray[float32]:
         b.unsafe_append(
             Scalar[float32.native](((i * 11 + 17) % 1000) / 1000.0 - 0.5)
         )
-    return b.finish()
+    return b.finish_typed()
 
 
 fn _bench_cpu(

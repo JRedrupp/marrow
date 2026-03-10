@@ -2,7 +2,7 @@
 
 from std.testing import assert_equal, assert_true, TestSuite
 from marrow.arrays import Array, PrimitiveArray, FixedSizeListArray
-from marrow.builders import PrimitiveBuilder, FixedSizeListBuilder
+from marrow.builders import AnyBuilder, PrimitiveBuilder, FixedSizeListBuilder
 from marrow.dtypes import float32, fixed_size_list_
 from marrow.kernels.similarity import cosine_similarity
 
@@ -13,10 +13,10 @@ def _make_vectors(*values: Float64, dim: Int) raises -> FixedSizeListArray:
     for v in values:
         b.append(Scalar[float32.native](v))
     var n_lists = len(values) // dim
-    var builder = FixedSizeListBuilder(b, list_size=dim)
+    var builder = FixedSizeListBuilder(AnyBuilder(b^), list_size=dim)
     for _ in range(n_lists):
         builder.append(True)
-    return builder.finish()
+    return builder.finish_typed()
 
 
 fn _make_query(*values: Float64) raises -> PrimitiveArray[float32]:
@@ -24,7 +24,7 @@ fn _make_query(*values: Float64) raises -> PrimitiveArray[float32]:
     var b = PrimitiveBuilder[float32](len(values))
     for v in values:
         b.append(Scalar[float32.native](v))
-    return b.finish()
+    return b.finish_typed()
 
 
 fn _approx_equal(a: Float64, b: Float64, tol: Float64 = 1e-5) -> Bool:

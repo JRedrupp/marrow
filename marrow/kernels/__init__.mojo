@@ -113,9 +113,9 @@ fn unary[
     var result = PrimitiveBuilder[OutT](length)
     for i in range(length):
         if array.is_valid(i):
-            result.unsafe_set(i, func(array.unsafe_get(i)))
-    result.length = length
-    return result.finish()
+            result._buffer.unsafe_set[OutT.native](i, func(array.unsafe_get(i)))
+    result._length = length
+    return result.finish_typed()
 
 
 fn unary_simd[

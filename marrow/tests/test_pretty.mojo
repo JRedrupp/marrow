@@ -2,7 +2,7 @@ from std.testing import assert_equal, TestSuite
 
 from marrow.arrays import *
 from marrow.builders import (
-    Builder,
+    AnyBuilder,
     ListBuilder,
     PrimitiveBuilder,
     StringBuilder,
@@ -53,33 +53,35 @@ def test_format_string() raises:
     s.append("hello")
     s.append("world")
     assert_equal(
-        _fmt(Array(s.finish())),
+        _fmt(s.finish()),
         "StringArray([hello, world])",
     )
 
 
 def test_format_list() raises:
-    var child = PrimitiveBuilder[int64](capacity=10)
-    var list_b = ListBuilder(child, capacity=6)
-    child.append(1)
-    child.append(2)
+    var list_b = ListBuilder(
+        AnyBuilder(PrimitiveBuilder[int64](capacity=10)), capacity=6
+    )
+    var child = list_b.values().as_primitive[int64]()
+    child[].append(1)
+    child[].append(2)
     list_b.append(True)
-    child.append(3)
-    child.append(4)
+    child[].append(3)
+    child[].append(4)
     list_b.append(True)
-    child.append(5)
-    child.append(6)
-    child.append(7)
+    child[].append(5)
+    child[].append(6)
+    child[].append(7)
     list_b.append(True)
     list_b.append_null()
-    child.append(8)
+    child[].append(8)
     list_b.append(True)
-    child.append(9)
-    child.append(10)
+    child[].append(9)
+    child[].append(10)
     list_b.append(True)
-    var arr = list_b.finish()
+    var arr: Array = list_b.finish()
     assert_equal(
-        _fmt(Array(arr^), limit=3),
+        _fmt(arr^, limit=3),
         (
             "ListArray([PrimitiveArray[int64]([1, 2]),"
             " PrimitiveArray[int64]([3, 4]),"
@@ -89,31 +91,38 @@ def test_format_list() raises:
 
 
 def test_format_list_of_list() raises:
-    var child = PrimitiveBuilder[int16](capacity=10)
-    var middle = ListBuilder(child, capacity=6)
-    var top = ListBuilder(middle, capacity=3)
-    child.append(1)
-    child.append(2)
-    middle.append(True)
-    child.append(3)
-    child.append(4)
-    middle.append(True)
+    var top = ListBuilder(
+        AnyBuilder(
+            ListBuilder(
+                AnyBuilder(PrimitiveBuilder[int16](capacity=10)), capacity=6
+            )
+        ),
+        capacity=3,
+    )
+    var middle = top.values().as_list()
+    var child = middle[].values().as_primitive[int16]()
+    child[].append(1)
+    child[].append(2)
+    middle[].append(True)
+    child[].append(3)
+    child[].append(4)
+    middle[].append(True)
     top.append(True)
-    child.append(5)
-    child.append(6)
-    child.append(7)
-    middle.append(True)
-    middle.append_null()
-    child.append(8)
-    middle.append(True)
+    child[].append(5)
+    child[].append(6)
+    child[].append(7)
+    middle[].append(True)
+    middle[].append_null()
+    child[].append(8)
+    middle[].append(True)
     top.append(True)
-    child.append(9)
-    child.append(10)
-    middle.append(True)
+    child[].append(9)
+    child[].append(10)
+    middle[].append(True)
     top.append(True)
-    var arr = top.finish()
+    var arr: Array = top.finish()
     assert_equal(
-        _fmt(Array(arr^)),
+        _fmt(arr^),
         (
             "ListArray([ListArray([PrimitiveArray[int16]([1,"
             " 2]), PrimitiveArray[int16]([3, 4])]),"
@@ -139,15 +148,15 @@ def test_format_struct() raises:
     var fields = List[Field]()
     fields.append(Field("int_data_a", int32))
     fields.append(Field("int_data_b", int32))
-    var children = List[Builder]()
-    children.append(a_b)
-    children.append(b_b)
+    var children = List[AnyBuilder]()
+    children.append(AnyBuilder(a_b^))
+    children.append(AnyBuilder(b_b^))
     var sb = StructBuilder(fields^, children^, capacity=2)
     sb.append(True)
     sb.append(True)
-    var struct_arr = sb.finish()
+    var struct_arr: Array = sb.finish()
     assert_equal(
-        _fmt(Array(struct_arr^), limit=3),
+        _fmt(struct_arr^, limit=3),
         (
             "StructArray({'int_data_a': "
             "PrimitiveArray[int32]([1, 2, 3, ...]), "
@@ -162,8 +171,8 @@ def test_format_empty_struct() raises:
         Field("name", string),
         Field("active", bool_),
     ]
-    var s = StructBuilder(fields^, List[Builder](), capacity=10)
-    assert_equal(_fmt(Array(s.finish())), "StructArray({})")
+    var s = StructBuilder(fields^, List[AnyBuilder](), capacity=10)
+    assert_equal(_fmt(s.finish()), "StructArray({})")
 
 
 def test_format_chunked() raises:
@@ -199,19 +208,19 @@ def test_format_limits() raises:
 
 def test_format_empty_array() raises:
     var b = PrimitiveBuilder[int32](0)
-    var arr = b.finish()
+    var arr: Array = b.finish()
     assert_equal(
-        _fmt(Array(arr^)),
+        _fmt(arr^),
         "PrimitiveArray[int32]([])",
     )
 
 
 def test_format_all_nulls() raises:
     var b = PrimitiveBuilder[int32](3)
-    b.data[].length = 3
-    b.data[].null_count = 3
+    b._length = 3
+    b._null_count = 3
     assert_equal(
-        _fmt(Array(b.finish())),
+        _fmt(b.finish()),
         "PrimitiveArray[int32]([NULL, NULL, NULL])",
     )
 
@@ -220,12 +229,12 @@ def test_format_mixed_nulls() raises:
     var b = PrimitiveBuilder[int32](5)
     b.append(1)
     b.append(2)
-    b.data[].bitmap.set_bit(2, False)
-    b.data[].null_count = 1
-    b.data[].length = 3
+    b._bitmap.set_bit(2, False)
+    b._null_count = 1
+    b._length = 3
     b.append(4)
     assert_equal(
-        _fmt(Array(b.finish())),
+        _fmt(b.finish()),
         "PrimitiveArray[int32]([1, 2, NULL, ...])",
     )
 

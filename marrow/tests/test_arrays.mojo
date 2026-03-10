@@ -1,7 +1,7 @@
 from std.testing import assert_equal, assert_true, assert_false, TestSuite
 from marrow.arrays import *
 from marrow.builders import (
-    Builder,
+    AnyBuilder,
     BoolBuilder,
     PrimitiveBuilder,
     StringBuilder,
@@ -110,21 +110,21 @@ def test_array_from_string() raises:
     var s = StringBuilder()
     s.append("hello")
     s.append("world")
-    var a = s.finish()
+    var a: Array = s.finish()
     assert_equal(a.length, 2)
 
 
 def test_array_from_list() raises:
     var ints_b = PrimitiveBuilder[int64]()
-    var l = ListBuilder(ints_b)
-    var a = l.finish()
+    var l = ListBuilder(AnyBuilder(ints_b^))
+    var a: Array = l.finish()
     assert_true(a.dtype.is_list())
 
 
 def test_array_from_struct() raises:
     var fields = [Field("x", int32)]
-    var s = StructBuilder(fields^, List[Builder](), capacity=5)
-    var a = s.finish()
+    var s = StructBuilder(fields^, List[AnyBuilder](), capacity=5)
+    var a: Array = s.finish()
     assert_true(a.dtype.is_struct())
 
 
@@ -171,23 +171,23 @@ def test_array_move() raises:
 def test_boolean_array() raises:
     var a = BoolBuilder()
     assert_equal(len(a), 0)
-    assert_equal(a.data[].capacity, 0)
+    assert_equal(a._capacity, 0)
 
     a.grow(3)
     assert_equal(len(a), 0)
-    assert_equal(a.data[].capacity, 3)
+    assert_equal(a._capacity, 3)
 
     a.append(True)
     a.append(False)
     a.append(True)
     assert_equal(len(a), 3)
-    assert_equal(a.data[].capacity, 3)
+    assert_equal(a._capacity, 3)
 
     a.append(True)
     assert_equal(len(a), 4)
-    assert_equal(a.data[].capacity, 6)
+    assert_equal(a._capacity, 6)
 
-    var frozen = a.finish()
+    var frozen = a.finish_typed()
     assert_true(frozen.is_valid(0))
     assert_true(frozen.is_valid(1))
     assert_true(frozen.is_valid(2))
@@ -199,12 +199,12 @@ def test_boolean_array() raises:
 def test_append() raises:
     var a = PrimitiveBuilder[int8]()
     assert_equal(len(a), 0)
-    assert_equal(a.data[].capacity, 0)
+    assert_equal(a._capacity, 0)
     a.append(1)
     a.append(2)
     a.append(3)
     assert_equal(len(a), 3)
-    assert_true(a.data[].capacity >= len(a))
+    assert_true(a._capacity >= len(a))
 
 
 def test_array_empty() raises:
@@ -318,7 +318,7 @@ def test_primitive_array_with_offset() raises:
     b.append(300)
     b.append(400)
     b.append(500)
-    var arr = b.finish()
+    var arr = b.finish_typed()
 
     # Default offset should be 0
     assert_equal(arr.offset, 0)
@@ -349,18 +349,18 @@ def test_primitive_array_nulls_with_offset() raises:
 def test_string_builder() raises:
     var a = StringBuilder()
     assert_equal(len(a), 0)
-    assert_equal(a.data[].capacity, 0)
+    assert_equal(a._capacity, 0)
 
     a.grow(2)
     assert_equal(len(a), 0)
-    assert_equal(a.data[].capacity, 2)
+    assert_equal(a._capacity, 2)
 
     a.append("hello")
     a.append("world")
     assert_equal(len(a), 2)
-    assert_equal(a.data[].capacity, 2)
+    assert_equal(a._capacity, 2)
 
-    var frozen = a.finish()
+    var frozen = a.finish_typed()
     assert_equal(String(frozen.unsafe_get(0)), "hello")
     assert_equal(String(frozen.unsafe_get(1)), "world")
 
@@ -370,9 +370,9 @@ def test_list_bool_array() raises:
     bool_b.append(True)
     bool_b.append(False)
     bool_b.append(True)
-    var list_b = ListBuilder(bool_b)
+    var list_b = ListBuilder(AnyBuilder(bool_b^))
     list_b.append(True)
-    var lists: ListArray = list_b.finish()
+    var lists = list_b.finish_typed()
     assert_equal(len(lists), 1)
 
     # TODO: fix listarray.unsafe_get
@@ -387,9 +387,9 @@ def test_list_str() raises:
     var str_b = StringBuilder()
     str_b.append("hello")
     str_b.append("world")
-    var list_b = ListBuilder(str_b)
+    var list_b = ListBuilder(AnyBuilder(str_b^))
     list_b.append(True)
-    var lists = list_b.finish()
+    var lists = list_b.finish_typed()
     assert_equal(len(lists), 1)
 
     var first_value = StringArray(lists.unsafe_get(0))
@@ -398,29 +398,36 @@ def test_list_str() raises:
 
 
 def test_list_of_list() raises:
-    var child = PrimitiveBuilder[int64](capacity=10)
-    var middle = ListBuilder(child, capacity=6)
-    var top_b = ListBuilder(middle, capacity=3)
-    child.append(1)
-    child.append(2)
-    middle.append(True)
-    child.append(3)
-    child.append(4)
-    middle.append(True)
+    var top_b = ListBuilder(
+        AnyBuilder(
+            ListBuilder(
+                AnyBuilder(PrimitiveBuilder[int64](capacity=10)), capacity=6
+            )
+        ),
+        capacity=3,
+    )
+    var middle = top_b.values().as_list()
+    var child = middle[].values().as_primitive[int64]()
+    child[].append(1)
+    child[].append(2)
+    middle[].append(True)
+    child[].append(3)
+    child[].append(4)
+    middle[].append(True)
     top_b.append(True)
-    child.append(5)
-    child.append(6)
-    child.append(7)
-    middle.append(True)
-    middle.append_null()
-    child.append(8)
-    middle.append(True)
+    child[].append(5)
+    child[].append(6)
+    child[].append(7)
+    middle[].append(True)
+    middle[].append_null()
+    child[].append(8)
+    middle[].append(True)
     top_b.append(True)
-    child.append(9)
-    child.append(10)
-    middle.append(True)
+    child[].append(9)
+    child[].append(10)
+    middle[].append(True)
     top_b.append(True)
-    list2 = top_b.finish()
+    list2 = top_b.finish_typed()
 
     top = ListArray(list2.unsafe_get(0))
     middle_0 = top.unsafe_get(0)
@@ -442,12 +449,12 @@ def test_fixed_size_list_int_array() raises:
     ints_b.append(4)
     ints_b.append(5)
     ints_b.append(6)
-    var builder = FixedSizeListBuilder(ints_b, list_size=3)
+    var builder = FixedSizeListBuilder(AnyBuilder(ints_b^), list_size=3)
     builder.append(True)
     builder.append(True)
-    assert_equal(builder.data[].dtype, fixed_size_list_(int64, 3))
+    assert_equal(builder.dtype(), fixed_size_list_(int64, 3))
     assert_equal(len(builder), 2)
-    var fsl = builder.finish()
+    var fsl = builder.finish_typed()
     assert_equal(len(fsl), 2)
     assert_equal(fsl.dtype.size, 3)
 
@@ -472,10 +479,10 @@ def test_fixed_size_list_roundtrip() raises:
     ints_b.append(20)
     ints_b.append(30)
     ints_b.append(40)
-    var builder = FixedSizeListBuilder(ints_b, list_size=2)
+    var builder = FixedSizeListBuilder(AnyBuilder(ints_b^), list_size=2)
     builder.append(True)
     builder.append(True)
-    var fsl = builder.finish()
+    var fsl = builder.finish_typed()
 
     assert_true(fsl.dtype.is_fixed_size_list())
     assert_equal(fsl.dtype.size, 2)
@@ -495,13 +502,13 @@ def test_fixed_size_list_with_nulls() raises:
     ints_b.append(4)
     ints_b.append(5)
     ints_b.append(6)
-    var builder = FixedSizeListBuilder(ints_b, list_size=3, capacity=3)
+    var builder = FixedSizeListBuilder(AnyBuilder(ints_b^), list_size=3, capacity=3)
     builder.append(True)
     builder.append(True)
     builder.append(False)
     assert_equal(len(builder), 3)
 
-    var fsl = builder.finish()
+    var fsl = builder.finish_typed()
     assert_true(fsl.is_valid(0))
     assert_true(fsl.is_valid(1))
     assert_false(fsl.is_valid(2))
@@ -524,10 +531,10 @@ def test_fixed_size_list_unsafe_get_dtype() raises:
     ints_b.append(20)
     ints_b.append(30)
     ints_b.append(40)
-    var builder = FixedSizeListBuilder(ints_b, list_size=2)
+    var builder = FixedSizeListBuilder(AnyBuilder(ints_b^), list_size=2)
     builder.append(True)
     builder.append(True)
-    var fsl = builder.finish()
+    var fsl = builder.finish_typed()
 
     var slice0 = fsl.unsafe_get(0)
     assert_equal(slice0.dtype, int32)
@@ -562,11 +569,11 @@ def test_struct_array() raises:
         Field("active", bool_),
     ]
 
-    var struct_builder = StructBuilder(fields^, List[Builder](), capacity=10)
+    var struct_builder = StructBuilder(fields^, List[AnyBuilder](), capacity=10)
     assert_equal(len(struct_builder), 0)
-    assert_equal(struct_builder.data[].capacity, 10)
+    assert_equal(struct_builder._capacity, 10)
 
-    var data = struct_builder.finish()
+    var data: Array = struct_builder.finish()
     assert_equal(data.length, 0)
     assert_true(data.dtype.is_struct())
     assert_equal(len(data.dtype.fields), 3)
@@ -589,13 +596,13 @@ def test_struct_array_unsafe_get() raises:
     var fields = List[Field]()
     fields.append(Field("int_data_a", int32))
     fields.append(Field("int_data_b", int32))
-    var children = List[Builder]()
-    children.append(a_b)
-    children.append(b_b)
+    var children = List[AnyBuilder]()
+    children.append(AnyBuilder(a_b^))
+    children.append(AnyBuilder(b_b^))
     var sb = StructBuilder(fields^, children^, capacity=2)
     sb.append(True)
     sb.append(True)
-    var struct_array = sb.finish()
+    var struct_array = sb.finish_typed()
     ref int_data_a = struct_array.unsafe_get("int_data_a")
     var int_a = PrimitiveArray[int32](int_data_a.copy())
     assert_equal(int_a.unsafe_get(0), 1)
@@ -643,7 +650,7 @@ def test_primitive_finish_shrinks() raises:
     var a = PrimitiveBuilder[int64](capacity=100)
     a.append(42)
     a.append(99)
-    var frozen = a.finish()
+    var frozen = a.finish_typed()
     assert_equal(frozen.length, 2)
     assert_equal(frozen.unsafe_get(0), 42)
     assert_equal(frozen.unsafe_get(1), 99)
@@ -659,7 +666,7 @@ def test_primitive_finish_via_append() raises:
     a.append(1)
     a.append(2)
     a.append(3)
-    var frozen = a.finish()
+    var frozen = a.finish_typed()
     assert_equal(frozen.length, 3)
     assert_equal(frozen.unsafe_get(0), 1)
     assert_equal(frozen.unsafe_get(2), 3)
@@ -671,7 +678,7 @@ def test_primitive_finish_preserves_nulls() raises:
     a.append(1)
     a.append_null()
     a.append(3)
-    var frozen = a.finish()
+    var frozen = a.finish_typed()
     assert_equal(frozen.length, 3)
     assert_true(frozen.is_valid(0))
     assert_false(frozen.is_valid(1))
@@ -679,11 +686,11 @@ def test_primitive_finish_preserves_nulls() raises:
 
 
 def test_primitive_finish_converts_to_array() raises:
-    """PrimitiveBuilder.finish() returns a typed PrimitiveArray."""
+    """PrimitiveBuilder.finish_typed() returns a typed PrimitiveArray."""
     var a = PrimitiveBuilder[int64]()
     a.append(7)
     a.append(8)
-    var frozen = a.finish()
+    var frozen = a.finish_typed()
     assert_equal(frozen.length, 2)
     assert_equal(frozen.unsafe_get(0), 7)
     assert_equal(frozen.unsafe_get(1), 8)
@@ -694,7 +701,7 @@ def test_getitem_bounds_check() raises:
     var b = PrimitiveBuilder[int64]()
     b.append(1)
     b.append(2)
-    var a = b.finish()
+    var a = b.finish_typed()
     try:
         _ = a[5]
         assert_true(False, "should have raised")
@@ -713,7 +720,7 @@ def test_setitem_bounds_check() raises:
     """PrimitiveArray __getitem__ returns correct values."""
     var a = PrimitiveBuilder[int64]()
     a.append(99)
-    var frozen = a.finish()
+    var frozen = a.finish_typed()
     assert_equal(frozen[0], 99)
 
 
@@ -722,7 +729,7 @@ def test_string_finish_zero_copy() raises:
     var s = StringBuilder(capacity=2)
     s.append("hello")
     s.append("world")
-    var frozen = s.finish()
+    var frozen = s.finish_typed()
     assert_equal(frozen.length, 2)
     assert_equal(String(frozen.unsafe_get(0)), "hello")
     assert_equal(String(frozen.unsafe_get(1)), "world")
@@ -732,7 +739,7 @@ def test_string_finish_shrinks() raises:
     """Freeze() on an over-allocated StringBuilder trims to exact size."""
     var s = StringBuilder(capacity=100)
     s.append("hi")
-    var frozen = s.finish()
+    var frozen = s.finish_typed()
     assert_equal(frozen.length, 1)
     assert_equal(String(frozen.unsafe_get(0)), "hi")
 
@@ -741,7 +748,7 @@ def test_string_getitem_bounds_check() raises:
     """StringArray __getitem__ raises on out-of-bounds."""
     var s = StringBuilder()
     s.append("a")
-    var frozen = s.finish()
+    var frozen = s.finish_typed()
     assert_equal(String(frozen[0]), "a")
     try:
         _ = frozen[1]
