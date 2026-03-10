@@ -9,6 +9,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       MODULAR_HOME: "/home/runner/.modular"
+      FORCE_COLOR: "1"
+      PYTEST_ADDOPTS: "--color=yes"
     steps:
     - name: Checkout repo
       uses: actions/checkout@v2
