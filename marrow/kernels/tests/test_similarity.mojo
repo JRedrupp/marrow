@@ -27,6 +27,7 @@ fn _make_query(*values: Float64) raises -> PrimitiveArray[float32]:
     return b.finish_typed()
 
 
+# TODO: use abs and place this to a common test utils module
 fn _approx_equal(a: Float64, b: Float64, tol: Float64 = 1e-5) -> Bool:
     var diff = a - b
     if diff < 0:

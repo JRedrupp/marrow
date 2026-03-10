@@ -173,6 +173,7 @@ cython_debug/
 docs/_site/
 docs/.quarto/
 docs/**/.jupyter_cache/
+docs/_freeze/
 *.quarto_ipynb
 
 # Mojo build files

@@ -17,6 +17,7 @@ from marrow.dtypes import DataType
 # ---------------------------------------------------------------------------
 
 
+# TODO: these kernels should be rewritten to align with the rest of the kernels
 fn _cosine_similarity_no_nulls[
     T: DataType
 ](

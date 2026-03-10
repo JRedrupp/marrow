@@ -215,8 +215,8 @@ def test_filter_strings_with_nulls() raises:
     assert_equal(result.nulls, 2)
     assert_true(result.is_valid(0))
     assert_equal(String(result.unsafe_get(0)), "valid")
-    assert_true(not result.is_valid(1))
-    assert_true(not result.is_valid(2))
+    assert_false(result.is_valid(1))
+    assert_false(result.is_valid(2))
 
 
 def test_filter_strings_run_merging() raises:

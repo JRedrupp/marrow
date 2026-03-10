@@ -56,11 +56,8 @@ def test_add_with_nulls() raises:
 def test_add_length_mismatch() raises:
     var a = array[int32]([1, 2])
     var b = array[int32]([1, 2, 3])
-    try:
+    with assert_raises():
         _ = add[int32](a, b)
-        assert_true(False, "should have raised")
-    except:
-        pass
 
 
 def test_add_untyped() raises:
