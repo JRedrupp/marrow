@@ -118,10 +118,34 @@ struct Array(ConvertibleToPython, Copyable, Movable, Writable):
         return self.bitmap.value().is_valid(self.offset + index)
 
     fn write_to[W: Writer](self, mut writer: W):
-        writer.write("ANYAD")
+        try:
+            comptime for T in primitive_dtypes:
+                if self.dtype == T:
+                    self.as_primitive[T]().write_to(writer)
+                    return
+            if self.dtype.is_string():
+                self.as_string().write_to(writer)
+            elif self.dtype.is_list():
+                self.as_list().write_to(writer)
+            elif self.dtype.is_fixed_size_list():
+                self.as_fixed_size_list().write_to(writer)
+            elif self.dtype.is_struct():
+                self.as_struct().write_to(writer)
+            else:
+                writer.write("Array(dtype=")
+                writer.write(self.dtype)
+                writer.write(", length=")
+                writer.write(self.length)
+                writer.write(")")
+        except:
+            writer.write("Array(dtype=")
+            writer.write(self.dtype)
+            writer.write(", length=")
+            writer.write(self.length)
+            writer.write(")")
 
     fn write_repr_to[W: Writer](self, mut writer: W):
-        writer.write("ANYAD")
+        self.write_to(writer)
 
     fn to_python_object(var self) raises -> PythonObject:
         comptime for T in primitive_dtypes:
@@ -241,10 +265,23 @@ struct PrimitiveArray[T: DataType](
         )
 
     fn write_to[W: Writer](self, mut writer: W):
-        writer.write("ANYAD")
+        writer.write("PrimitiveArray[")
+        writer.write(Self.T)
+        writer.write("]([")
+        for i in range(self.length):
+            if i > 0:
+                writer.write(", ")
+            if i >= 10:
+                writer.write("...")
+                break
+            if self.is_valid(i):
+                writer.write(self.unsafe_get(i))
+            else:
+                writer.write("NULL")
+        writer.write("])")
 
     fn write_repr_to[W: Writer](self, mut writer: W):
-        writer.write("ANYAD")
+        self.write_to(writer)
 
     @always_inline
     fn is_valid(self, index: Int) -> Bool:
@@ -383,10 +420,21 @@ struct StringArray(
         )
 
     fn write_to[W: Writer](self, mut writer: W):
-        writer.write("ANYAD")
+        writer.write("StringArray([")
+        for i in range(self.length):
+            if i > 0:
+                writer.write(", ")
+            if i >= 10:
+                writer.write("...")
+                break
+            if self.is_valid(i):
+                writer.write(self.unsafe_get(UInt(i)))
+            else:
+                writer.write("NULL")
+        writer.write("])")
 
     fn write_repr_to[W: Writer](self, mut writer: W):
-        writer.write("ANYAD")
+        self.write_to(writer)
 
     fn is_valid(self, index: Int) -> Bool:
         """Return True if the element at the given index is not null."""
@@ -486,10 +534,21 @@ struct ListArray(
         return self.nulls
 
     fn write_to[W: Writer](self, mut writer: W):
-        writer.write("ANYAD")
+        writer.write("ListArray([")
+        for i in range(self.length):
+            if i > 0:
+                writer.write(", ")
+            if i >= 10:
+                writer.write("...")
+                break
+            if self.is_valid(i):
+                self.unsafe_get(i).write_to(writer)
+            else:
+                writer.write("NULL")
+        writer.write("])")
 
     fn write_repr_to[W: Writer](self, mut writer: W):
-        writer.write("ANYAD")
+        self.write_to(writer)
 
     fn is_valid(self, index: Int) -> Bool:
         if not self.bitmap:
@@ -562,10 +621,21 @@ struct FixedSizeListArray(
         return self.nulls
 
     fn write_to[W: Writer](self, mut writer: W):
-        writer.write("ANYAD")
+        writer.write("FixedSizeListArray([")
+        for i in range(self.length):
+            if i > 0:
+                writer.write(", ")
+            if i >= 10:
+                writer.write("...")
+                break
+            if self.is_valid(i):
+                self.unsafe_get(i).write_to(writer)
+            else:
+                writer.write("NULL")
+        writer.write("])")
 
     fn write_repr_to[W: Writer](self, mut writer: W):
-        writer.write("ANYAD")
+        self.write_to(writer)
 
     fn is_valid(self, index: Int) -> Bool:
         if not self.bitmap:
@@ -656,10 +726,20 @@ struct StructArray(
         return self.nulls
 
     fn write_to[W: Writer](self, mut writer: W):
-        writer.write("ANYAD")
+        writer.write("StructArray({")
+        if len(self.children) > 0:
+            for i in range(len(self.dtype.fields)):
+                if i > 0:
+                    writer.write(", ")
+                ref field = self.dtype.fields[i]
+                writer.write("'")
+                writer.write(field.name)
+                writer.write("': ")
+                self.children[i].write_to(writer)
+        writer.write("})")
 
     fn write_repr_to[W: Writer](self, mut writer: W):
-        writer.write("ANYAD")
+        self.write_to(writer)
 
     fn _index_for_field_name(self, name: StringSlice) raises -> Int:
         for idx, ref field in enumerate(self.dtype.fields):
@@ -699,7 +779,12 @@ struct ChunkedArray(Movable, Writable):
         self._compute_length()
 
     fn write_to[W: Writer](self, mut writer: W):
-        writer.write("ANYAD")
+        writer.write("ChunkedArray([")
+        for i in range(len(self.chunks)):
+            if i > 0:
+                writer.write(", ")
+            self.chunks[i].write_to(writer)
+        writer.write("])")
 
     fn chunk(self, index: Int) -> ref[self.chunks] Array:
         """Returns the chunk at the given index.
