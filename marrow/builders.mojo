@@ -46,15 +46,30 @@ from .arrays import (
 # ---------------------------------------------------------------------------
 
 
-trait Builder(Movable, ImplicitlyDestructible):
-    fn length(self) -> Int: ...
-    fn null_count(self) -> Int: ...
-    fn dtype(self) -> DataType: ...
-    fn append_null(mut self) raises: ...
-    fn append_nulls(mut self, n: Int) raises: ...
-    fn append_valid(mut self) raises: ...
-    fn finish(mut self) raises -> Array: ...
-    fn reset(mut self): ...
+trait Builder(ImplicitlyDestructible, Movable):
+    fn length(self) -> Int:
+        ...
+
+    fn null_count(self) -> Int:
+        ...
+
+    fn dtype(self) -> DataType:
+        ...
+
+    fn append_null(mut self) raises:
+        ...
+
+    fn append_nulls(mut self, n: Int) raises:
+        ...
+
+    fn append_valid(mut self) raises:
+        ...
+
+    fn finish(mut self) raises -> Array:
+        ...
+
+    fn reset(mut self):
+        ...
 
 
 # ---------------------------------------------------------------------------
@@ -71,15 +86,15 @@ struct AnyBuilder(ImplicitlyCopyable, Movable):
     """
 
     var _data: ArcPointer[NoneType]
-    var _virt_length: fn (ArcPointer[NoneType]) -> Int
-    var _virt_null_count: fn (ArcPointer[NoneType]) -> Int
-    var _virt_dtype: fn (ArcPointer[NoneType]) -> DataType
-    var _virt_append_null: fn (ArcPointer[NoneType]) raises
-    var _virt_append_nulls: fn (ArcPointer[NoneType], Int) raises
-    var _virt_append_valid: fn (ArcPointer[NoneType]) raises
-    var _virt_finish: fn (ArcPointer[NoneType]) raises -> Array
-    var _virt_reset: fn (ArcPointer[NoneType])
-    var _virt_drop: fn (var ArcPointer[NoneType])
+    var _virt_length: fn(ArcPointer[NoneType]) -> Int
+    var _virt_null_count: fn(ArcPointer[NoneType]) -> Int
+    var _virt_dtype: fn(ArcPointer[NoneType]) -> DataType
+    var _virt_append_null: fn(ArcPointer[NoneType]) raises
+    var _virt_append_nulls: fn(ArcPointer[NoneType], Int) raises
+    var _virt_append_valid: fn(ArcPointer[NoneType]) raises
+    var _virt_finish: fn(ArcPointer[NoneType]) raises -> Array
+    var _virt_reset: fn(ArcPointer[NoneType])
+    var _virt_drop: fn(var ArcPointer[NoneType])
 
     # --- trampolines ---
 
@@ -100,9 +115,9 @@ struct AnyBuilder(ImplicitlyCopyable, Movable):
         rebind[ArcPointer[T]](ptr)[].append_null()
 
     @staticmethod
-    fn _tramp_append_nulls[T: Builder](
-        ptr: ArcPointer[NoneType], n: Int
-    ) raises:
+    fn _tramp_append_nulls[
+        T: Builder
+    ](ptr: ArcPointer[NoneType], n: Int) raises:
         rebind[ArcPointer[T]](ptr)[].append_nulls(n)
 
     @staticmethod
@@ -110,9 +125,9 @@ struct AnyBuilder(ImplicitlyCopyable, Movable):
         rebind[ArcPointer[T]](ptr)[].append_valid()
 
     @staticmethod
-    fn _tramp_finish[T: Builder](
-        ptr: ArcPointer[NoneType],
-    ) raises -> Array:
+    fn _tramp_finish[
+        T: Builder
+    ](ptr: ArcPointer[NoneType],) raises -> Array:
         return rebind[ArcPointer[T]](ptr)[].finish()
 
     @staticmethod
@@ -446,7 +461,8 @@ struct StringBuilder(Builder, Sized):
     fn unsafe_append(
         mut self, ptr: UnsafePointer[mut=False, Byte, _], length: Int
     ):
-        """Append string bytes without capacity checks. Caller must ensure capacity."""
+        """Append string bytes without capacity checks. Caller must ensure capacity.
+        """
         var index = self._length
         var last_offset = self._offsets.ptr.bitcast[UInt32]()[index]
         var next_offset = last_offset + UInt32(length)
@@ -471,9 +487,7 @@ struct StringBuilder(Builder, Sized):
 
     fn shrink_to_fit(mut self) raises:
         self._offsets.resize[DType.uint32](self._length + 1)
-        var used = Int(
-            self._offsets.ptr.bitcast[UInt32]()[self._length]
-        )
+        var used = Int(self._offsets.ptr.bitcast[UInt32]()[self._length])
         self._values.resize[DType.uint8](used)
 
     fn finish_typed(mut self) raises -> StringArray:

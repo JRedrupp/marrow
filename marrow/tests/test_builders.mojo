@@ -833,7 +833,8 @@ def test_any_builder_finish_dispatch_string() raises:
 
 
 def test_any_builder_finish_dispatch_list() raises:
-    """AnyBuilder.finish() dispatches to ListBuilder.finish() and returns Array."""
+    """AnyBuilder.finish() dispatches to ListBuilder.finish() and returns Array.
+    """
     var child = PrimitiveBuilder[int32]()
     child.append(1)
     child.append(2)

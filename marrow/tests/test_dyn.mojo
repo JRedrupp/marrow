@@ -104,7 +104,8 @@ def test_copy_semantics() raises:
 
 
 def test_multiple_copies_no_early_destruct() raises:
-    """Multiple copies of a AnyArray must keep the data alive until the last one drops."""
+    """Multiple copies of a AnyArray must keep the data alive until the last one drops.
+    """
     var a: AnyArray = PrimitiveArray[int64]([10, 20, 30])
     var b = a
     var c = b

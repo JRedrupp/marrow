@@ -15,15 +15,21 @@ from .dtypes import DataType, int8, int32, int64, float32, float64
 # ---------------------------------------------------------------------------
 
 
-trait Array(Movable, ImplicitlyDestructible):
-    fn length(self) -> Int: ...
-    fn null_count(self) -> Int: ...
-    fn is_valid(self, index: Int) -> Bool: ...
+trait Array(ImplicitlyDestructible, Movable):
+    fn length(self) -> Int:
+        ...
+
+    fn null_count(self) -> Int:
+        ...
+
+    fn is_valid(self, index: Int) -> Bool:
+        ...
 
 
 # ---------------------------------------------------------------------------
 # AnyArray — type-erased array with dynamic dispatch
 # ---------------------------------------------------------------------------
+
 
 # TODO: AnyType?
 struct AnyArray(ImplicitlyCopyable, Movable):
@@ -36,10 +42,10 @@ struct AnyArray(ImplicitlyCopyable, Movable):
     """
 
     var _data: ArcPointer[NoneType]
-    var _virt_length: fn (ArcPointer[NoneType]) -> Int
-    var _virt_null_count: fn (ArcPointer[NoneType]) -> Int
-    var _virt_is_valid: fn (ArcPointer[NoneType], Int) -> Bool
-    var _virt_drop: fn (var ArcPointer[NoneType])
+    var _virt_length: fn(ArcPointer[NoneType]) -> Int
+    var _virt_null_count: fn(ArcPointer[NoneType]) -> Int
+    var _virt_is_valid: fn(ArcPointer[NoneType], Int) -> Bool
+    var _virt_drop: fn(var ArcPointer[NoneType])
 
     # --- trampolines: one per vtable slot, plus cleanup ---
 
