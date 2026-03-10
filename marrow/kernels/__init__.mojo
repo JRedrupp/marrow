@@ -176,6 +176,67 @@ fn unary_simd[
 # ---------------------------------------------------------------------------
 
 
+fn binary_not_null[
+    T: DataType,
+    func: fn[W: Int](SIMD[T.native, W], SIMD[T.native, W]) -> SIMD[T.native, W],
+    name: StringLiteral = "",
+](
+    left: PrimitiveArray[T],
+    right: PrimitiveArray[T],
+) raises -> PrimitiveArray[
+    T
+]:
+    """Binary kernel that only calls func on non-null element pairs (like Arrow's ScalarBinaryNotNull).
+
+    Computes the output validity bitmap upfront via `bitmap_and`, then iterates
+    element-by-element, calling func only where both inputs are valid. Null output
+    positions are left zero-initialized. This avoids undefined behavior (e.g. SIGFPE
+    from integer division by zero) when null slots hold a zero value.
+
+    Parameters:
+        T: Element DataType (same for both inputs and output).
+        func: The element-wise binary function. Called with W=1 (scalar).
+        name: Operation name used in length-mismatch error messages.
+
+    Args:
+        left: The left input array.
+        right: The right input array.
+
+    Returns:
+        A new PrimitiveArray with func applied to each valid element pair.
+    """
+    if len(left) != len(right):
+        raise Error(
+            "{} arrays must have the same length, got {} and {}".format(
+                name, len(left), len(right)
+            )
+        )
+
+    var length = len(left)
+    comptime native = T.native
+
+    var bm = bitmap_and(left.bitmap, right.bitmap)
+    var buf = BufferBuilder.alloc[native](length)
+
+    for i in range(length):
+        if left.is_valid(i) and right.is_valid(i):
+            buf.unsafe_set[native](
+                i,
+                func[1](
+                    left.buffer.unsafe_get[native](left.offset + i),
+                    right.buffer.unsafe_get[native](right.offset + i),
+                ),
+            )
+
+    return PrimitiveArray[T](
+        length=length,
+        nulls=length - bm.value().count_set_bits() if bm else 0,
+        offset=0,
+        bitmap=bm,
+        buffer=buf.finish(),
+    )
+
+
 fn binary_simd[
     T: DataType,
     func: fn[W: Int](SIMD[T.native, W], SIMD[T.native, W]) -> SIMD[T.native, W],

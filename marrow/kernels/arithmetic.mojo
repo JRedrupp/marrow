@@ -14,7 +14,13 @@ from std.gpu.host import DeviceContext
 
 from ..arrays import PrimitiveArray, Array
 from ..dtypes import DataType
-from . import binary_simd, binary_gpu, unary_simd, binary_array_dispatch
+from . import (
+    binary_simd,
+    binary_not_null,
+    binary_gpu,
+    unary_simd,
+    binary_array_dispatch,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -213,7 +219,7 @@ fn div[
             )
         else:
             raise Error("div: no GPU accelerator available on this system")
-    return binary_simd[T, func=_div[T.native, _], name="div"](left, right)
+    return binary_not_null[T, func=_div[T.native, _], name="div"](left, right)
 
 
 fn div(left: Array, right: Array) raises -> Array:
@@ -251,7 +257,7 @@ fn floordiv[
             )
         else:
             raise Error("floordiv: no GPU accelerator available on this system")
-    return binary_simd[T, func=_floordiv[T.native, _], name="floordiv"](
+    return binary_not_null[T, func=_floordiv[T.native, _], name="floordiv"](
         left, right
     )
 
@@ -291,7 +297,7 @@ fn mod[
             )
         else:
             raise Error("mod: no GPU accelerator available on this system")
-    return binary_simd[T, func=_mod[T.native, _], name="mod"](left, right)
+    return binary_not_null[T, func=_mod[T.native, _], name="mod"](left, right)
 
 
 fn mod(left: Array, right: Array) raises -> Array:
