@@ -39,11 +39,11 @@ from benchmark import (
 )
 
 from std.sys import has_accelerator
-from time import perf_counter_ns
-
-from gpu.host import DeviceContext
+from std.time import perf_counter_ns
+from std.gpu.host import DeviceContext
 
 from marrow.arrays import PrimitiveArray, arange
+from marrow.builders import PrimitiveBuilder
 from marrow.dtypes import int32, float32, float64, DataType
 from marrow.kernels.arithmetic import add
 
