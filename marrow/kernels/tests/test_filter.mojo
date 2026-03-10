@@ -1,4 +1,10 @@
-from std.testing import assert_equal, assert_true, assert_raises, TestSuite
+from std.testing import (
+    assert_equal,
+    assert_true,
+    assert_false,
+    assert_raises,
+    TestSuite,
+)
 
 from marrow.arrays import array, arange, Array, PrimitiveArray, BoolArray, nulls
 from marrow.builders import PrimitiveBuilder, StringBuilder

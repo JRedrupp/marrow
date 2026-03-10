@@ -364,6 +364,7 @@ def test_abs_large_array() raises:
 def test_add_gpu() raises:
     """Element-wise add on GPU with small int32 arrays."""
     comptime if not has_accelerator():
+        print("Skipping GPU tests: no accelerator available")
         return
 
     var ctx = DeviceContext()
@@ -380,6 +381,7 @@ def test_add_gpu() raises:
 def test_add_gpu_large() raises:
     """Exercise GPU add with a large array (10k elements)."""
     comptime if not has_accelerator():
+        print("Skipping GPU tests: no accelerator available")
         return
 
     var ctx = DeviceContext()
@@ -395,6 +397,7 @@ def test_add_gpu_large() raises:
 def test_add_gpu_float32() raises:
     """GPU add with float32 arrays."""
     comptime if not has_accelerator():
+        print("Skipping GPU tests: no accelerator available")
         return
 
     var ctx = DeviceContext()
@@ -411,6 +414,7 @@ def test_add_gpu_float32() raises:
 def test_device_round_trip() raises:
     """Upload array to GPU, download back, verify values."""
     comptime if not has_accelerator():
+        print("Skipping GPU tests: no accelerator available")
         return
 
     var ctx = DeviceContext()
@@ -430,6 +434,7 @@ def test_device_round_trip() raises:
 def test_chained_gpu_add() raises:
     """Chained GPU adds: (a + b) + c with device-resident intermediates."""
     comptime if not has_accelerator():
+        print("Skipping GPU tests: no accelerator available")
         return
 
     var ctx = DeviceContext()

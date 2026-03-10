@@ -8,7 +8,6 @@ version = "0.1.0"
 [tasks]
 build_python = {cmd="mojo build -I . python/lib.mojo --emit shared-lib -o python/marrow.so"}
 test_mojo = {cmd = "bash run_tests.sh" }
-test_gpu = {cmd = "bash -c 'for f in $(find . -name test_gpu_\\*.mojo -type f -not -path \\*/.pixi/\\* | sort); do mojo run -I . $f; done'"}
 test_python = {cmd = "pytest -s -v python/tests", depends-on=["build_python"]}
 test = {depends-on = ["test_mojo", "test_python"]}
 bench = {cmd = "mojo build -I . -O3 marrow/kernels/tests/bench_arithmetic.mojo -o .bench && ./.bench && rm -f .bench"}
