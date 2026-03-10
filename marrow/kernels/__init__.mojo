@@ -164,7 +164,7 @@ fn unary_simd[
 
     return PrimitiveArray[T](
         length=length,
-        nulls=0,
+        nulls=length - bm.value().count_set_bits() if bm else 0,
         offset=0,
         bitmap=bm,
         buffer=buf.finish(),
@@ -244,7 +244,7 @@ fn binary_simd[
 
     return PrimitiveArray[T](
         length=length,
-        nulls=0,
+        nulls=length - bm.value().count_set_bits() if bm else 0,
         offset=0,
         bitmap=bm,
         buffer=buf.finish(),

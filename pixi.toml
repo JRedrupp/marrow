@@ -7,7 +7,6 @@ version = "0.1.0"
 
 [tasks]
 build_python = {cmd="mojo build -I . python/lib.mojo --emit shared-lib -o python/marrow.so"}
-install_python = {cmd="cp python/marrow.so $(python -c 'import site; print(site.getsitepackages()[0])')/marrow.so", depends-on=["build_python"]}
 test_mojo = {cmd = "bash run_tests.sh" }
 test_gpu = {cmd = "bash -c 'for f in $(find . -name test_gpu_\\*.mojo -type f -not -path \\*/.pixi/\\* | sort); do mojo run -I . $f; done'"}
 test_python = {cmd = "pytest -s -v python/tests", depends-on=["build_python"]}

@@ -115,7 +115,25 @@ struct Array(
         self.offset = take.offset
 
     fn __init__(out self, *, py: PythonObject) raises:
-        self = py.downcast_value_ptr[Self]()[].copy()
+        var dt = DataType(py=py.type())
+        comptime for T in primitive_dtypes:
+            if dt == T:
+                self = Array(py.downcast_value_ptr[PrimitiveArray[T]]()[])
+                return
+        if dt.is_string():
+            self = Array(py.downcast_value_ptr[StringArray]()[])
+        elif dt.is_list():
+            self = Array(py.downcast_value_ptr[ListArray]()[])
+        elif dt.is_fixed_size_list():
+            self = Array(py.downcast_value_ptr[FixedSizeListArray]()[])
+        elif dt.is_struct():
+            self = Array(py.downcast_value_ptr[StructArray]()[])
+        else:
+            raise Error(
+                "cannot convert Python object of type '"
+                + String(py.__class__.__name__)
+                + "' to Array"
+            )
 
     fn is_valid(self, index: Int) -> Bool:
         if not self.bitmap:
@@ -263,6 +281,9 @@ struct PrimitiveArray[T: DataType](
 
     fn __str__(self) -> String:
         return String.write(self)
+
+    fn type(self) -> DataType:
+        return Self.T
 
     fn slice(self, offset: Int = 0, length: Int = -1) -> Self:
         """Zero-copy slice of this array.
@@ -440,6 +461,9 @@ struct StringArray(
     fn null_count(self) -> Int:
         return self.nulls
 
+    fn type(self) -> DataType:
+        return string
+
     fn slice(self, offset: Int = 0, length: Int = -1) -> Self:
         """Zero-copy slice of this array.
 
@@ -572,6 +596,9 @@ struct ListArray(
     fn null_count(self) -> Int:
         return self.nulls
 
+    fn type(self) -> DataType:
+        return self.dtype
+
     fn write_to[W: Writer](self, mut writer: W):
         writer.write("ListArray([")
         for i in range(self.length):
@@ -702,6 +729,9 @@ struct FixedSizeListArray(
 
     fn null_count(self) -> Int:
         return self.nulls
+
+    fn type(self) -> DataType:
+        return self.dtype
 
     fn write_to[W: Writer](self, mut writer: W):
         writer.write("FixedSizeListArray([")
@@ -835,6 +865,9 @@ struct StructArray(
 
     fn null_count(self) -> Int:
         return self.nulls
+
+    fn type(self) -> DataType:
+        return self.dtype
 
     fn write_to[W: Writer](self, mut writer: W):
         writer.write("StructArray({")
