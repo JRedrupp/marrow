@@ -1,159 +1,292 @@
-# In-progress implementation of Apache Arrow in Mojo
+# Marrow — Apache Arrow in Mojo
 
-Initial motivation for this project was to learn the Mojo programming language and the best is to learn by doing. Since I've been involved in the Apache Arrow project for a while, I thought it would be a good idea to implement the Arrow specification in Mojo.
-
-The implementation is far from being complete or usable in practice, but I prefer to share it its early stage so others can join the effort.
+An implementation of [Apache Arrow](https://arrow.apache.org) in [Mojo](https://www.modular.com/mojo). The initial motivation was to learn Mojo while doing something useful, and since I've been involved in Apache Arrow for a while it seemed a natural fit. The project has grown beyond a prototype: it now has a full Python binding layer, SIMD compute kernels, GPU acceleration, and benchmarks showing it outperforms PyArrow on array construction for common numeric and string workloads.
 
 ### What is Arrow?
 
-[Apache Arrow](https://arrow.apache.org) is a cross-language development platform for in-memory data. It specifies a standardized language-independent columnar memory format for flat and hierarchical data, organized for efficient analytic operations on modern hardware like CPUs and GPUs.
+Apache Arrow is a cross-language development platform for in-memory data. It specifies a standardized, language-independent columnar memory format for flat and hierarchical data, organized for efficient analytic operations on modern hardware like CPUs and GPUs.
 
 ### What is Mojo?
 
-[Mojo](https://www.modular.com/mojo) is promising new programming language built on top of MLIR providing the expressiveness of Python, with the performance of systems programming languages.
+[Mojo](https://www.modular.com/mojo) is a new programming language built on MLIR that combines Python expressiveness with the performance of systems programming languages.
 
 ### Why Arrow in Mojo?
 
-I find the Mojo language really promising and Arrow should be a first-class citizen in Mojo's ecosystem. Since the language itself is still in its early stages, under heavy development, this Arrow implementation is still in an experimental phase.
+Arrow should be a first-class citizen in Mojo's ecosystem. This implementation provides zero-copy interoperability with PyArrow via the [Arrow C Data Interface](https://arrow.apache.org/docs/format/CDataInterface.html), and serves as a foundation for high-performance data processing in Mojo.
 
-## Currently implemented abstractions
+## Features
 
-- `Buffer` providing the memory management for contiguous memory regions.
-- `DataType` for defining the `Arrow` data types.
-- `ArrayData` as the common layout for all `Arrow` arrays.
-- Typed array views for primitive, string and nested arrow arrays providing more convenient and efficient access to the underlying `ArrayData`.
-- [Arrow C Data Interface](https://arrow.apache.org/docs/format/CDataInterface.html) to exchange arrow data between other implementations in a zero-copy manner, but only one direction is implemented for now.
+**Array types**
+- `PrimitiveArray[T]` — numeric and boolean arrays with type aliases: `BoolArray`, `Int8Array` … `Int64Array`, `UInt8Array` … `UInt64Array`, `Float32Array`, `Float64Array`
+- `StringArray` — UTF-8 variable-length strings
+- `ListArray` — variable-length nested arrays
+- `FixedSizeListArray` — fixed-size nested arrays (embedding vectors, coordinates)
+- `StructArray` — named-field structs
+- `ChunkedArray` — array split across multiple chunks
+- `RecordBatch` — schema + column arrays
 
-## Examples
+**Builders** — incrementally build immutable arrays
+- `PrimitiveBuilder[T]`, `StringBuilder`, `ListBuilder`, `FixedSizeListBuilder`, `StructBuilder`
+- `AnyBuilder` — type-erased builder using function-pointer vtable dispatch (O(1) copy via `ArcPointer`)
 
-### Creating a primitive array
+**Compute kernels** (SIMD-vectorized, null-aware)
+- Arithmetic: `add`, `sub`, `mul`, `div`, `neg`, `abs_`, `min_`, `max_`
+- Aggregates: `sum_`, `product`, `min_`, `max_`, `any_`, `all_` (null-skipping)
+- Selection: `filter_`, `drop_nulls`
+- Similarity: `cosine_similarity` (batch N-vectors vs 1 query, CPU SIMD + GPU)
 
-```mojo
-from marrow.arrays import array, StringArray, ListArray, Int64Array
-from marrow.dtypes import int8, bool_, list_
+**Python bindings** — `import marrow as ma`
+- `array(values, type=None)` — create any array type from Python lists with type inference
+- All compute kernels exposed as free functions
+- Full null handling, type coercion, nested structure support
 
-var a = array[int8](1, 2, 3, 4)
-var b = array[bool_](True, False, True)
+**Interoperability**
+- Arrow C Data Interface — zero-copy exchange with PyArrow
+- GPU acceleration via Mojo's `DeviceContext` (Metal on Apple Silicon, CUDA on NVIDIA)
+
+## Python Quick Start
+
+```bash
+pixi run build_python   # compile marrow.so
 ```
 
-### Creating a string array
+```python
+import marrow as ma
 
-```mojo
-var s = StringArray()
-s.unsafe_append("hello")
-s.unsafe_append("world")
+# ── Array construction ────────────────────────────────────────────────────────
+
+# Primitive arrays — type inference
+a = ma.array([1, 2, 3, None, 5])           # int64 with one null
+f = ma.array([1.0, 2.5, None, 4.0])        # float64
+
+# Explicit types
+a = ma.array([1, 2, 3, None, 5], type=ma.int64())
+
+# Strings
+s = ma.array(["hello", None, "world"])
+
+# Nested lists
+nested = ma.array([[1, 2], [3, 4, 5], None])
+
+# Struct arrays — automatic type inference from dict keys
+structs = ma.array([{"x": 1, "y": 1.5}, {"x": 2, "y": 2.5}])
+
+# With explicit schema
+t = ma.struct([ma.field("x", ma.int64()), ma.field("y", ma.float64())])
+structs = ma.array([{"x": 1, "y": 1.5}, {"x": 2, "y": 2.5}], type=t)
+
+# ── Arithmetic (null-propagating) ─────────────────────────────────────────────
+
+b = ma.array([10, 20, 30, None, 50])
+result = ma.add(a, b)      # null where either input is null
+result = ma.sub(a, b)
+result = ma.mul(a, b)
+result = ma.div(a, b)
+
+# ── Aggregates (null-skipping) ────────────────────────────────────────────────
+
+ma.sum_(a)       # → 11.0  (skips the null at index 3)
+ma.product(a)    # → 30.0
+ma.min_(a)       # → 1.0
+ma.max_(a)       # → 5.0
+ma.any_(ma.array([False, True, None]))   # → True
+ma.all_(ma.array([True, True, None]))   # → True
+
+# ── Selection ─────────────────────────────────────────────────────────────────
+
+mask = ma.array([True, False, True, False, True])
+ma.filter_(a, mask)    # [1, 3, 5]
+ma.drop_nulls(a)       # [1, 2, 3, 5]  (removes index 3)
+
+# ── Array methods ─────────────────────────────────────────────────────────────
+
+len(a)             # 5
+a.null_count()     # 1
+a.type()           # int64
+a.slice(1, 3)      # [2, 3, None]  — zero-copy
+a[0]               # 1
+str(a)             # "Int64Array([1, 2, 3, NULL, 5])"
+
+# Struct field access
+structs.field(0)           # Int64Array — field "x"
+structs.field("y")         # Float64Array — field "y"
 ```
 
-More convenient APIs are planned to be added in the future.
+## Mojo API
 
-### Creating a list array
+### Creating arrays
 
 ```mojo
-var ints = Int64Array()
-var lists = ListArray(ints)
+from marrow.arrays import array, PrimitiveArray, StringArray, BoolArray
+from marrow.dtypes import int8, int32, int64, bool_, list_
 
-ints.append(1)
-ints.append(2)
-ints.append(3)
-lists.unsafe_append(True)
-assert_equal(len(lists), 1)
-assert_equal(lists.data.dtype, list_(int64))
+# Factory function — list of optionals
+var a = array[int32]([1, 2, 3, 4, 5])
+var b = array[int64]([1, None, 3, None, 5])   # nulls at index 1 and 3
+var c = array[bool_]([True, False, True])
 ```
 
-### Formatting arrays for display
+### Builders
 
 ```mojo
-from marrow.io import Formatter
-from marrow.arrays import array
-from marrow.dtypes import int32
+from marrow.builders import PrimitiveBuilder, StringBuilder, ListBuilder
 
-var arr = array[int32](1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
-var output = String()
-var formatter = Formatter(limit=3)  # Show first 3 elements
-formatter.format(output, arr)
-print(output)
-# Output: PrimitiveArray[DataType(code=int32)]([1, 2, 3, ...])
+# Primitive
+var pb = PrimitiveBuilder[int64](capacity=4)
+pb.append(10)
+pb.append(20)
+pb.append_null()
+pb.append(40)
+var arr: Int64Array = pb.finish_typed()
+
+# String
+var sb = StringBuilder()
+sb.append("hello")
+sb.append_null()
+sb.append("world")
+var strs: StringArray = sb.finish_typed()
+
+# List of int32 — append child elements, then commit each list element
+var child = PrimitiveBuilder[int32]()
+child.append(1)
+child.append(2)
+var lb = ListBuilder(child^)       # moves child into the builder
+lb.append(True)                    # [1, 2] is the first list element
+lb.values().append(3)              # child element for the next list
+lb.append(True)                    # [3] is the second list element
+lb.append_null()                   # null third element
+var lists: ListArray = lb.finish_typed()
 ```
 
-The formatter supports all array types including nested structures like lists and structs, and automatically handles NULL values.
+### Display
 
-### Zero-copy access of a PyArrow array in Mojo
-
-For more details see the [Arrow C Data Interface](https://arrow.apache.org/docs/format/CDataInterface.html).
+All arrays implement `Writable` so they print directly:
 
 ```mojo
+print(arr)    # Int64Array([10, 20, NULL, 40])
+print(strs)   # StringArray([hello, NULL, world])
+```
+
+### Compute kernels
+
+```mojo
+from marrow.kernels.arithmetic import add, sub, mul, div
+from marrow.kernels.aggregate import sum_, min_, max_, any_, all_
+from marrow.kernels.filter import filter_, drop_nulls
+
+var x = array[int64]([1, 2, 3, 4])
+var y = array[int64]([10, 20, 30, 40])
+
+var z = add(x, y)               # Int64Array([11, 22, 33, 44])
+var total = sum_[int64](x)      # 10
+var filtered = filter_[int64](x, array[bool_]([True, False, True, False]))
+```
+
+### Zero-copy PyArrow interop (C Data Interface)
+
+```mojo
+from python import Python
+from marrow.c_data import CArrowArray, CArrowSchema
+
 var pa = Python.import_module("pyarrow")
-var pyarr = pa.array(
-   [1, 2, 3, 4, 5], mask=[False, False, False, False, True]
-)
+var pyarr = pa.array([1, 2, 3, 4, 5], mask=[False, False, False, False, True])
 
 var c_array = CArrowArray.from_pyarrow(pyarr)
 var c_schema = CArrowSchema.from_pyarrow(pyarr.type)
 
-var dtype = c_schema.to_dtype()
-assert_equal(dtype, int64)
-assert_equal(c_array.length, 5)
-assert_equal(c_array.null_count, 1)
-assert_equal(c_array.offset, 0)
-assert_equal(c_array.n_buffers, 2)
-assert_equal(c_array.n_children, 0)
-
+var dtype = c_schema.to_dtype()     # int64
 var data = c_array.to_array(dtype)
-var array = data.as_int64()
-assert_equal(array.bitmap[].size, 64)
-assert_equal(array.is_valid(0), True)
-assert_equal(array.is_valid(1), True)
-assert_equal(array.is_valid(2), True)
-assert_equal(array.is_valid(3), True)
-assert_equal(array.is_valid(4), False)
-assert_equal(array.unsafe_get(0), 1)
-assert_equal(array.unsafe_get(1), 2)
-assert_equal(array.unsafe_get(2), 3)
-assert_equal(array.unsafe_get(3), 4)
-assert_equal(array.unsafe_get(4), 0)
+var typed = data.as_int64()
 
-array.unsafe_set(0, 10)
-assert_equal(array.unsafe_get(0), 10)
-assert_equal(str(pyarr), "[\n  10,\n  2,\n  3,\n  4,\n  null\n]")
+print(typed.is_valid(0))   # True
+print(typed.is_valid(4))   # False  (null)
+print(typed.unsafe_get(0)) # 1
 ```
 
-## Rough edges and limitations
+## Benchmarks
 
-So far the implementation has been focused to provide a solid foundation for further development, not for memory efficiency, performance or completeness.
+Python array construction vs PyArrow (n=100,000 elements, Apple M-series, mean time):
 
-A couple of notable limitations:
+| Array type               | marrow  | PyArrow | speedup        |
+|--------------------------|--------:|--------:|---------------|
+| int64 (explicit type)    | 0.37 ms | 0.89 ms | **2.4x faster** |
+| int64 + nulls (explicit) | 0.36 ms | 0.87 ms | **2.4x faster** |
+| float64 (explicit)       | 0.34 ms | 0.48 ms | **1.4x faster** |
+| float64 + nulls          | 0.34 ms | 0.51 ms | **1.5x faster** |
+| string (explicit)        | 0.72 ms | 1.06 ms | **1.5x faster** |
+| string + nulls           | 0.70 ms | 1.04 ms | **1.5x faster** |
+| struct, primitive fields | 5.41 ms | 6.54 ms | **1.2x faster** |
+| int64 (inferred)         | 1.40 ms | 1.27 ms | 1.1x slower    |
+| string (inferred)        | 1.57 ms | 1.02 ms | 1.5x slower    |
+| nested list (inferred)   | 3.92 ms | 2.36 ms | 1.7x slower    |
 
-1. The chosen abstractions may not be ideal, but:
-   - mojo lacks support for dynamic dispatch at the moment
-   - variant elements must be copyable
-   - references and lifetimes are not hardened yet
-   - expressing nested data types is not straightforward
+When the array type is provided explicitly, marrow's builder path is faster than PyArrow's for numeric and string types. Type inference involves a Python-side scan to detect the type, which adds overhead; this gap will narrow as the inference path is optimized.
 
-   Due to these reasons polymorphism is achieved by defining a common layout for type hierarchies and providing specialized views for each child type. This approach seems to work well for nested `DataType` and `Array` types and the implementation can be continued while `Mojo` gains the necessary features to rethink theses abstractions.
+Run the benchmarks yourself:
 
-2. The `C Data Interface` doesn't call the release callbacks yet and only consuming arrow data is implemented for now because a `Mojo` callback cannot be passed to a `C` function yet. As mojo matures, this limitation will be certainly addressed.
+```bash
+pixi run bench_python       # Python array construction vs PyArrow
+pixi run bench              # CPU SIMD arithmetic benchmarks
+pixi run bench_similarity   # cosine similarity: CPU vs GPU
+```
 
-3. Testing of the conformance against the `Arrow` specification is done by reading arrow data from the python implementation `PyArrow` since `Mojo` can already call python functions. If the project manages to evolve further, it should be wired into the arrow integration testing suite, but first that requires a `JSON` library in `Mojo`.
+## GPU Acceleration
 
-4. Only boolean, numeric, string, list and struct datatypes are supported for now since these cover most of the implementation complexity. Support for the rest of the arrow data types can be added incrementally.
+GPU kernels are available for compute-intensive operations when a `DeviceContext` is provided. Benchmarked on Apple Silicon (M-series, Metal, unified memory):
 
-5. A convenient API hasn't been designed yet, preferably that should be tackled once the implementation is more mature.
+**Cosine similarity** (batch N-vectors vs 1 query, dim=768):
 
-6. No `ChunkedArray`s, `RecordBatch`es, `Table`s are implemented yet, but soon they will be.
+| Vectors | CPU SIMD | GPU (upload per call) | GPU (pre-loaded) |
+|--------:|---------:|----------------------:|-----------------:|
+|    10 K |  baseline |         2–3x slower   |    ~1x (crossover) |
+|   100 K |  baseline |          ~1x           |      ~3x faster  |
+|   500 K |  baseline |           —            |     ~13x faster  |
+
+The key pattern: upload data to the GPU once, run multiple kernels, download results at the end. The crossover vs CPU SIMD is around 10K vectors at dim≥384.
+
+Element-wise arithmetic (`add`, `mul`, etc.) is faster on CPU SIMD — data transfer overhead dominates for low arithmetic-intensity operations.
+
+```mojo
+from std.gpu.host import DeviceContext
+from marrow.kernels.similarity import cosine_similarity
+
+# Pre-load data onto the GPU once
+var ctx = DeviceContext()
+var vectors_gpu = vectors.to_device(ctx)
+var query_gpu = query.to_device(ctx)
+
+# Run many similarity searches without re-uploading
+var scores = cosine_similarity(vectors_gpu, query_gpu, ctx)
+```
+
+## Known Limitations
+
+1. **C Data Interface**: Release callbacks are not invoked (Mojo cannot pass a callback to a C function yet). Consuming Arrow data from PyArrow works; producing data back to PyArrow via the release mechanism is not fully implemented.
+
+2. **Testing**: Conformance against the Arrow specification is verified through PyArrow since Mojo has no JSON library yet. Full integration testing requires a Mojo JSON reader.
+
+3. **Type coverage**: Only boolean, numeric, string, list, fixed-size list, and struct types are implemented. Date/time, dictionary, union, decimal, and binary types are not yet supported.
+
+4. **GPU null handling**: Binary arithmetic kernels on the GPU do not propagate null bitmaps (GPU `bitmap_and` is not yet implemented). Null-aware GPU arithmetic is CPU-only for now.
 
 ## Development
 
-I shared the implementation it its current state so others can join the effort.
-If the project manages to evolve, ideally it should be donated to the upstream Apache Arrow project.
-
-Please install pixi by following the instructions in the [documentation](https://pixi.sh/latest/installation/).
-The tests can be run with:
+Install [pixi](https://pixi.sh/latest/installation/), then:
 
 ```bash
-pixi run test
+pixi run test              # run all tests (Mojo + Python)
+pixi run test_mojo         # Mojo unit tests only
+pixi run test_python       # Python binding tests only
+pixi run bench             # CPU/GPU arithmetic benchmarks
+pixi run bench_python      # Python vs PyArrow array construction benchmarks
+pixi run bench_similarity  # cosine similarity: CPU vs GPU vs GPU preloaded
+pixi run fmt               # format all code (Mojo + Python)
+```
 
-```bash
+If the project matures, the goal is to contribute it upstream to the Apache Arrow project.
 
 ## References
 
+- [Arrow columnar format specification](https://arrow.apache.org/docs/format/Columnar.html)
+- [Arrow C Data Interface](https://arrow.apache.org/docs/format/CDataInterface.html)
 - [Another effort to implement Arrow in Mojo](https://github.com/mojo-data/arrow.mojo)
