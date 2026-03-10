@@ -93,11 +93,13 @@ fn add[
         Null if either input is null at that position.
     """
     if ctx:
-        return binary_gpu[T, func=_add[T.native, _], name="add"](
-            left, right, ctx.value()
-        )
-    else:
-        return binary_simd[T, func=_add[T.native, _], name="add"](left, right)
+        comptime if has_accelerator():
+            return binary_gpu[T, func=_add[T.native, _], name="add"](
+                left, right, ctx.value()
+            )
+        else:
+            raise Error("add: no GPU accelerator available on this system")
+    return binary_simd[T, func=_add[T.native, _], name="add"](left, right)
 
 
 fn add(left: Array, right: Array) raises -> Array:
@@ -129,11 +131,13 @@ fn sub[
         Null if either input is null at that position.
     """
     if ctx:
-        return binary_gpu[T, func=_sub[T.native, _], name="sub"](
-            left, right, ctx.value()
-        )
-    else:
-        return binary_simd[T, func=_sub[T.native, _], name="sub"](left, right)
+        comptime if has_accelerator():
+            return binary_gpu[T, func=_sub[T.native, _], name="sub"](
+                left, right, ctx.value()
+            )
+        else:
+            raise Error("sub: no GPU accelerator available on this system")
+    return binary_simd[T, func=_sub[T.native, _], name="sub"](left, right)
 
 
 fn sub(left: Array, right: Array) raises -> Array:
@@ -165,11 +169,13 @@ fn mul[
         Null if either input is null at that position.
     """
     if ctx:
-        return binary_gpu[T, func=_mul[T.native, _], name="mul"](
-            left, right, ctx.value()
-        )
-    else:
-        return binary_simd[T, func=_mul[T.native, _], name="mul"](left, right)
+        comptime if has_accelerator():
+            return binary_gpu[T, func=_mul[T.native, _], name="mul"](
+                left, right, ctx.value()
+            )
+        else:
+            raise Error("mul: no GPU accelerator available on this system")
+    return binary_simd[T, func=_mul[T.native, _], name="mul"](left, right)
 
 
 fn mul(left: Array, right: Array) raises -> Array:
@@ -201,11 +207,13 @@ fn div[
         Null if either input is null at that position.
     """
     if ctx:
-        return binary_gpu[T, func=_div[T.native, _], name="div"](
-            left, right, ctx.value()
-        )
-    else:
-        return binary_simd[T, func=_div[T.native, _], name="div"](left, right)
+        comptime if has_accelerator():
+            return binary_gpu[T, func=_div[T.native, _], name="div"](
+                left, right, ctx.value()
+            )
+        else:
+            raise Error("div: no GPU accelerator available on this system")
+    return binary_simd[T, func=_div[T.native, _], name="div"](left, right)
 
 
 fn div(left: Array, right: Array) raises -> Array:
@@ -237,13 +245,15 @@ fn floordiv[
         Null if either input is null at that position.
     """
     if ctx:
-        return binary_gpu[T, func=_floordiv[T.native, _], name="floordiv"](
-            left, right, ctx.value()
-        )
-    else:
-        return binary_simd[T, func=_floordiv[T.native, _], name="floordiv"](
-            left, right
-        )
+        comptime if has_accelerator():
+            return binary_gpu[T, func=_floordiv[T.native, _], name="floordiv"](
+                left, right, ctx.value()
+            )
+        else:
+            raise Error("floordiv: no GPU accelerator available on this system")
+    return binary_simd[T, func=_floordiv[T.native, _], name="floordiv"](
+        left, right
+    )
 
 
 fn floordiv(left: Array, right: Array) raises -> Array:
@@ -275,11 +285,13 @@ fn mod[
         Null if either input is null at that position.
     """
     if ctx:
-        return binary_gpu[T, func=_mod[T.native, _], name="mod"](
-            left, right, ctx.value()
-        )
-    else:
-        return binary_simd[T, func=_mod[T.native, _], name="mod"](left, right)
+        comptime if has_accelerator():
+            return binary_gpu[T, func=_mod[T.native, _], name="mod"](
+                left, right, ctx.value()
+            )
+        else:
+            raise Error("mod: no GPU accelerator available on this system")
+    return binary_simd[T, func=_mod[T.native, _], name="mod"](left, right)
 
 
 fn mod(left: Array, right: Array) raises -> Array:
@@ -311,11 +323,13 @@ fn min_[
         Null if either input is null at that position.
     """
     if ctx:
-        return binary_gpu[T, func=_min[T.native, _], name="min_"](
-            left, right, ctx.value()
-        )
-    else:
-        return binary_simd[T, func=_min[T.native, _], name="min_"](left, right)
+        comptime if has_accelerator():
+            return binary_gpu[T, func=_min[T.native, _], name="min_"](
+                left, right, ctx.value()
+            )
+        else:
+            raise Error("min_: no GPU accelerator available on this system")
+    return binary_simd[T, func=_min[T.native, _], name="min_"](left, right)
 
 
 fn min_(left: Array, right: Array) raises -> Array:
@@ -347,11 +361,13 @@ fn max_[
         Null if either input is null at that position.
     """
     if ctx:
-        return binary_gpu[T, func=_max[T.native, _], name="max_"](
-            left, right, ctx.value()
-        )
-    else:
-        return binary_simd[T, func=_max[T.native, _], name="max_"](left, right)
+        comptime if has_accelerator():
+            return binary_gpu[T, func=_max[T.native, _], name="max_"](
+                left, right, ctx.value()
+            )
+        else:
+            raise Error("max_: no GPU accelerator available on this system")
+    return binary_simd[T, func=_max[T.native, _], name="max_"](left, right)
 
 
 fn max_(left: Array, right: Array) raises -> Array:

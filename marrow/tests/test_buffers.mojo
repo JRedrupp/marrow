@@ -245,7 +245,7 @@ def test_buffer_no_device() raises:
 
 def test_buffer_device_kind() raises:
     """GPU DEVICE buffers are not CPU-accessible."""
-    if not has_accelerator():
+    comptime if not has_accelerator():
         return
     var ctx = DeviceContext()
     var dev = ctx.enqueue_create_buffer[DType.uint8](64)
@@ -269,7 +269,7 @@ def test_buffer_device_kind() raises:
 
 def test_buffer_host_kind() raises:
     """HOST (pinned) buffers are CPU-accessible with a valid ptr."""
-    if not has_accelerator():
+    comptime if not has_accelerator():
         return
     var ctx = DeviceContext()
     var host = ctx.enqueue_create_host_buffer[DType.uint8](64)
@@ -291,7 +291,7 @@ def test_buffer_host_kind() raises:
 
 def test_buffer_host_builder() raises:
     """BufferBuilder.alloc_host + finish produce a valid HOST buffer."""
-    if not has_accelerator():
+    comptime if not has_accelerator():
         return
     var ctx = DeviceContext()
     var b = BufferBuilder.alloc_host[DType.uint8](ctx, 64)
@@ -316,7 +316,7 @@ def test_buffer_host_builder() raises:
 
 def test_buffer_to_cpu_round_trip() raises:
     """Upload a CPU buffer to GPU then download back; data is preserved."""
-    if not has_accelerator():
+    comptime if not has_accelerator():
         return
     var ctx = DeviceContext()
     var builder = BufferBuilder.alloc[DType.uint8](64)
