@@ -33,9 +33,9 @@ copy in the index path.
 String filter composition
 ~~~~~~~~~~~~~~~~~~~~~~~~~
   1. `_string_lengths(array)`  → `PrimitiveArray[uint32]` of per-element byte lengths.
-  2. `filter[uint32](lengths, selection)` → selected lengths.
+  2. `filter_[uint32](lengths, selection)` → selected lengths.
   3. `sum[uint32](sel_lengths)` → total output byte size.
-  4. `filter[bool_](validity_as_bool, selection)` → output validity array.
+  4. `filter_[bool_](validity_as_bool, selection)` → output validity array.
   5. Prefix-sum of sel_lengths → output offsets buffer.
   6. Run-merging copy: consecutive selected source ranges are merged into a
      single `memcpy` for efficiency.
@@ -127,7 +127,7 @@ fn _string_lengths(array: StringArray) -> PrimitiveArray[uint32]:
 
 
 # TODO: this is messy, refactor it!
-fn filter[
+fn filter_[
     T: DataType
 ](
     array: PrimitiveArray[T], selection: PrimitiveArray[bool_]
@@ -280,16 +280,16 @@ fn filter[
 # ---------------------------------------------------------------------------
 
 
-fn filter(
+fn filter_(
     array: StringArray, selection: PrimitiveArray[bool_]
 ) raises -> StringArray:
     """Filter a StringArray, keeping only elements where selection is True.
 
     Composes:
       1. `_string_lengths` to get per-element byte counts.
-      2. `filter[uint32]` to select the relevant lengths.
+      2. `filter_[uint32]` to select the relevant lengths.
       3. `sum[uint32]` to compute the total output byte size.
-      4. `filter[bool_]` on the wrapped validity bitmap for output validity.
+      4. `filter_[bool_]` on the wrapped validity bitmap for output validity.
       5. Prefix sum of selected lengths to build the output offsets buffer.
       6. Run-merging `memcpy` to copy selected string data.
 
@@ -312,17 +312,17 @@ fn filter(
 
     # Step 1+2: compute and filter per-element lengths
     var lengths = _string_lengths(array)
-    var sel_lengths = filter[uint32](lengths, selection)
+    var sel_lengths = filter_[uint32](lengths, selection)
 
     # Step 3: total output byte size
     var total_bytes = Int(sum_[uint32](sel_lengths))
 
     # Step 4: output validity — filter the array's validity bitmap.
     # _bitmap_as_bool_array wraps the source validity as a bool array's DATA buffer.
-    # After filter[bool_], out_validity.buffer = filtered validity flags (what we want
+    # After filter_[bool_], out_validity.buffer = filtered validity flags (what we want
     # as the output StringArray's bitmap); out_validity.bitmap = all-True (ignored).
     var validity_bool = _bitmap_as_bool_array(array.bitmap, len(array))
-    var out_validity = filter[bool_](validity_bool, selection)
+    var out_validity = filter_[bool_](validity_bool, selection)
 
     var out_len = len(sel_lengths)
 
@@ -437,7 +437,7 @@ fn filter(
 # ---------------------------------------------------------------------------
 
 
-fn filter(array: Array, selection: PrimitiveArray[bool_]) raises -> Array:
+fn filter_(array: Array, selection: Array) raises -> Array:
     """Runtime-typed filter: dispatches to the correct typed overload.
 
     Args:
@@ -447,19 +447,21 @@ fn filter(array: Array, selection: PrimitiveArray[bool_]) raises -> Array:
     Returns:
         A new Array with only the selected elements.
     """
+    var mask = selection.as_bool()
+
     if array.dtype == bool_:
         return Array(
-            filter[bool_](PrimitiveArray[bool_](data=array), selection)
+            filter_[bool_](PrimitiveArray[bool_](data=array), mask)
         )
 
     comptime for dtype in numeric_dtypes:
         if array.dtype == dtype:
             return Array(
-                filter[dtype](PrimitiveArray[dtype](data=array), selection)
+                filter_[dtype](array.as_primitive[dtype](), mask)
             )
 
-    if array.dtype == string:
-        return Array(filter(StringArray(data=array), selection))
+    if array.dtype.is_string():
+        return Array(filter_(array.as_string(), mask))
 
     raise Error("filter: unsupported dtype " + String(array.dtype))
 
@@ -481,7 +483,7 @@ fn drop_nulls[
         A new PrimitiveArray containing only valid elements.
     """
     var selection = _bitmap_as_bool_array(array.bitmap, len(array))
-    return filter[T](array, selection)
+    return filter_[T](array, selection)
 
 
 fn drop_nulls(array: Array) raises -> Array:
