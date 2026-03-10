@@ -2,8 +2,7 @@
 
 `Builder` is the trait that all typed builders implement.  `AnyBuilder` is
 the type-erased container that dispatches to the concrete builder at runtime
-via function-pointer trampolines — following the same pattern as `AnyArray`
-in `marrow/dyn.mojo`.
+via function-pointer trampolines.
 
 Typed builders (`PrimitiveBuilder[T]`, `StringBuilder`, `ListBuilder`,
 `FixedSizeListBuilder`, `StructBuilder`) each own their data directly and
