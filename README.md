@@ -1,4 +1,6 @@
-# Marrow — Apache Arrow in Mojo
+![marrow](logo.png)
+
+# marrow
 
 An implementation of [Apache Arrow](https://arrow.apache.org) in [Mojo](https://www.modular.com/mojo). The initial motivation was to learn Mojo while doing something useful, and since I've been involved in Apache Arrow for a while it seemed a natural fit. The project has grown beyond a prototype: it now has a full Python binding layer, SIMD compute kernels, GPU acceleration, and benchmarks showing it outperforms PyArrow on array construction for common numeric and string workloads.
 
