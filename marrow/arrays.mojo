@@ -1101,53 +1101,21 @@ struct ChunkedArray(Copyable, Movable, Writable):
         """
         return self.chunks[index]
 
-    fn combine_chunks(var self, out combined: Array):
+    fn combine_chunks(var self) raises -> Array:
         """Combines all chunks into a single array."""
+        from .kernels.concat import concat
 
-        @parameter
-        fn _chunk_len_bufs_children() -> Tuple[Int, Int, Int]:
-            var length = 0
-            var bufs = 0
-            var children = 0
-            for chunk in self.chunks:
-                length += chunk.length
-                bufs += len(chunk.buffers)
-                children += len(chunk.children)
-            return length, bufs, children
-
-        ref length, bufs, child_count = _chunk_len_bufs_children()
-        var bm_builder = BitmapBuilder.alloc(length)
-        var buffers = List[Buffer](capacity=bufs)
-        var children = List[Array](capacity=child_count)
-        var start = 0
-        var total_nulls = 0
-        for chunk in self.chunks:
-            var chunk_length = chunk.length
-            if chunk.nulls == 0:
-                bm_builder.set_range(start, chunk_length, True)
-            else:
-                total_nulls += chunk.nulls
-                if chunk.bitmap:
-                    bm_builder.extend(chunk.bitmap.value(), start, chunk_length)
-                else:
-                    bm_builder.set_range(start, chunk_length, True)
-            for i in range(len(chunk.buffers)):
-                buffers.append(chunk.buffers[i])
-            for i in range(len(chunk.children)):
-                children.append(chunk.children[i].copy())
-            start += chunk_length
-        var frozen_bitmap: Optional[Bitmap] = None
-        if total_nulls != 0:
-            frozen_bitmap = bm_builder.finish(self.length)
-        combined = Array(
-            dtype=self.dtype,
-            length=self.length,
-            nulls=total_nulls,
-            bitmap=frozen_bitmap^,
-            buffers=buffers^,
-            children=children^,
-            offset=0,
-        )
+        if len(self.chunks) == 0:
+            return Array(
+                dtype=self.dtype,
+                length=0,
+                nulls=0,
+                bitmap=None,
+                buffers=[],
+                children=[],
+                offset=0,
+            )
+        return concat(self.chunks)
 
 
 from .builders import array, nulls, arange

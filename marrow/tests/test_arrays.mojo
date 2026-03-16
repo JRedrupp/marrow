@@ -622,16 +622,17 @@ def test_chunked_array() raises:
 def test_combine_chunked_array() raises:
     var arrays: List[Array] = [array[uint8]([0]), array[uint8]([0, 1])]
 
-    var chunked_array = ChunkedArray(int8, arrays^)
+    var chunked_array = ChunkedArray(uint8, arrays^)
     assert_equal(chunked_array.length, 3)
     assert_equal(len(chunked_array.chunks), 2)
     assert_equal(chunked_array.chunk(1).copy().as_uint8().unsafe_get(1), 1)
 
     var combined_array = chunked_array^.combine_chunks()
     assert_equal(combined_array.length, 3)
-    assert_equal(combined_array.dtype, int8)
-    # Ensure that the last element of the last buffer has the expected value.
-    assert_equal(combined_array.buffers[1].unsafe_get(1), 1)
+    assert_equal(combined_array.dtype, uint8)
+    # Single concatenated values buffer: [0, 0, 1]
+    assert_equal(combined_array.buffers[0].unsafe_get(0), 0)
+    assert_equal(combined_array.buffers[0].unsafe_get(2), 1)
 
 
 def test_primitive_finish_shrinks() raises:
