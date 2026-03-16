@@ -472,9 +472,7 @@ struct CArrowArray(Copyable, Movable):
     var offset: Int64
     var n_buffers: Int64
     var n_children: Int64
-    var buffers: UnsafePointer[
-        UnsafePointer[NoneType, MutAnyOrigin], MutAnyOrigin
-    ]
+    var buffers: UnsafePointer[OpaquePointer[MutAnyOrigin], MutAnyOrigin]
     var children: UnsafePointer[
         UnsafePointer[CArrowArray, MutAnyOrigin], MutAnyOrigin
     ]
@@ -692,33 +690,31 @@ struct CArrowArray(Copyable, Movable):
         arr_heap.init_pointee_copy(array)
 
         # Heap-allocate the buffers pointer array.
-        var buffers = alloc[UnsafePointer[NoneType, MutAnyOrigin]](
-            Int(n_buffers)
-        )
+        var buffers = alloc[OpaquePointer[MutAnyOrigin]](Int(n_buffers))
 
         # Buffer[0] = validity bitmap (null pointer means all-valid).
         if arr_heap[].bitmap:
-            buffers[0] = UnsafePointer[NoneType, MutAnyOrigin](
+            buffers[0] = OpaquePointer[MutAnyOrigin](
                 unsafe_from_address=Int(
                     arr_heap[].bitmap.value()._buffer.unsafe_ptr()
                 )
             )
         else:
-            buffers[0] = UnsafePointer[NoneType, MutAnyOrigin]()
+            buffers[0] = OpaquePointer[MutAnyOrigin]()
 
         if dtype.is_bool() or dtype.is_primitive():
-            buffers[1] = UnsafePointer[NoneType, MutAnyOrigin](
+            buffers[1] = OpaquePointer[MutAnyOrigin](
                 unsafe_from_address=Int(arr_heap[].buffers[0].unsafe_ptr())
             )
         elif dtype.is_string() or dtype == binary:
-            buffers[1] = UnsafePointer[NoneType, MutAnyOrigin](
+            buffers[1] = OpaquePointer[MutAnyOrigin](
                 unsafe_from_address=Int(arr_heap[].buffers[0].unsafe_ptr())
             )
-            buffers[2] = UnsafePointer[NoneType, MutAnyOrigin](
+            buffers[2] = OpaquePointer[MutAnyOrigin](
                 unsafe_from_address=Int(arr_heap[].buffers[1].unsafe_ptr())
             )
         elif dtype.is_list():
-            buffers[1] = UnsafePointer[NoneType, MutAnyOrigin](
+            buffers[1] = OpaquePointer[MutAnyOrigin](
                 unsafe_from_address=Int(arr_heap[].buffers[0].unsafe_ptr())
             )
 

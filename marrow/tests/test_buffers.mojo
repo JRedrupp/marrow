@@ -216,12 +216,11 @@ def test_buffer_foreign_kind() raises:
         ptr.free()
 
     var mut_ptr = rebind[UnsafePointer[UInt8, MutAnyOrigin]](raw)
-    var void_ptr = rebind[UnsafePointer[NoneType, MutAnyOrigin]](
-        raw.bitcast[NoneType]()
-    )
     var keeper = ArcPointer(Allocation.foreign(mut_ptr, count_and_free))
     var buf = Buffer.from_foreign(
-        void_ptr, size_of[UnsafePointer[Int, MutAnyOrigin]](), keeper
+        raw.bitcast[NoneType](),
+        size_of[UnsafePointer[Int, MutAnyOrigin]](),
+        keeper,
     )
     assert_true(buf.is_cpu())
     assert_false(buf.is_device())

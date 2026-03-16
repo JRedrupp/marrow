@@ -541,7 +541,7 @@ struct Buffer(Equatable, ImplicitlyCopyable, Movable, Writable):
     fn from_foreign[
         I: Intable, //
     ](
-        ptr: UnsafePointer[NoneType, MutAnyOrigin],
+        ptr: OpaquePointer[MutAnyOrigin],
         size: I,
         owner: ArcPointer[Allocation],
     ) -> Buffer:
