@@ -52,26 +52,27 @@ jobs:
           fi
           echo "OK: $COUNT benchmark entries recorded in $RESULT_FILE"
 
-      - name: Stash dashboard HTML from main
-        run: cp benchmarks/index.html /tmp/dashboard-index.html
-
-      - name: Checkout gh-pages into benchmarks/
+      - name: Checkout gh-pages
         uses: actions/checkout@v4
         with:
           ref: gh-pages
-          path: benchmarks
+          path: gh-pages-out
 
-      - name: Restore dashboard HTML over gh-pages copy
-        run: cp /tmp/dashboard-index.html benchmarks/index.html
+      - name: Copy result to gh-pages
+        run: |
+          COMMIT="$(git rev-parse HEAD)"
+          mkdir -p gh-pages-out/results
+          cp results/${COMMIT}.json gh-pages-out/results/${COMMIT}.json
 
       - name: Generate report
+        working-directory: gh-pages-out
         run: python scripts/generate_report.py
 
       - name: Push updated dashboard
-        working-directory: benchmarks
+        working-directory: gh-pages-out
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data.json index.html
+          git add benchmarks/data.json results/
           git diff --cached --quiet || git commit -m "perf: update benchmark dashboard [skip ci]"
           git push origin gh-pages
