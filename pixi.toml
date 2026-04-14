@@ -75,6 +75,7 @@ duckdb = ">=1.5.1,<2"
 bench_mojo = { cmd = "pytest --benchmark --mojo -v" }
 bench_python = { cmd = "pytest --benchmark --python -v" }
 bench = { cmd = "pytest --benchmark -v" }
+gen-report = "python scripts/generate_report.py"
 
 # Format — code formatting and linting.
 [feature.format.dependencies]
