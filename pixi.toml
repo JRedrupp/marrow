@@ -43,6 +43,7 @@ test = { cmd = "pytest -v -n auto --dist=loadfile" }
 bench_mojo = { cmd = "pytest --benchmark --mojo -v" }
 bench_python = { cmd = "pytest --benchmark --python -v" }
 bench = { cmd = "pytest --benchmark -v" }
+gen-report = "python scripts/generate_report.py"
 profile = "python scripts/profile.py"
 fmt_mojo = { cmd = "mojo format marrow python" }
 fmt_python = { cmd = "ruff format python" }
