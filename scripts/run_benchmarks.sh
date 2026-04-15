@@ -19,9 +19,7 @@ echo "Running benchmarks for commit ${COMMIT:0:7} (${REF})..."
 cd "$REPO_ROOT"
 
 # Run the full benchmark suite via pytest.
-# bench_hashtable.mojo is excluded: it crashes at -O3 due to a Mojo compiler bug.
 pixi run pytest --benchmark -v \
-    --ignore=marrow/kernels/tests/bench_hashtable.mojo \
     --benchmark-json "$BENCH_OUTPUT"
 
 if [ ! -f "$BENCH_OUTPUT" ]; then
