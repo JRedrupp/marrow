@@ -5,6 +5,7 @@ import re
 import subprocess
 import sys
 import types
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -51,7 +52,9 @@ class MojoRunner:
             try:
                 result = subprocess.run(
                     [clang, "--print-runtime-dir"],
-                    capture_output=True, text=True, timeout=5,
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
                 )
                 if result.returncode == 0:
                     for name in lib_names:
@@ -116,11 +119,11 @@ class MojoRunner:
             build_cmd = (
                 ["mojo", "build", opt, "-I", "."] + asan + [str(src), "-o", str(binary)]
             )
-            result = subprocess.run(build_cmd, cwd=config.rootpath, capture_output=True, text=True)
+            result = subprocess.run(
+                build_cmd, cwd=config.rootpath, capture_output=True, text=True
+            )
             if result.returncode != 0:
-                raise RuntimeError(
-                    f"mojo build failed for {src}:\n{result.stderr}"
-                )
+                raise RuntimeError(f"mojo build failed for {src}:\n{result.stderr}")
             cmd = [str(binary)]
         else:
             cmd = ["mojo", "run", opt, "-I", "."] + [str(fspath)]
@@ -136,8 +139,10 @@ class MojoRunner:
         cmd = MojoRunner.build_cmd(config, fspath, test_names)
         cmd.append("--json")
         result = subprocess.run(
-            cmd, cwd=config.rootpath,
-            capture_output=True, text=True,
+            cmd,
+            cwd=config.rootpath,
+            capture_output=True,
+            text=True,
         )
         if result.returncode != 0:
             # Try to parse JSON even on failure (tests may have run partially).
@@ -158,9 +163,15 @@ class MojoRunner:
         try:
             entries = json.loads(result.stdout)
         except (json.JSONDecodeError, ValueError):
-            return {name: ("FAIL", f"failed to parse JSON:\n{result.stdout}") for name in test_names}
+            return {
+                name: ("FAIL", f"failed to parse JSON:\n{result.stdout}")
+                for name in test_names
+            }
 
-        return {entry["name"]: (entry["status"], entry.get("error", "")) for entry in entries}
+        return {
+            entry["name"]: (entry["status"], entry.get("error", ""))
+            for entry in entries
+        }
 
     @staticmethod
     def run_benches(config, fspath, bench_names=None):
@@ -172,13 +183,18 @@ class MojoRunner:
         cmd = MojoRunner.build_cmd(config, fspath, test_names=bench_names)
         cmd.append("--json")
         result = subprocess.run(
-            cmd, cwd=config.rootpath,
-            capture_output=True, text=True,
+            cmd,
+            cwd=config.rootpath,
+            capture_output=True,
+            text=True,
         )
         if result.returncode != 0:
-            detail = "\n".join(
-                part for part in (result.stderr, result.stdout) if part.strip()
-            ) or f"exit code {result.returncode}"
+            detail = (
+                "\n".join(
+                    part for part in (result.stderr, result.stdout) if part.strip()
+                )
+                or f"exit code {result.returncode}"
+            )
             return {"_error": detail}
 
         if result.stderr:
@@ -205,7 +221,7 @@ def _to_seconds(value, unit):
 
 # Strips the leading "[n=NNN]" or "[n=NNN-" prefix from a parametrized pytest
 # test ID.  The n fixture always comes first: "[n=10000]" or "[n=10000-case]".
-_N_PREFIX_RE = re.compile(r'\[n=\d+(-|\])')
+_N_PREFIX_RE = re.compile(r"\[n=\d+(-|\])")
 
 
 class CompetitionReport:
@@ -221,7 +237,7 @@ class CompetitionReport:
             return None, None, None
         name = bench["name"]
         prefix = f"test_{lib}_"
-        op = name[len(prefix):] if name.startswith(prefix) else name
+        op = name[len(prefix) :] if name.startswith(prefix) else name
         # "[n=10000]"       → ""            (fixture-only, no mark suffix)
         # "[n=10000-inner]" → "[inner]"     (fixture + mark suffix)
         op = _N_PREFIX_RE.sub(lambda m: "[" if m.group(1) == "-" else "", op)
@@ -312,7 +328,9 @@ class CompetitionReport:
             if i > 0:
                 table.add_column("", no_wrap=True)
             footer = f"[bold green]{wins[lib]} wins[/]" if wins[lib] else ""
-            table.add_column(lib.capitalize(), justify="right", footer=footer, no_wrap=True)
+            table.add_column(
+                lib.capitalize(), justify="right", footer=footer, no_wrap=True
+            )
         table.add_column("", no_wrap=True)  # after last lib
         table.add_column("Fastest", justify="right", footer=f"[dim]{ties} ties[/]")
         for k in meta_keys:
@@ -378,13 +396,30 @@ class MojoTestFailure(Exception):
 
 
 def pytest_addoption(parser):
-    parser.addoption("--mojo", action="store_true", default=False, help="Select Mojo tests")
-    parser.addoption("--no-mojo", action="store_true", default=False, help="Exclude Mojo tests")
-    parser.addoption("--python", action="store_true", default=False, help="Select Python tests")
-    parser.addoption("--no-python", action="store_true", default=False, help="Exclude Python tests")
-    parser.addoption("--cpu", action="store_true", default=False, help="Select CPU tests (non-GPU Mojo + Python)")
-    parser.addoption("--gpu", action="store_true", default=False, help="Select GPU tests")
-    parser.addoption("--no-gpu", action="store_true", default=False, help="Exclude GPU tests")
+    parser.addoption(
+        "--mojo", action="store_true", default=False, help="Select Mojo tests"
+    )
+    parser.addoption(
+        "--no-mojo", action="store_true", default=False, help="Exclude Mojo tests"
+    )
+    parser.addoption(
+        "--python", action="store_true", default=False, help="Select Python tests"
+    )
+    parser.addoption(
+        "--no-python", action="store_true", default=False, help="Exclude Python tests"
+    )
+    parser.addoption(
+        "--cpu",
+        action="store_true",
+        default=False,
+        help="Select CPU tests (non-GPU Mojo + Python)",
+    )
+    parser.addoption(
+        "--gpu", action="store_true", default=False, help="Select GPU tests"
+    )
+    parser.addoption(
+        "--no-gpu", action="store_true", default=False, help="Exclude GPU tests"
+    )
     parser.addoption(
         "--benchmark",
         action="store_true",
@@ -402,6 +437,12 @@ def pytest_addoption(parser):
         action="store_true",
         default=False,
         help="After benchmarks, print a side-by-side comparison table for all measured libs.",
+    )
+    parser.addoption(
+        "--save-benchmarks",
+        metavar="DIR",
+        default=None,
+        help="Save benchmark results as a JSON envelope to DIR/<commit>.json (implies --benchmark).",
     )
 
 
@@ -441,7 +482,9 @@ def pytest_ignore_collect(collection_path, config):
             return True
         # Python bench files are only collected when --benchmark is active,
         # mirroring the behaviour of Mojo bench_*.mojo files.
-        if collection_path.name.startswith("bench_") and not config.getoption("--benchmark"):
+        if collection_path.name.startswith("bench_") and not config.getoption(
+            "--benchmark"
+        ):
             return True
 
 
@@ -497,13 +540,25 @@ def pytest_collection_modifyitems(config, items):
         is_benchmark = "benchmark" in item.keywords
 
         if is_benchmark and not run_benchmark:
-            item.add_marker(pytest.mark.skip(reason="benchmarks excluded; pass --benchmark to include"))
+            item.add_marker(
+                pytest.mark.skip(
+                    reason="benchmarks excluded; pass --benchmark to include"
+                )
+            )
         elif is_gpu and (no_gpu or not sel_gpu):
-            item.add_marker(pytest.mark.skip(reason="GPU tests excluded; pass --gpu to include"))
+            item.add_marker(
+                pytest.mark.skip(reason="GPU tests excluded; pass --gpu to include")
+            )
         elif (no_mojo and is_mojo) or (selective and is_mojo and not sel_mojo):
-            item.add_marker(pytest.mark.skip(reason="Mojo tests excluded; pass --mojo to include"))
+            item.add_marker(
+                pytest.mark.skip(reason="Mojo tests excluded; pass --mojo to include")
+            )
         elif (no_python and is_python) or (selective and is_python and not sel_python):
-            item.add_marker(pytest.mark.skip(reason="Python tests excluded; pass --python to include"))
+            item.add_marker(
+                pytest.mark.skip(
+                    reason="Python tests excluded; pass --python to include"
+                )
+            )
 
 
 def pytest_collect_file(parent, file_path):
@@ -557,7 +612,9 @@ def pytest_configure(config):
         "markers",
         "benchmark: performance benchmarks (skipped by default, run with --benchmark)",
     )
-
+    # --save-benchmarks implies --benchmark.
+    if config.getoption("--save-benchmarks", default=None):
+        config.option.benchmark = True
 
 
 class MojoTestFile(pytest.File):
@@ -733,7 +790,9 @@ class MojoBenchItem(pytest.Item):
 _THROUGHPUT_KEY = "throughput (GElems/s)"
 
 
-def pytest_benchmark_group_stats(config, benchmarks, group_by):  # config: required by pytest hook signature
+def pytest_benchmark_group_stats(
+    config, benchmarks, group_by
+):  # config: required by pytest hook signature
     """Group benchmarks by the native benchmark group marker for display.
     Within each group, benchmarks are sorted by ``(n, name, mean)`` so rows
     are ordered by size then by operation name.  Throughput is computed and
@@ -751,11 +810,13 @@ def pytest_benchmark_group_stats(config, benchmarks, group_by):  # config: requi
         groups.setdefault(key, []).append(bench)
 
     for group_benchmarks in groups.values():
-        group_benchmarks.sort(key=lambda b: (
-            b.get("extra_info", {}).get("n", 0),
-            b["name"],
-            b["mean"],
-        ))
+        group_benchmarks.sort(
+            key=lambda b: (
+                b.get("extra_info", {}).get("n", 0),
+                b["name"],
+                b["mean"],
+            )
+        )
         for bench in group_benchmarks:
             ei = bench.get("extra_info", {})
             n_val = ei.get("n")
@@ -767,7 +828,9 @@ def pytest_benchmark_group_stats(config, benchmarks, group_by):  # config: requi
 
 
 @pytest.hookimpl(trylast=True)
-def pytest_terminal_summary(terminalreporter, exitstatus, config):  # exitstatus: required by pytest hook signature
+def pytest_terminal_summary(
+    terminalreporter, exitstatus, config
+):  # exitstatus: required by pytest hook signature
     if not config.getoption("--competition", default=False):
         return
     bs = getattr(config, "_benchmarksession", None)
@@ -776,3 +839,295 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):  # exitstatus
     CompetitionReport.display(terminalreporter, bs.benchmarks)
 
 
+# ---------------------------------------------------------------------------
+# --save-benchmarks: write result envelope + update rolling history
+# ---------------------------------------------------------------------------
+
+
+class BenchmarkHistory:
+    """Rolling history of benchmark runs, persisted as JSON.
+
+    Each run is an envelope: ``{commit, timestamp, ref, results: [...]}``.
+    The history merges envelopes into ``benchmarks/data.json`` and keeps
+    individual per-commit snapshots under a results directory.
+    """
+
+    MAX_RUNS = 200
+
+    def __init__(self, root, results_dir):
+        self._root = Path(root)
+        self._results_dir = Path(results_dir)
+        self._benchmarks_dir = self._root / "benchmarks"
+
+    # -- git metadata -------------------------------------------------------
+
+    @staticmethod
+    def _git(root, *args):
+        try:
+            return (
+                subprocess.run(
+                    ["git", "-C", str(root)] + list(args),
+                    capture_output=True,
+                    text=True,
+                ).stdout.strip()
+                or "unknown"
+            )
+        except Exception:
+            return "unknown"
+
+    # -- envelope -----------------------------------------------------------
+
+    def _make_envelope(self, benchmarks):
+        """Convert pytest-benchmark Metadata objects into a result envelope."""
+        commit = self._git(self._root, "rev-parse", "HEAD")
+        ref = self._git(self._root, "rev-parse", "--abbrev-ref", "HEAD")
+        timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        results = []
+        for b in benchmarks:
+            # bs.benchmarks contains Metadata objects (not flat dicts).
+            mean_s = b.stats.mean if b.stats else 0.0
+            throughput = b.extra_info.get(_THROUGHPUT_KEY)
+            results.append(
+                {
+                    "name": b.name,
+                    "mean_ns": mean_s * 1e9,
+                    "throughput_gelems_s": throughput,
+                }
+            )
+        return {
+            "commit": commit,
+            "timestamp": timestamp,
+            "ref": ref,
+            "results": results,
+        }
+
+    # -- persistence --------------------------------------------------------
+
+    def _write_envelope(self, envelope):
+        """Write per-commit result file and latest.json."""
+        self._results_dir.mkdir(parents=True, exist_ok=True)
+        out_file = self._results_dir / f"{envelope['commit']}.json"
+        for path in [out_file, self._results_dir / "latest.json"]:
+            with path.open("w") as f:
+                json.dump(envelope, f, indent=2)
+                f.write("\n")
+        return out_file
+
+    def _update_history(self, envelope):
+        """Merge envelope into the rolling history at benchmarks/data.json."""
+        data_file = self._benchmarks_dir / "data.json"
+        if data_file.exists():
+            with data_file.open() as f:
+                history = json.load(f)
+        else:
+            history = {"runs": [], "operations": []}
+
+        existing_commits = {r["commit"] for r in history["runs"]}
+        if envelope["commit"] not in existing_commits:
+            history["runs"].append(
+                {
+                    "commit": envelope["commit"],
+                    "short_commit": envelope["commit"][:7],
+                    "timestamp": envelope["timestamp"],
+                    "ref": envelope["ref"],
+                    "results": {
+                        r["name"]: {
+                            "mean_ns": r["mean_ns"],
+                            "throughput_gelems_s": r["throughput_gelems_s"],
+                        }
+                        for r in envelope["results"]
+                    },
+                }
+            )
+
+        history["runs"].sort(key=lambda r: r.get("timestamp", ""), reverse=True)
+        history["runs"] = history["runs"][: self.MAX_RUNS]
+
+        seen = {}
+        for run in history["runs"]:
+            for name in run.get("results", {}):
+                seen[name] = None
+        history["operations"] = list(seen)
+
+        self._benchmarks_dir.mkdir(parents=True, exist_ok=True)
+        with data_file.open("w") as f:
+            json.dump(history, f, indent=2)
+            f.write("\n")
+
+        return len(history["runs"])
+
+    # -- public API ---------------------------------------------------------
+
+    def save(self, benchmarks):
+        """Build envelope from pytest-benchmark results, write files, update history."""
+        envelope = self._make_envelope(benchmarks)
+        out_file = self._write_envelope(envelope)
+        total = self._update_history(envelope)
+        count = len(envelope["results"])
+        print(f"\n--save-benchmarks: {count} entries written to {out_file}")
+        print(
+            f"--save-benchmarks: {total} run(s) in {self._benchmarks_dir / 'data.json'}"
+        )
+
+
+def pytest_sessionfinish(session, exitstatus):
+    save_dir = session.config.getoption("--save-benchmarks", default=None)
+    if not save_dir:
+        return
+    # Only run on the controller (not xdist workers).
+    if hasattr(session.config, "workerinput"):
+        return
+
+    bs = getattr(session.config, "_benchmarksession", None)
+    if bs is None or not bs.benchmarks:
+        return
+
+    history = BenchmarkHistory(session.config.rootpath, save_dir)
+    history.save(bs.benchmarks)
+
+
+# ---------------------------------------------------------------------------
+# Self-tests for BenchmarkHistory (run with: python conftest.py)
+# ---------------------------------------------------------------------------
+
+
+class _FakeStats:
+    def __init__(self, mean):
+        self.mean = mean
+
+
+class _FakeBenchmark:
+    def __init__(self, name, mean, throughput=None):
+        self.name = name
+        self.stats = _FakeStats(mean)
+        self.extra_info = {}
+        if throughput is not None:
+            self.extra_info[_THROUGHPUT_KEY] = throughput
+
+
+def _make_history(tmp):
+    root = Path(tmp)
+    h = BenchmarkHistory(root, root / "results")
+    h._benchmarks_dir = root / "benchmarks"
+    return h
+
+
+def _make_envelope(h, commit="abc123def456", timestamp="2026-04-16T00:00:00Z"):
+    benchmarks = [
+        _FakeBenchmark("bench_add_10k", 0.001, throughput=1.234),
+        _FakeBenchmark("bench_add_100k", 0.01),
+    ]
+    envelope = h._make_envelope(benchmarks)
+    envelope["commit"] = commit
+    envelope["timestamp"] = timestamp
+    return envelope
+
+
+def test_make_envelope():
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        h = _make_history(tmp)
+        benchmarks = [
+            _FakeBenchmark("bench_add_10k", 0.001, throughput=1.234),
+            _FakeBenchmark("bench_add_100k", 0.01),
+        ]
+        envelope = h._make_envelope(benchmarks)
+        assert envelope["results"][0]["name"] == "bench_add_10k"
+        assert envelope["results"][0]["mean_ns"] == 0.001 * 1e9
+        assert envelope["results"][0]["throughput_gelems_s"] == 1.234
+        assert envelope["results"][1]["name"] == "bench_add_100k"
+        assert envelope["results"][1]["mean_ns"] == 0.01 * 1e9
+        assert envelope["results"][1]["throughput_gelems_s"] is None
+        assert "commit" in envelope
+        assert "timestamp" in envelope
+        assert "ref" in envelope
+
+
+def test_write_envelope():
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        h = _make_history(tmp)
+        envelope = _make_envelope(h)
+        out_file = h._write_envelope(envelope)
+        assert out_file.exists()
+        assert (h._results_dir / "latest.json").exists()
+        with out_file.open() as f:
+            assert json.load(f) == envelope
+        with (h._results_dir / "latest.json").open() as f:
+            assert json.load(f) == envelope
+
+
+def test_update_history_first_run():
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        h = _make_history(tmp)
+        envelope = _make_envelope(h)
+        total = h._update_history(envelope)
+        assert total == 1
+        with (h._benchmarks_dir / "data.json").open() as f:
+            history = json.load(f)
+        run = history["runs"][0]
+        assert run["commit"] == "abc123def456"
+        assert run["short_commit"] == "abc123d"
+        assert run["results"]["bench_add_10k"]["mean_ns"] == 0.001 * 1e9
+        assert run["results"]["bench_add_10k"]["throughput_gelems_s"] == 1.234
+        assert set(history["operations"]) == {"bench_add_10k", "bench_add_100k"}
+
+
+def test_update_history_idempotent():
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        h = _make_history(tmp)
+        envelope = _make_envelope(h)
+        h._update_history(envelope)
+        total = h._update_history(envelope)
+        assert total == 1
+
+
+def test_update_history_appends():
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        h = _make_history(tmp)
+        h._update_history(_make_envelope(h, commit="aaa"))
+        h._update_history(
+            _make_envelope(h, commit="bbb", timestamp="2026-04-16T00:00:01Z")
+        )
+        with (h._benchmarks_dir / "data.json").open() as f:
+            history = json.load(f)
+        commits = [r["commit"] for r in history["runs"]]
+        assert "aaa" in commits
+        assert "bbb" in commits
+        assert len(commits) == 2
+
+
+def test_update_history_max_runs():
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        h = _make_history(tmp)
+        h.MAX_RUNS = 2
+        h._update_history(
+            _make_envelope(h, commit="a", timestamp="2026-04-16T00:00:00Z")
+        )
+        h._update_history(
+            _make_envelope(h, commit="b", timestamp="2026-04-16T00:00:01Z")
+        )
+        total = h._update_history(
+            _make_envelope(h, commit="c", timestamp="2026-04-16T00:00:02Z")
+        )
+        assert total == 2
+
+
+if __name__ == "__main__":
+    test_make_envelope()
+    test_write_envelope()
+    test_update_history_first_run()
+    test_update_history_idempotent()
+    test_update_history_appends()
+    test_update_history_max_runs()
+    print("All BenchmarkHistory tests passed.")

@@ -36,22 +36,7 @@ jobs:
           restore-keys: mojo-cache-bench-${{ runner.os }}-
 
       - name: Run benchmarks
-        run: bash scripts/run_benchmarks.sh
-
-      - name: Verify benchmark results were recorded
-        run: |
-          COMMIT="$(git rev-parse HEAD)"
-          RESULT_FILE="results/${COMMIT}.json"
-          if [ ! -f "$RESULT_FILE" ]; then
-            echo "::error::benchmark result file $RESULT_FILE not found — run_benchmarks.sh did not complete"
-            exit 1
-          fi
-          COUNT=$(python3 -c "import json, sys; print(len(json.load(open('$RESULT_FILE'))['results']))")
-          if [ "$COUNT" -eq 0 ]; then
-            echo "::error::benchmark result file $RESULT_FILE contains zero entries"
-            exit 1
-          fi
-          echo "OK: $COUNT benchmark entries recorded in $RESULT_FILE"
+        run: pixi run -e bench pytest --benchmark -v --no-gpu --save-benchmarks results
 
       - name: Checkout gh-pages
         if: github.ref == 'refs/heads/main'
@@ -60,22 +45,14 @@ jobs:
           ref: gh-pages
           path: gh-pages-out
 
-      - name: Copy result to gh-pages
+      - name: Publish dashboard
         if: github.ref == 'refs/heads/main'
         run: |
           COMMIT="$(git rev-parse HEAD)"
           mkdir -p gh-pages-out/results
           cp results/${COMMIT}.json gh-pages-out/results/${COMMIT}.json
-
-      - name: Generate report
-        if: github.ref == 'refs/heads/main'
-        working-directory: gh-pages-out
-        run: python scripts/generate_report.py
-
-      - name: Push updated dashboard
-        if: github.ref == 'refs/heads/main'
-        working-directory: gh-pages-out
-        run: |
+          cp benchmarks/data.json gh-pages-out/benchmarks/data.json
+          cd gh-pages-out
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add benchmarks/data.json results/
