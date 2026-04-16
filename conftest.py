@@ -4,6 +4,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import types
 from datetime import datetime, timezone
 from pathlib import Path
@@ -1023,111 +1024,92 @@ def _make_envelope(h, commit="abc123def456", timestamp="2026-04-16T00:00:00Z"):
     return envelope
 
 
-def test_make_envelope():
-    import tempfile
-
-    with tempfile.TemporaryDirectory() as tmp:
-        h = _make_history(tmp)
-        benchmarks = [
-            _FakeBenchmark("bench_add_10k", 0.001, throughput=1.234),
-            _FakeBenchmark("bench_add_100k", 0.01),
-        ]
-        envelope = h._make_envelope(benchmarks)
-        assert envelope["results"][0]["name"] == "bench_add_10k"
-        assert envelope["results"][0]["mean_ns"] == 0.001 * 1e9
-        assert envelope["results"][0]["throughput_gelems_s"] == 1.234
-        assert envelope["results"][1]["name"] == "bench_add_100k"
-        assert envelope["results"][1]["mean_ns"] == 0.01 * 1e9
-        assert envelope["results"][1]["throughput_gelems_s"] is None
-        assert "commit" in envelope
-        assert "timestamp" in envelope
-        assert "ref" in envelope
+def test_make_envelope(tmp):
+    h = _make_history(tmp)
+    benchmarks = [
+        _FakeBenchmark("bench_add_10k", 0.001, throughput=1.234),
+        _FakeBenchmark("bench_add_100k", 0.01),
+    ]
+    envelope = h._make_envelope(benchmarks)
+    assert envelope["results"][0]["name"] == "bench_add_10k"
+    assert envelope["results"][0]["mean_ns"] == 0.001 * 1e9
+    assert envelope["results"][0]["throughput_gelems_s"] == 1.234
+    assert envelope["results"][1]["name"] == "bench_add_100k"
+    assert envelope["results"][1]["mean_ns"] == 0.01 * 1e9
+    assert envelope["results"][1]["throughput_gelems_s"] is None
+    assert "commit" in envelope
+    assert "timestamp" in envelope
+    assert "ref" in envelope
 
 
-def test_write_envelope():
-    import tempfile
-
-    with tempfile.TemporaryDirectory() as tmp:
-        h = _make_history(tmp)
-        envelope = _make_envelope(h)
-        out_file = h._write_envelope(envelope)
-        assert out_file.exists()
-        assert (h._results_dir / "latest.json").exists()
-        with out_file.open() as f:
-            assert json.load(f) == envelope
-        with (h._results_dir / "latest.json").open() as f:
-            assert json.load(f) == envelope
+def test_write_envelope(tmp):
+    h = _make_history(tmp)
+    envelope = _make_envelope(h)
+    out_file = h._write_envelope(envelope)
+    assert out_file.exists()
+    assert (h._results_dir / "latest.json").exists()
+    with out_file.open() as f:
+        assert json.load(f) == envelope
+    with (h._results_dir / "latest.json").open() as f:
+        assert json.load(f) == envelope
 
 
-def test_update_history_first_run():
-    import tempfile
-
-    with tempfile.TemporaryDirectory() as tmp:
-        h = _make_history(tmp)
-        envelope = _make_envelope(h)
-        total = h._update_history(envelope)
-        assert total == 1
-        with (h._benchmarks_dir / "data.json").open() as f:
-            history = json.load(f)
-        run = history["runs"][0]
-        assert run["commit"] == "abc123def456"
-        assert run["short_commit"] == "abc123d"
-        assert run["results"]["bench_add_10k"]["mean_ns"] == 0.001 * 1e9
-        assert run["results"]["bench_add_10k"]["throughput_gelems_s"] == 1.234
-        assert set(history["operations"]) == {"bench_add_10k", "bench_add_100k"}
+def test_update_history_first_run(tmp):
+    h = _make_history(tmp)
+    envelope = _make_envelope(h)
+    total = h._update_history(envelope)
+    assert total == 1
+    with (h._benchmarks_dir / "data.json").open() as f:
+        history = json.load(f)
+    run = history["runs"][0]
+    assert run["commit"] == "abc123def456"
+    assert run["short_commit"] == "abc123d"
+    assert run["results"]["bench_add_10k"]["mean_ns"] == 0.001 * 1e9
+    assert run["results"]["bench_add_10k"]["throughput_gelems_s"] == 1.234
+    assert set(history["operations"]) == {"bench_add_10k", "bench_add_100k"}
 
 
-def test_update_history_idempotent():
-    import tempfile
-
-    with tempfile.TemporaryDirectory() as tmp:
-        h = _make_history(tmp)
-        envelope = _make_envelope(h)
-        h._update_history(envelope)
-        total = h._update_history(envelope)
-        assert total == 1
+def test_update_history_idempotent(tmp):
+    h = _make_history(tmp)
+    envelope = _make_envelope(h)
+    h._update_history(envelope)
+    total = h._update_history(envelope)
+    assert total == 1
 
 
-def test_update_history_appends():
-    import tempfile
-
-    with tempfile.TemporaryDirectory() as tmp:
-        h = _make_history(tmp)
-        h._update_history(_make_envelope(h, commit="aaa"))
-        h._update_history(
-            _make_envelope(h, commit="bbb", timestamp="2026-04-16T00:00:01Z")
-        )
-        with (h._benchmarks_dir / "data.json").open() as f:
-            history = json.load(f)
-        commits = [r["commit"] for r in history["runs"]]
-        assert "aaa" in commits
-        assert "bbb" in commits
-        assert len(commits) == 2
+def test_update_history_appends(tmp):
+    h = _make_history(tmp)
+    h._update_history(_make_envelope(h, commit="aaa"))
+    h._update_history(_make_envelope(h, commit="bbb", timestamp="2026-04-16T00:00:01Z"))
+    with (h._benchmarks_dir / "data.json").open() as f:
+        history = json.load(f)
+    commits = [r["commit"] for r in history["runs"]]
+    assert "aaa" in commits
+    assert "bbb" in commits
+    assert len(commits) == 2
 
 
-def test_update_history_max_runs():
-    import tempfile
-
-    with tempfile.TemporaryDirectory() as tmp:
-        h = _make_history(tmp)
-        h.MAX_RUNS = 2
-        h._update_history(
-            _make_envelope(h, commit="a", timestamp="2026-04-16T00:00:00Z")
-        )
-        h._update_history(
-            _make_envelope(h, commit="b", timestamp="2026-04-16T00:00:01Z")
-        )
-        total = h._update_history(
-            _make_envelope(h, commit="c", timestamp="2026-04-16T00:00:02Z")
-        )
-        assert total == 2
+def test_update_history_max_runs(tmp):
+    h = _make_history(tmp)
+    h.MAX_RUNS = 2
+    h._update_history(_make_envelope(h, commit="a", timestamp="2026-04-16T00:00:00Z"))
+    h._update_history(_make_envelope(h, commit="b", timestamp="2026-04-16T00:00:01Z"))
+    total = h._update_history(
+        _make_envelope(h, commit="c", timestamp="2026-04-16T00:00:02Z")
+    )
+    assert total == 2
 
 
 if __name__ == "__main__":
-    test_make_envelope()
-    test_write_envelope()
-    test_update_history_first_run()
-    test_update_history_idempotent()
-    test_update_history_appends()
-    test_update_history_max_runs()
+    tests = [
+        test_make_envelope,
+        test_write_envelope,
+        test_update_history_first_run,
+        test_update_history_idempotent,
+        test_update_history_appends,
+        test_update_history_max_runs,
+    ]
+    for test in tests:
+        with tempfile.TemporaryDirectory() as tmp:
+            test(tmp)
     print("All BenchmarkHistory tests passed.")
