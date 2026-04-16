@@ -3,6 +3,7 @@ name: Benchmarks
 on:
   push:
     branches: [main]
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -53,22 +54,26 @@ jobs:
           echo "OK: $COUNT benchmark entries recorded in $RESULT_FILE"
 
       - name: Checkout gh-pages
+        if: github.ref == 'refs/heads/main'
         uses: actions/checkout@v4
         with:
           ref: gh-pages
           path: gh-pages-out
 
       - name: Copy result to gh-pages
+        if: github.ref == 'refs/heads/main'
         run: |
           COMMIT="$(git rev-parse HEAD)"
           mkdir -p gh-pages-out/results
           cp results/${COMMIT}.json gh-pages-out/results/${COMMIT}.json
 
       - name: Generate report
+        if: github.ref == 'refs/heads/main'
         working-directory: gh-pages-out
         run: python scripts/generate_report.py
 
       - name: Push updated dashboard
+        if: github.ref == 'refs/heads/main'
         working-directory: gh-pages-out
         run: |
           git config user.name "github-actions[bot]"
