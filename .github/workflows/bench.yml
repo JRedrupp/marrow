@@ -28,8 +28,13 @@ jobs:
           frozen: true
           cache: true
           cache-write: ${{ github.event_name == 'push' && github.ref_name == 'main' }}
-
-      - uses: actions/cache@v4
+          frozen: true
+      - name: Run benchmarks
+        run: |
+          mkdir -p .benchmarks
+          pixi run -e bench pytest --benchmark -v --benchmark-json .benchmarks/results.json
+      - name: Store benchmark results
+        uses: benchmark-action/github-action-benchmark@v1
         with:
           path: .pixi/envs/bench/**/.mojo_cache
           key: mojo-cache-bench-${{ runner.os }}-${{ hashFiles('pixi.lock', '**/*.mojo') }}
