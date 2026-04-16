@@ -445,6 +445,12 @@ def pytest_addoption(parser):
         default=None,
         help="Save benchmark results as a JSON envelope to DIR/<commit>.json (implies --benchmark).",
     )
+    parser.addoption(
+        "--benchmark-history",
+        metavar="FILE",
+        default=None,
+        help="Path to the rolling benchmark history JSON file (default: benchmarks/data.json).",
+    )
 
 
 def _python_excluded(config) -> bool:
@@ -855,10 +861,10 @@ class BenchmarkHistory:
 
     MAX_RUNS = 200
 
-    def __init__(self, root, results_dir):
+    def __init__(self, root, results_dir, history_file=None):
         self._root = Path(root)
         self._results_dir = Path(results_dir)
-        self._benchmarks_dir = self._root / "benchmarks"
+        self._history_file = Path(history_file) if history_file else self._root / "benchmarks" / "data.json"
 
     # -- git metadata -------------------------------------------------------
 
@@ -915,8 +921,8 @@ class BenchmarkHistory:
         return out_file
 
     def _update_history(self, envelope):
-        """Merge envelope into the rolling history at benchmarks/data.json."""
-        data_file = self._benchmarks_dir / "data.json"
+        """Merge envelope into the rolling history JSON file."""
+        data_file = self._history_file
         if data_file.exists():
             with data_file.open() as f:
                 history = json.load(f)
@@ -950,7 +956,7 @@ class BenchmarkHistory:
                 seen[name] = None
         history["operations"] = list(seen)
 
-        self._benchmarks_dir.mkdir(parents=True, exist_ok=True)
+        data_file.parent.mkdir(parents=True, exist_ok=True)
         with data_file.open("w") as f:
             json.dump(history, f, indent=2)
             f.write("\n")
@@ -966,9 +972,7 @@ class BenchmarkHistory:
         total = self._update_history(envelope)
         count = len(envelope["results"])
         print(f"\n--save-benchmarks: {count} entries written to {out_file}")
-        print(
-            f"--save-benchmarks: {total} run(s) in {self._benchmarks_dir / 'data.json'}"
-        )
+        print(f"--save-benchmarks: {total} run(s) in {self._history_file}")
 
 
 def pytest_sessionfinish(session, exitstatus):
@@ -983,7 +987,8 @@ def pytest_sessionfinish(session, exitstatus):
     if bs is None or not bs.benchmarks:
         return
 
-    history = BenchmarkHistory(session.config.rootpath, save_dir)
+    history_file = session.config.getoption("--benchmark-history", default=None)
+    history = BenchmarkHistory(session.config.rootpath, save_dir, history_file)
     history.save(bs.benchmarks)
 
 
@@ -1008,9 +1013,7 @@ class _FakeBenchmark:
 
 def _make_history(tmp):
     root = Path(tmp)
-    h = BenchmarkHistory(root, root / "results")
-    h._benchmarks_dir = root / "benchmarks"
-    return h
+    return BenchmarkHistory(root, root / "results")
 
 
 def _make_envelope(h, commit="abc123def456", timestamp="2026-04-16T00:00:00Z"):
@@ -1059,7 +1062,7 @@ def test_update_history_first_run(tmp):
     envelope = _make_envelope(h)
     total = h._update_history(envelope)
     assert total == 1
-    with (h._benchmarks_dir / "data.json").open() as f:
+    with (h._history_file).open() as f:
         history = json.load(f)
     run = history["runs"][0]
     assert run["commit"] == "abc123def456"
@@ -1081,7 +1084,7 @@ def test_update_history_appends(tmp):
     h = _make_history(tmp)
     h._update_history(_make_envelope(h, commit="aaa"))
     h._update_history(_make_envelope(h, commit="bbb", timestamp="2026-04-16T00:00:01Z"))
-    with (h._benchmarks_dir / "data.json").open() as f:
+    with (h._history_file).open() as f:
         history = json.load(f)
     commits = [r["commit"] for r in history["runs"]]
     assert "aaa" in commits

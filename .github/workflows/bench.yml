@@ -35,9 +35,6 @@ jobs:
           key: mojo-cache-bench-${{ runner.os }}-${{ hashFiles('pixi.lock', '**/*.mojo') }}
           restore-keys: mojo-cache-bench-${{ runner.os }}-
 
-      - name: Run benchmarks
-        run: pixi run -e bench pytest --benchmark -v --no-gpu --save-benchmarks results
-
       - name: Checkout gh-pages
         if: github.ref == 'refs/heads/main'
         uses: actions/checkout@v4
@@ -45,13 +42,24 @@ jobs:
           ref: gh-pages
           path: gh-pages-out
 
+      - name: Run benchmarks (PR)
+        if: github.ref != 'refs/heads/main'
+        run: >
+          pixi run -e bench pytest --benchmark -v --no-gpu
+
+      - name: Run benchmarks
+        if: github.ref == 'refs/heads/main'
+        run: >
+          pixi run -e bench pytest --benchmark -v --no-gpu
+          --save-benchmarks results
+          --benchmark-history gh-pages-out/benchmarks/data.json
+
       - name: Publish dashboard
         if: github.ref == 'refs/heads/main'
         run: |
           COMMIT="$(git rev-parse HEAD)"
           mkdir -p gh-pages-out/results
           cp results/${COMMIT}.json gh-pages-out/results/${COMMIT}.json
-          cp benchmarks/data.json gh-pages-out/benchmarks/data.json
           cd gh-pages-out
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
