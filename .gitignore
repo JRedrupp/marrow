@@ -182,6 +182,9 @@ kgen.trace.*
 package/
 .test_runners/
 
+# Benchmark scratch output (transformed into results/ by run_benchmarks.sh)
+.benchmarks/
+
 # vscode
 .vscode/
 
