@@ -17,38 +17,54 @@ compiler currently crashes when `ref[_]` is used here (tracked as a TODO).
 """
 
 from std.utils import Variant
-from std.builtin.variadics import Variadic, TypeList, _TypePredicateGenerator
+from std.builtin.variadics import _TypePredicateGenerator
 from std.builtin.rebind import trait_downcast
 from std.os import abort
 from std.sys import has_accelerator, CompilationTarget
+from std.sys.info import _accelerator_arch
 
 
 def has_accelerator_support[*dtypes: DType]() -> Bool:
     """Check if there is accelerator support for all given dtypes.
 
     For example Metal doesn't support float64 as of April 2026.
+
+    Also guards against Mojo toolchain regressions where the GPU architecture
+    string is malformed (e.g. 'metal:2-metal4' on an M2 with Metal 4 API).
+    The valid Metal targets are 'metal:1'–'metal:4'; anything else indicates
+    the toolchain cannot compile GPU kernels for this device and we fall back
+    to CPU.
     """
     if not has_accelerator():
         return False
     if not CompilationTarget.is_apple_silicon():
         return True
+    # Validate the GPU architecture string before attempting to compile any
+    # GPU kernel.  A malformed target (e.g. 'metal:2-metal4') causes a hard
+    # constraint failure deep inside simd_width_of, so we gate it out here.
+    comptime arch = _accelerator_arch()
+    comptime if (
+        arch != "metal:1"
+        and arch != "metal:2"
+        and arch != "metal:3"
+        and arch != "metal:4"
+    ):
+        return False
     comptime for dtype in dtypes:
         if dtype == DType.float64:
             return False
     return True
 
 
-comptime _always_true[T: Movable & ImplicitlyDestructible] = True
+comptime _always_true[T: Movable] = True
 
 
 def variant_dispatch[
     R: AnyType,
     //,
     Trait: type_of(AnyType),
-    *Ts: Movable & ImplicitlyDestructible,
-    predicate: _TypePredicateGenerator[
-        Movable & ImplicitlyDestructible
-    ] = _always_true,
+    *Ts: Movable,
+    predicate: _TypePredicateGenerator[Movable] = _always_true,
     func: def[T: Trait](T) capturing[_] -> R,
 ](ref v: Variant[*Ts]) -> R:
     """Dispatch *func* to the active type in *v*, reinterpreted as *Trait*.
@@ -56,11 +72,11 @@ def variant_dispatch[
     Only types matching *predicate* are dispatched. Defaults to all types,
     so passing no predicate covers the full variant.
     """
-    comptime FilteredTs = Variadic.filter_types[*Ts, predicate=predicate]
-    comptime for i in range(TypeList[*FilteredTs].size):
-        comptime T = FilteredTs[i]
-        if v.isa[T]():
-            return func(trait_downcast[Trait](v[T]))
+    comptime for i in range(len(Ts)):
+        comptime T = Ts[i]
+        comptime if predicate[T]:
+            if v.isa[T]():
+                return func(trait_downcast[Trait](v[T]))
     abort("unreachable: variant_dispatch")
 
 
@@ -68,18 +84,16 @@ def variant_dispatch_raises[
     R: AnyType,
     //,
     Trait: type_of(AnyType),
-    *Ts: Movable & ImplicitlyDestructible,
-    predicate: _TypePredicateGenerator[
-        Movable & ImplicitlyDestructible
-    ] = _always_true,
+    *Ts: Movable,
+    predicate: _TypePredicateGenerator[Movable] = _always_true,
     func: def[T: Trait](T) raises capturing[_] -> R,
 ](v: Variant[*Ts]) raises -> R:
     """Like *variant_dispatch* but *func* may raise."""
-    comptime FilteredTs = Variadic.filter_types[*Ts, predicate=predicate]
-    comptime for i in range(TypeList[*FilteredTs].size):
-        comptime T = FilteredTs[i]
-        if v.isa[T]():
-            return func(trait_downcast[Trait](v[T]))
+    comptime for i in range(len(Ts)):
+        comptime T = Ts[i]
+        comptime if predicate[T]:
+            if v.isa[T]():
+                return func(trait_downcast[Trait](v[T]))
     abort("unreachable: variant_dispatch_raises")
 
 
@@ -88,16 +102,14 @@ def variant_dispatch_raises[
     R: AnyType,
     //,
     Trait: type_of(AnyType),
-    *Ts: Movable & ImplicitlyDestructible,
-    predicate: _TypePredicateGenerator[
-        Movable & ImplicitlyDestructible
-    ] = _always_true,
+    *Ts: Movable,
+    predicate: _TypePredicateGenerator[Movable] = _always_true,
     func: def[T: Trait](mut T) raises capturing[_] -> R,
 ](mut v: Variant[*Ts]) raises -> R:
     """Like *variant_dispatch_raises* but *func* takes a mutable reference."""
-    comptime FilteredTs = Variadic.filter_types[*Ts, predicate=predicate]
-    comptime for i in range(TypeList[*FilteredTs].size):
-        comptime T = FilteredTs[i]
-        if v.isa[T]():
-            return func(trait_downcast[Trait](v[T]))
+    comptime for i in range(len(Ts)):
+        comptime T = Ts[i]
+        comptime if predicate[T]:
+            if v.isa[T]():
+                return func(trait_downcast[Trait](v[T]))
     abort("unreachable: variant_dispatch_raises")
