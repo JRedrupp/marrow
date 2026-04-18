@@ -892,15 +892,39 @@ class BenchmarkHistory:
         results = []
         for b in benchmarks:
             # bs.benchmarks contains Metadata objects (not flat dicts).
-            mean_s = b.stats.mean if b.stats else 0.0
+            stats = b.stats
+            mean_s = stats.mean if stats else 0.0
             throughput = b.extra_info.get(_THROUGHPUT_KEY)
-            results.append(
-                {
-                    "name": b.name,
-                    "mean_ns": mean_s * 1e9,
-                    "throughput_gelems_s": throughput,
-                }
-            )
+
+            # Extract source file from fullname (pytest node ID)
+            # e.g. "python/tests/bench_compute.py::test_marrow_add[...]" → "bench_compute.py"
+            fullname = getattr(b, "fullname", "") or ""
+            file = fullname.split("::")[0].rsplit("/", 1)[-1] if "::" in fullname else None
+
+            # Collect extra_info fields (excluding internal keys)
+            extra = {}
+            for k, v in b.extra_info.items():
+                if k != _THROUGHPUT_KEY:
+                    extra[k] = v
+
+            result = {
+                "name": b.name,
+                "file": file,
+                "mean_ns": mean_s * 1e9,
+                "throughput_gelems_s": throughput,
+            }
+
+            if stats:
+                result["min_ns"] = stats.min * 1e9
+                result["max_ns"] = stats.max * 1e9
+                result["median_ns"] = stats.median * 1e9
+                result["stddev_ns"] = stats.stddev * 1e9
+                result["rounds"] = stats.rounds
+
+            if extra:
+                result["extra_info"] = extra
+
+            results.append(result)
         return {
             "commit": commit,
             "timestamp": timestamp,
@@ -931,19 +955,23 @@ class BenchmarkHistory:
 
         existing_commits = {r["commit"] for r in history["runs"]}
         if envelope["commit"] not in existing_commits:
+            run_results = {}
+            for r in envelope["results"]:
+                entry = {
+                    "mean_ns": r["mean_ns"],
+                    "throughput_gelems_s": r["throughput_gelems_s"],
+                }
+                for key in ("file", "min_ns", "max_ns", "median_ns", "stddev_ns", "rounds", "extra_info"):
+                    if key in r:
+                        entry[key] = r[key]
+                run_results[r["name"]] = entry
             history["runs"].append(
                 {
                     "commit": envelope["commit"],
                     "short_commit": envelope["commit"][:7],
                     "timestamp": envelope["timestamp"],
                     "ref": envelope["ref"],
-                    "results": {
-                        r["name"]: {
-                            "mean_ns": r["mean_ns"],
-                            "throughput_gelems_s": r["throughput_gelems_s"],
-                        }
-                        for r in envelope["results"]
-                    },
+                    "results": run_results,
                 }
             )
 
@@ -1000,13 +1028,19 @@ def pytest_sessionfinish(session, exitstatus):
 class _FakeStats:
     def __init__(self, mean):
         self.mean = mean
+        self.min = mean * 0.9
+        self.max = mean * 1.1
+        self.median = mean
+        self.stddev = mean * 0.02
+        self.rounds = 10
 
 
 class _FakeBenchmark:
-    def __init__(self, name, mean, throughput=None):
+    def __init__(self, name, mean, throughput=None, fullname=None, extra_info=None):
         self.name = name
+        self.fullname = fullname or f"tests/bench_test.py::{name}"
         self.stats = _FakeStats(mean)
-        self.extra_info = {}
+        self.extra_info = dict(extra_info or {})
         if throughput is not None:
             self.extra_info[_THROUGHPUT_KEY] = throughput
 
@@ -1030,16 +1064,34 @@ def _make_envelope(h, commit="abc123def456", timestamp="2026-04-16T00:00:00Z"):
 def test_make_envelope(tmp):
     h = _make_history(tmp)
     benchmarks = [
-        _FakeBenchmark("bench_add_10k", 0.001, throughput=1.234),
+        _FakeBenchmark(
+            "bench_add_10k", 0.001, throughput=1.234,
+            fullname="python/tests/bench_compute.py::bench_add_10k",
+            extra_info={"lib": "marrow", "n": 10000},
+        ),
         _FakeBenchmark("bench_add_100k", 0.01),
     ]
     envelope = h._make_envelope(benchmarks)
-    assert envelope["results"][0]["name"] == "bench_add_10k"
-    assert envelope["results"][0]["mean_ns"] == 0.001 * 1e9
-    assert envelope["results"][0]["throughput_gelems_s"] == 1.234
-    assert envelope["results"][1]["name"] == "bench_add_100k"
-    assert envelope["results"][1]["mean_ns"] == 0.01 * 1e9
-    assert envelope["results"][1]["throughput_gelems_s"] is None
+
+    r0 = envelope["results"][0]
+    assert r0["name"] == "bench_add_10k"
+    assert r0["mean_ns"] == 0.001 * 1e9
+    assert r0["throughput_gelems_s"] == 1.234
+    assert r0["file"] == "bench_compute.py"
+    assert r0["min_ns"] == 0.001 * 0.9 * 1e9
+    assert r0["max_ns"] == 0.001 * 1.1 * 1e9
+    assert r0["median_ns"] == 0.001 * 1e9
+    assert r0["stddev_ns"] == 0.001 * 0.02 * 1e9
+    assert r0["rounds"] == 10
+    assert r0["extra_info"] == {"lib": "marrow", "n": 10000}
+
+    r1 = envelope["results"][1]
+    assert r1["name"] == "bench_add_100k"
+    assert r1["mean_ns"] == 0.01 * 1e9
+    assert r1["throughput_gelems_s"] is None
+    assert r1["file"] == "bench_test.py"
+    assert "extra_info" not in r1  # no extra_info when empty
+
     assert "commit" in envelope
     assert "timestamp" in envelope
     assert "ref" in envelope
@@ -1067,8 +1119,15 @@ def test_update_history_first_run(tmp):
     run = history["runs"][0]
     assert run["commit"] == "abc123def456"
     assert run["short_commit"] == "abc123d"
-    assert run["results"]["bench_add_10k"]["mean_ns"] == 0.001 * 1e9
-    assert run["results"]["bench_add_10k"]["throughput_gelems_s"] == 1.234
+    r = run["results"]["bench_add_10k"]
+    assert r["mean_ns"] == 0.001 * 1e9
+    assert r["throughput_gelems_s"] == 1.234
+    assert r["file"] == "bench_test.py"
+    assert r["stddev_ns"] == 0.001 * 0.02 * 1e9
+    assert r["min_ns"] == 0.001 * 0.9 * 1e9
+    assert r["max_ns"] == 0.001 * 1.1 * 1e9
+    assert r["median_ns"] == 0.001 * 1e9
+    assert r["rounds"] == 10
     assert set(history["operations"]) == {"bench_add_10k", "bench_add_100k"}
 
 
