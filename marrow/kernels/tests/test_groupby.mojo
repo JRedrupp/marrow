@@ -137,6 +137,22 @@ def test_groupby_max_int64_precision() raises:
     assert_equal(m[0], 9_007_199_254_740_995)
 
 
+def test_groupby_sum_uint64_wraps_for_large_values() raises:
+    """uint64 values > Int64.MAX wrap on cast to int64 accumulator.
+
+    The int64 accumulator is correct for uint8/16/32 and uint64 values
+    below 2**63. For uint64 values above 2**63, the cast wraps (matching
+    pandas wrapping-on-overflow semantics), not the float64 rounding of
+    the old implementation.
+    """
+    var keys = AnyArray(array[Int32Type]([1, 1]))
+    var vals = AnyArray(array[UInt8Type]([100, 50]))
+    var result = groupby(keys, _values(vals), _aggs("sum"))
+    assert_true(result.schema.fields[1].dtype == AnyDataType(int64))
+    ref s = result.columns[1].as_primitive[Int64Type]()
+    assert_equal(s[0], 150)  # uint8 values within int64 range sum correctly
+
+
 # ---------------------------------------------------------------------------
 # groupby — count
 # ---------------------------------------------------------------------------
