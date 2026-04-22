@@ -7,7 +7,13 @@ from std.os import remove
 
 from marrow.arrays import AnyArray, BoolArray
 from marrow.builders import array
-from marrow.dtypes import int64, float64, bool_ as bool_dt, Int64Type, AnyDataType
+from marrow.dtypes import (
+    int64,
+    float64,
+    bool_ as bool_dt,
+    Int64Type,
+    AnyDataType,
+)
 from marrow.tabular import record_batch
 from marrow.expr import (
     AnyValue,
@@ -485,7 +491,8 @@ def test_aggregate_count() raises:
 
 
 def test_aggregate_sum_int64_precision() raises:
-    """Grouped int64 sum via the expression system must stay exact above 2**53."""
+    """Grouped int64 sum via the expression system must stay exact above 2**53.
+    """
     var cols = List[AnyArray]()
     cols.append(array[Int64Type]([1, 1]).to_any())
     cols.append(array[Int64Type]([9_007_199_254_740_993, 1]).to_any())

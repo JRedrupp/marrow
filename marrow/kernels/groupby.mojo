@@ -128,21 +128,35 @@ def _read_as_float64(col: AnyArray, row: Int) raises -> Float64:
 def _read_as_int64(col: AnyArray, row: Int) raises -> Scalar[int64.native]:
     """Read any integer-typed element as Scalar[int64]."""
     if col.dtype() == int8:
-        return Scalar[int64.native](col.as_primitive[Int8Type]().unsafe_get(row))
+        return Scalar[int64.native](
+            col.as_primitive[Int8Type]().unsafe_get(row)
+        )
     elif col.dtype() == int16:
-        return Scalar[int64.native](col.as_primitive[Int16Type]().unsafe_get(row))
+        return Scalar[int64.native](
+            col.as_primitive[Int16Type]().unsafe_get(row)
+        )
     elif col.dtype() == int32:
-        return Scalar[int64.native](col.as_primitive[Int32Type]().unsafe_get(row))
+        return Scalar[int64.native](
+            col.as_primitive[Int32Type]().unsafe_get(row)
+        )
     elif col.dtype() == int64:
         return col.as_primitive[Int64Type]().unsafe_get(row)
     elif col.dtype() == uint8:
-        return Scalar[int64.native](col.as_primitive[UInt8Type]().unsafe_get(row))
+        return Scalar[int64.native](
+            col.as_primitive[UInt8Type]().unsafe_get(row)
+        )
     elif col.dtype() == uint16:
-        return Scalar[int64.native](col.as_primitive[UInt16Type]().unsafe_get(row))
+        return Scalar[int64.native](
+            col.as_primitive[UInt16Type]().unsafe_get(row)
+        )
     elif col.dtype() == uint32:
-        return Scalar[int64.native](col.as_primitive[UInt32Type]().unsafe_get(row))
+        return Scalar[int64.native](
+            col.as_primitive[UInt32Type]().unsafe_get(row)
+        )
     elif col.dtype() == uint64:
-        return Scalar[int64.native](col.as_primitive[UInt64Type]().unsafe_get(row))
+        return Scalar[int64.native](
+            col.as_primitive[UInt64Type]().unsafe_get(row)
+        )
     raise Error("not an integer dtype: ", col.dtype())
 
 
@@ -342,12 +356,16 @@ struct HashGrouper(Movable):
     var _group_keys: List[AnyArray]
     var _functions: List[AggregateFunction]
 
-    def __init__(out self, agg_names: List[String], value_dtypes: List[AnyDataType]):
+    def __init__(
+        out self, agg_names: List[String], value_dtypes: List[AnyDataType]
+    ):
         self._table = SwissHashTable[rapidhash]()
         self._group_keys = List[AnyArray]()
         self._functions = List[AggregateFunction]()
         for i in range(len(agg_names)):
-            self._functions.append(AggregateFunction(agg_names[i], value_dtypes[i].copy()))
+            self._functions.append(
+                AggregateFunction(agg_names[i], value_dtypes[i].copy())
+            )
 
     def num_groups(self) -> Int:
         return self._table.num_keys()

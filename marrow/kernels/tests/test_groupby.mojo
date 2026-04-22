@@ -120,7 +120,9 @@ def test_groupby_sum_int64_precision() raises:
 def test_groupby_min_int64_precision() raises:
     """Min over int64 values above 2**53 must stay exact."""
     var keys = AnyArray(array[Int32Type]([1, 1]))
-    var vals = AnyArray(array[Int64Type]([9_007_199_254_740_993, 9_007_199_254_740_995]))
+    var vals = AnyArray(
+        array[Int64Type]([9_007_199_254_740_993, 9_007_199_254_740_995])
+    )
     var result = groupby(keys, _values(vals), _aggs("min"))
     assert_true(result.schema.fields[1].dtype == AnyDataType(int64))
     ref m = result.columns[1].as_int64()
@@ -130,7 +132,9 @@ def test_groupby_min_int64_precision() raises:
 def test_groupby_max_int64_precision() raises:
     """Max over int64 values above 2**53 must stay exact."""
     var keys = AnyArray(array[Int32Type]([1, 1]))
-    var vals = AnyArray(array[Int64Type]([9_007_199_254_740_993, 9_007_199_254_740_995]))
+    var vals = AnyArray(
+        array[Int64Type]([9_007_199_254_740_993, 9_007_199_254_740_995])
+    )
     var result = groupby(keys, _values(vals), _aggs("max"))
     assert_true(result.schema.fields[1].dtype == AnyDataType(int64))
     ref m = result.columns[1].as_int64()
@@ -183,7 +187,8 @@ def test_groupby_mean() raises:
 
 
 def test_groupby_sum_float64_preserved() raises:
-    """Float64 input to sum still produces a float64 result (regression guard)."""
+    """Float64 input to sum still produces a float64 result (regression guard).
+    """
     var keys = AnyArray(array[Int32Type]([1, 1]))
     var vals = AnyArray(array[Float64Type]([1.5, 2.5]))
     var result = groupby(keys, _values(vals), _aggs("sum"))
