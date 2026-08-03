@@ -26,7 +26,7 @@ from std.memory import bitcast, memcpy, memset
 from std.builtin.device_passable import DevicePassable, DeviceTypeEncoder
 from std.sys.intrinsics import prefetch
 from std.algorithm.functional import elementwise
-from std.algorithm.reduction import _reduce_generator_wrapper
+from max.algorithm.reduction import _reduce_generator_wrapper
 from std.utils.index import IndexList
 from std.gpu.host import DeviceContext, get_gpu_target
 
@@ -1438,8 +1438,13 @@ def _reduce_dispatch[
                 dev_view.store[1](0, val[0])
 
             _reduce_generator_wrapper[
-                T, input_fn, output_fn_gpu, combine_capturing, target="gpu"
-            ](IndexList[1](length), identity, 0, ctx.device.value())
+                T,
+                input_fn,
+                output_fn_gpu,
+                combine_capturing,
+                target="gpu",
+                reduce_dim=0,
+            ](Coord(IndexList[1](length)), identity, ctx.device)
             return (
                 dev_buf.to_immutable()
                 .to_cpu(ctx.device.value())
@@ -1464,8 +1469,8 @@ def _reduce_dispatch[
             input_fn,
             output_fn_cpu,
             combine_capturing,
-            single_thread_blocking_override=True,
-        ](IndexList[1](length), identity, 0)
+            reduce_dim=0,
+        ](Coord(IndexList[1](length)), identity)
         return out_view.load[1](0)
 
 
