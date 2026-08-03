@@ -23,7 +23,7 @@ from std.sys import compressed_store as _compressed_store
 import std.math as math
 from std.math import iota
 from std.memory import bitcast, memcpy, memset
-from std.builtin.device_passable import DevicePassable
+from std.builtin.device_passable import DevicePassable, DeviceTypeEncoder
 from std.sys.intrinsics import prefetch
 from std.algorithm.functional import elementwise
 from std.algorithm.reduction import _reduce_generator_wrapper
@@ -103,8 +103,10 @@ struct BufferView[
 
     comptime device_type: AnyType = Self
 
-    def _to_device_type(self, target: MutOpaquePointer[_]):
-        target.bitcast[Self.device_type]()[] = self
+    def _to_device_type(
+        self, mut encoder: Some[DeviceTypeEncoder], target: MutOpaquePointer[_]
+    ):
+        encoder.encode(self, target)
 
     @staticmethod
     def get_type_name() -> String:
@@ -400,8 +402,10 @@ struct BitmapView[
 
     comptime device_type: AnyType = Self
 
-    def _to_device_type(self, target: MutOpaquePointer[_]):
-        target.bitcast[Self.device_type]()[] = self
+    def _to_device_type(
+        self, mut encoder: Some[DeviceTypeEncoder], target: MutOpaquePointer[_]
+    ):
+        encoder.encode(self, target)
 
     @staticmethod
     def get_type_name() -> String:
