@@ -117,19 +117,19 @@ def test_buffer_foreign_kind() raises:
     # Allocate 64 bytes with 64-byte alignment to satisfy Arrow alignment invariant.
     # Only the first sizeof(pointer) bytes are used to store the address of n_released.
     var raw = alloc[UInt8](64, alignment=64)
-    raw.bitcast[UnsafePointer[Int, MutAnyOrigin]]()[0] = rebind[
+    raw.unsafe_bitcast[UnsafePointer[Int, MutAnyOrigin]]()[0] = rebind[
         UnsafePointer[Int, MutAnyOrigin]
     ](UnsafePointer(to=n_released))
 
     def count_and_free(ptr: UnsafePointer[UInt8, MutAnyOrigin]) -> None:
-        var counter = ptr.bitcast[UnsafePointer[Int, MutAnyOrigin]]()[0]
+        var counter = ptr.unsafe_bitcast[UnsafePointer[Int, MutAnyOrigin]]()[0]
         counter[0] += 1
-        ptr.free()
+        ptr.unsafe_free()
 
     var mut_ptr = rebind[UnsafePointer[UInt8, MutAnyOrigin]](raw)
     var keeper = ArcPointer(Allocation.foreign(mut_ptr, count_and_free))
     var buf = Buffer.from_foreign(
-        raw.bitcast[NoneType](),
+        raw.unsafe_bitcast[NoneType](),
         64,
         keeper,
     )

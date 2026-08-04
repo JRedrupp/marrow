@@ -211,7 +211,7 @@ struct ExecutionContext(Copyable, ImplicitlyCopyable, Movable):
 # ---------------------------------------------------------------------------
 
 
-trait ValueProcessor(ImplicitlyDestructible, Movable):
+trait ValueProcessor(ImplicitlyDeletable, Movable):
     """Evaluates a scalar expression against a morsel batch.
 
     Leaf processors (``ColumnProcessor``, ``LiteralProcessor``) hold data.
@@ -276,7 +276,7 @@ struct AnyValueProcessor(ImplicitlyCopyable, Movable):
         """Evaluate the expression against the given batch."""
         return self._virt_eval(self._data, batch)
 
-    def __del__(deinit self):
+    def __deinit__(deinit self):
         self._virt_drop(self._data^)
 
 
@@ -430,7 +430,7 @@ struct IfElseProcessor(ValueProcessor):
 # ---------------------------------------------------------------------------
 
 
-trait RelationProcessor(ImplicitlyDestructible, Movable):
+trait RelationProcessor(ImplicitlyDeletable, Movable):
     """Pull-based relation processor.
 
     Concrete processors implement ``pull()`` to yield morsel-sized
@@ -540,7 +540,7 @@ struct AnyRelationProcessor(ImplicitlyCopyable, Movable):
                 break
         return result^
 
-    def __del__(deinit self):
+    def __deinit__(deinit self):
         self._virt_drop(self._data^)
 
 

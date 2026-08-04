@@ -33,7 +33,7 @@ paths.  It is NOT stored inside AnyArray.
 """
 
 from std.bit import pop_count
-from std.memory import memcpy, ArcPointer, OwnedPointer
+from std.memory import unsafe_memcpy, ArcPointer, OwnedPointer
 from std.sys import size_of
 from std.gpu.host import DeviceContext
 from std.python import Python, PythonObject
@@ -61,7 +61,7 @@ from .scalars import (
 trait Array(
     Copyable,
     Equatable,
-    ImplicitlyDestructible,
+    ImplicitlyDeletable,
     Movable,
     Sized,
     Writable,

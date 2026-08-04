@@ -65,7 +65,7 @@ from .arrays import (
 # ---------------------------------------------------------------------------
 
 
-trait Builder(ImplicitlyDestructible, Movable, Sized):
+trait Builder(ImplicitlyDeletable, Movable, Sized):
     comptime ArrayType: Array
 
     def __len__(self) -> Int:

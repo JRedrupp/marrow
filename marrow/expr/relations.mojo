@@ -116,7 +116,7 @@ comptime JOIN_ALGO_GRACE_HASH: UInt8 = 4
 # ---------------------------------------------------------------------------
 
 
-trait Relation(ImplicitlyDestructible, Movable):
+trait Relation(ImplicitlyDeletable, Movable):
     """Interface for immutable relational plan nodes."""
 
     def kind(self) -> UInt8:
@@ -400,7 +400,7 @@ struct AnyRelation(ImplicitlyCopyable, Movable, Writable):
     def downcast[T: Relation](self) -> ArcPointer[T]:
         return rebind[ArcPointer[T]](self._data.copy())
 
-    def __del__(deinit self):
+    def __deinit__(deinit self):
         self._virt_drop(self._data^)
 
 

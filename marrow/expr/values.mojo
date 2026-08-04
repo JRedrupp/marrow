@@ -82,7 +82,7 @@ comptime DISPATCH_GPU: UInt8 = 2
 # ---------------------------------------------------------------------------
 
 
-trait Value(ImplicitlyDestructible, Movable):
+trait Value(ImplicitlyDeletable, Movable):
     """Interface for immutable scalar expression nodes.
 
     Nodes are designed for e-graph compatibility: they must be immutable
@@ -262,7 +262,7 @@ struct AnyValue(ImplicitlyCopyable, Movable, Writable):
         """Explicit type cast."""
         return Cast(child=self, to=to)
 
-    def __del__(deinit self):
+    def __deinit__(deinit self):
         self._virt_drop(self._data^)
 
 

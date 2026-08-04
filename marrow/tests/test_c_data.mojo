@@ -999,7 +999,7 @@ def test_dictionary_to_pyarrow() raises:
     var fmt = String(StringSlice(unsafe_from_utf8_ptr=c_schema.format))
     assert_equal(fmt, "i")  # int32 index type format
     # dictionary schema pointer must be non-null
-    assert_true(UnsafePointer(to=c_schema.dictionary).bitcast[UInt64]()[0] != 0)
+    assert_true(UnsafePointer(to=c_schema.dictionary).unsafe_bitcast[UInt64]()[0] != 0)
 
     # Round-trip the array back through CArrow and check values
     var c_array = CArrowArray.from_array(arr)

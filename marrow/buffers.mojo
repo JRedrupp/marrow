@@ -6,7 +6,7 @@ A `Buffer` has one of four memory kinds, encoded in the `Allocation` it owns:
 
   CPU
       Owned Mojo heap allocation.  Created by `Buffer.alloc_zeroed()` and
-      similar factory methods.  `Allocation.__del__` calls `ptr.free()`.
+      similar factory methods.  `Allocation.__del__` calls `ptr.unsafe_free()`.
 
   FOREIGN
       External CPU memory provided by a producer (Arrow C Data Interface or Arrow C
@@ -51,7 +51,7 @@ Allocation Invariant
 --------------------
 Each `Allocation` has exactly one active release mechanism (checked in `__del__`):
   - `release is Some` → FOREIGN: invoke the producer's C release callback.
-  - `ptr is non-null` → CPU: call `ptr.free()` directly (no callback).
+  - `ptr is non-null` → CPU: call `ptr.unsafe_free()` directly (no callback).
   - `_host is Some`   → HOST: `HostBuffer.__del__` cascades to AsyncRT release.
   - `_device is Some` → DEVICE: `DeviceBuffer.__del__` cascades to AsyncRT release.
 
@@ -93,9 +93,9 @@ and SIMD bulk operations.
 
 from std.builtin.builtin_slice import ContiguousSlice
 from std.memory import (
-    memset_zero,
-    memcpy,
-    memset,
+    unsafe_memset_zero,
+    unsafe_memcpy,
+    unsafe_memset,
     ArcPointer,
 )
 from std.sys.info import simd_byte_width
@@ -171,7 +171,7 @@ struct Allocation(Movable):
 
     Release rules (in `__del__`):
       - `release is Some`  → FOREIGN: invoke the producer's C callback.
-      - `ptr is non-null`  → CPU: call `ptr.free()`.
+      - `ptr is non-null`  → CPU: call `ptr.unsafe_free()`.
       - `_host is Some`    → HOST: HostBuffer.__del__ cascades to AsyncRT release.
       - `_device is Some`  → DEVICE: DeviceBuffer.__del__ cascades to AsyncRT release.
 
@@ -210,7 +210,7 @@ struct Allocation(Movable):
 
     @staticmethod
     def cpu(ptr: UnsafePointer[UInt8, MutAnyOrigin]) -> Allocation:
-        """Create an owned CPU allocation.  `__del__` calls `ptr.free()`."""
+        """Create an owned CPU allocation.  `__del__` calls `ptr.unsafe_free()`."""
         return Allocation(Optional(ptr), None, None, None)
 
     @staticmethod
@@ -281,14 +281,14 @@ struct Allocation(Movable):
         else:
             return -1
 
-    def __del__(deinit self):
+    def __deinit__(deinit self):
         if self.release:
             # FOREIGN: invoke the producer's C release callback.
             self.release.value()(self.ptr.value())
         elif self.ptr:
             # CPU: free the Mojo heap allocation directly.
             # HOST and DEVICE have ptr=None, so this branch is CPU-only.
-            self.ptr.value().free()
+            self.ptr.value().unsafe_free()
         # HOST/DEVICE: ptr=None; Optional field destructors cascade to AsyncRT release.
 
 
@@ -320,7 +320,7 @@ struct Buffer[*, mut: Bool = False](
       Call `to_cpu(ctx)` before reading a DEVICE buffer on the CPU.
     """
 
-    var _ptr: UnsafePointer[UInt8, ExternalOrigin[mut=Self.mut]]
+    var _ptr: UnsafePointer[UInt8, UntrackedOrigin[mut=Self.mut]]
     """Raw allocation pointer.
     For `mut=True` CPU/HOST allocations: the CPU-accessible data pointer.
     For `mut=True` DEVICE allocations: the GPU device pointer (used by kernels).
@@ -340,7 +340,7 @@ struct Buffer[*, mut: Bool = False](
     def __init__(
         out self,
         size: Int,
-        ptr: UnsafePointer[UInt8, ExternalOrigin[mut=Self.mut]],
+        ptr: UnsafePointer[UInt8, UntrackedOrigin[mut=Self.mut]],
         owner: ArcPointer[Allocation],
     ):
         debug_assert(
@@ -376,7 +376,7 @@ struct Buffer[*, mut: Bool = False](
         """Allocate a 64-byte-aligned, zero-filled buffer for `length` elements of type T.
         """
         var result = Buffer.alloc_uninit[T](length)
-        memset_zero(result._ptr, result._size)
+        unsafe_memset_zero(result._ptr, result._size)
         return result^
 
     @staticmethod
@@ -385,7 +385,7 @@ struct Buffer[*, mut: Bool = False](
     ](length: I, fill: Scalar[T]) -> Buffer[mut=True]:
         """Allocate a 64-byte-aligned buffer filled with ``fill``."""
         var result = Buffer.alloc_uninit[T](length)
-        memset(result._ptr, UInt8(fill), result._size)
+        unsafe_memset(result._ptr, UInt8(fill), result._size)
         return result^
 
     @staticmethod
@@ -403,7 +403,7 @@ struct Buffer[*, mut: Bool = False](
         var ptr = rebind[UnsafePointer[UInt8, MutAnyOrigin]](raw)
         return Buffer[mut=True](
             size=size,
-            ptr=rebind[UnsafePointer[UInt8, MutExternalOrigin]](ptr),
+            ptr=rebind[UnsafePointer[UInt8, MutUntrackedOrigin]](ptr),
             owner=ArcPointer(Allocation.cpu(ptr)),
         )
 
@@ -427,10 +427,10 @@ struct Buffer[*, mut: Bool = False](
         var byte_size = Buffer._aligned_size[T](Int(length))
         var host = ctx.enqueue_create_host_buffer[DType.uint8](byte_size)
         var ptr = rebind[UnsafePointer[UInt8, MutAnyOrigin]](host.unsafe_ptr())
-        memset_zero(ptr, byte_size)
+        unsafe_memset_zero(ptr, byte_size)
         return Buffer[mut=True](
             size=byte_size,
-            ptr=rebind[UnsafePointer[UInt8, MutExternalOrigin]](ptr),
+            ptr=rebind[UnsafePointer[UInt8, MutUntrackedOrigin]](ptr),
             owner=ArcPointer(Allocation.host(host)),
         )
 
@@ -449,7 +449,7 @@ struct Buffer[*, mut: Bool = False](
         var ptr = rebind[UnsafePointer[UInt8, MutAnyOrigin]](dev.unsafe_ptr())
         return Buffer[mut=True](
             size=byte_size,
-            ptr=rebind[UnsafePointer[UInt8, MutExternalOrigin]](ptr),
+            ptr=rebind[UnsafePointer[UInt8, MutUntrackedOrigin]](ptr),
             owner=ArcPointer(Allocation.device(dev)),
         )
 
@@ -478,7 +478,7 @@ struct Buffer[*, mut: Bool = False](
         """
         return Buffer[mut=False](
             size=math.align_up(Int(size), 64),
-            ptr=rebind[UnsafePointer[UInt8, ImmutExternalOrigin]](ptr),
+            ptr=rebind[UnsafePointer[UInt8, ImmUntrackedOrigin]](ptr),
             owner=owner,
         )
 
@@ -494,7 +494,7 @@ struct Buffer[*, mut: Bool = False](
         for the lifetime of the Allocation.  `device_type()` is inferred from
         the context API (cuda→CUDA_HOST, hip→ROCM_HOST, otherwise CPU).
         """
-        var ptr = rebind[UnsafePointer[UInt8, ImmutExternalOrigin]](
+        var ptr = rebind[UnsafePointer[UInt8, ImmUntrackedOrigin]](
             host.unsafe_ptr()
         )
         return Buffer[mut=False](
@@ -517,7 +517,7 @@ struct Buffer[*, mut: Bool = False](
         `device_type()` is inferred from the context API (cuda→CUDA, hip→ROCM,
         metal→METAL).
         """
-        var ptr = rebind[UnsafePointer[UInt8, ImmutExternalOrigin]](
+        var ptr = rebind[UnsafePointer[UInt8, ImmUntrackedOrigin]](
             dev.unsafe_ptr()
         )
         return Buffer[mut=False](
@@ -537,7 +537,7 @@ struct Buffer[*, mut: Bool = False](
         the device pointer so ``view()`` works without a separate ``device_view``
         call.
         """
-        var imm_ptr = rebind[UnsafePointer[UInt8, ImmutExternalOrigin]](
+        var imm_ptr = rebind[UnsafePointer[UInt8, ImmUntrackedOrigin]](
             self._ptr
         )
         return Buffer[mut=False](
@@ -595,7 +595,7 @@ struct Buffer[*, mut: Bool = False](
             )
         else:
             new = Buffer.alloc_zeroed[T](length)
-        memcpy(dest=new._ptr, src=self._ptr, count=min(new._size, self._size))
+        unsafe_memcpy(dest=new._ptr, src=self._ptr, count=min(new._size, self._size))
         swap(self, new)
 
     def extend[
@@ -609,8 +609,8 @@ struct Buffer[*, mut: Bool = False](
     ):
         """Copy `count` elements of type T from `src` into self at `dst_offset`.
         """
-        memcpy(
-            dest=self._ptr.bitcast[Scalar[T]]() + dst_offset,
+        unsafe_memcpy(
+            dest=self._ptr.unsafe_bitcast[Scalar[T]]() + dst_offset,
             src=src._data,
             count=count,
         )
@@ -630,7 +630,7 @@ struct Buffer[*, mut: Bool = False](
         T: DType = DType.uint8
     ](self: Buffer[mut=True], index: Int, value: Scalar[T]):
         comptime output = Scalar[T]
-        self._ptr.bitcast[output]()[index] = value
+        self._ptr.unsafe_bitcast[output]()[index] = value
 
     # --- Read operations (both modes) ---
 
@@ -641,7 +641,7 @@ struct Buffer[*, mut: Bool = False](
             "cannot read device buffer, call to_cpu() first",
         )
         comptime output = Scalar[T]
-        return self._ptr.bitcast[output]()[index]
+        return self._ptr.unsafe_bitcast[output]()[index]
 
     # TODO: remove these methods in favor of `view()` and `BufferView` for both CPU and DEVICE buffers.  The
     @always_inline
@@ -654,7 +654,7 @@ struct Buffer[*, mut: Bool = False](
         Precondition: `is_device()` must be True.
         """
         var ptr = rebind[UnsafePointer[Scalar[T], MutAnyOrigin]](
-            self._ptr.bitcast[Scalar[T]]() + offset
+            self._ptr.unsafe_bitcast[Scalar[T]]() + offset
         )
         return BufferView(ptr=ptr, length=(self._size // size_of[T]()) - offset)
 
@@ -665,11 +665,11 @@ struct Buffer[*, mut: Bool = False](
         """Typed MutAnyOrigin view for a mutable GPU-allocated buffer.
 
         For buffers created with ``alloc_device``, ``_ptr`` holds the device
-        pointer (originally ``MutAnyOrigin``, stored as ``MutExternalOrigin``).
+        pointer (originally ``MutAnyOrigin``, stored as ``MutUntrackedOrigin``).
         This method reinterprets it as ``MutAnyOrigin`` for GPU kernel writes.
         """
         var ptr = rebind[UnsafePointer[Scalar[T], MutAnyOrigin]](
-            self._ptr.bitcast[Scalar[T]]() + offset
+            self._ptr.unsafe_bitcast[Scalar[T]]() + offset
         )
         return BufferView(ptr=ptr, length=(self._size // size_of[T]()) - offset)
 
@@ -709,7 +709,7 @@ struct Buffer[*, mut: Bool = False](
             raise Error("to_device: buffer is already on device")
         var dev = ctx.enqueue_create_buffer[DType.uint8](self._size)
         ctx.enqueue_copy(
-            dev, rebind[UnsafePointer[UInt8, ImmutExternalOrigin]](self._ptr)
+            dev, rebind[UnsafePointer[UInt8, ImmUntrackedOrigin]](self._ptr)
         )
         return Buffer.from_device(dev, self._size)
 
@@ -730,7 +730,7 @@ struct Buffer[*, mut: Bool = False](
             raise Error("to_cpu: buffer is not on device")
         var builder = Buffer.alloc_zeroed(self._size)
         ctx.enqueue_copy(
-            rebind[UnsafePointer[UInt8, MutExternalOrigin]](builder._ptr),
+            rebind[UnsafePointer[UInt8, MutUntrackedOrigin]](builder._ptr),
             self._owner[]._device.value(),
         )
         ctx.synchronize()
@@ -740,8 +740,8 @@ struct Buffer[*, mut: Bool = False](
         """Compare two buffers byte-by-byte (64-bit chunks for speed)."""
         if self._size != other._size:
             return False
-        var lhs = self._ptr.bitcast[UInt64]()
-        var rhs = other._ptr.bitcast[UInt64]()
+        var lhs = self._ptr.unsafe_bitcast[UInt64]()
+        var rhs = other._ptr.unsafe_bitcast[UInt64]()
         for i in range(self._size // 8):
             if lhs[i] != rhs[i]:
                 return False
@@ -1048,7 +1048,7 @@ struct Bitmap[*, mut: Bool = False](
                 ptr[end_byte] = ptr[end_byte] & ~mask
 
         if end_byte > start_byte:
-            memset(ptr + start_byte, fill, end_byte - start_byte)
+            unsafe_memset(ptr + start_byte, fill, end_byte - start_byte)
 
     def extend(
         mut self: Bitmap[mut=True],
@@ -1103,7 +1103,7 @@ struct Bitmap[*, mut: Bool = False](
                 dst_byte += 1
 
             if end_byte > dst_byte:
-                memcpy(
+                unsafe_memcpy(
                     dest=dst + dst_byte,
                     src=src_ptr + src_byte,
                     count=end_byte - dst_byte,
