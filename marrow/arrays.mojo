@@ -165,7 +165,7 @@ struct NullArray(Array):
         return self.length
 
     def __str__(self) -> String:
-        return String.write(self)
+        return String(self)
 
     def type(self) -> AnyDataType:
         return null
@@ -236,7 +236,7 @@ struct BoolArray(Array):
         return self.length
 
     def __str__(self) -> String:
-        return String.write(self)
+        return String(self)
 
     def type(self) -> AnyDataType:
         return bool_
@@ -449,7 +449,7 @@ struct PrimitiveArray[T: PrimitiveType](Array):
         return self.length
 
     def __str__(self) -> String:
-        return String.write(self)
+        return String(self)
 
     def type(self) -> AnyDataType:
         return self.dtype.copy().to_any()
@@ -664,7 +664,7 @@ struct BinaryLikeArray[T: BinaryLikeType](Array):
         return self.length
 
     def __str__(self) -> String:
-        return String.write(self)
+        return String(self)
 
     def null_count(self) -> Int:
         return self.nulls
@@ -850,7 +850,7 @@ struct ListLikeArray[T: ListLikeType](Array):
         return self.length
 
     def __str__(self) -> String:
-        return String.write(self)
+        return String(self)
 
     def null_count(self) -> Int:
         return self.nulls
@@ -1081,7 +1081,7 @@ struct FixedSizeListArray(Array):
         return self.length
 
     def __str__(self) -> String:
-        return String.write(self)
+        return String(self)
 
     def null_count(self) -> Int:
         return self.nulls
@@ -1282,7 +1282,7 @@ struct FixedSizeBinaryArray(Array):
         return self.length
 
     def __str__(self) -> String:
-        return String.write(self)
+        return String(self)
 
     def type(self) -> AnyDataType:
         return FixedSizeBinaryType(self.byte_width).to_any()
@@ -1423,7 +1423,7 @@ struct StructArray(Array):
         return self.length
 
     def __str__(self) -> String:
-        return String.write(self)
+        return String(self)
 
     def null_count(self) -> Int:
         return self.nulls
@@ -1704,7 +1704,7 @@ struct DictionaryArray(Array):
         return self._length
 
     def __str__(self) -> String:
-        return String.write(self)
+        return String(self)
 
     def type(self) -> AnyDataType:
         return self._dtype.copy()
