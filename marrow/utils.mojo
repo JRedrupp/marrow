@@ -17,10 +17,26 @@ compiler currently crashes when `ref[_]` is used here (tracked as a TODO).
 """
 
 from std.utils import Variant
-from std.builtin.rebind import trait_downcast
+from std.builtin.rebind import downcast, rebind
 from std.os import abort
 from std.sys import has_accelerator, CompilationTarget
 from std.sys.info import _accelerator_arch
+
+
+@always_inline
+def _trait_downcast[
+    T: AnyType, //, Trait: type_of(AnyType)
+](ref src: T) -> ref[src] downcast[T, Trait]:
+    """Non-deprecated reimplementation of `std.builtin.rebind.trait_downcast`.
+
+    `trait_downcast` itself is `@deprecated` in favor of spelling the
+    conformance check as `conforms_to(type_of(src), Trait)` directly in a
+    `where` clause or `comptime assert`, but its behavior (downcast + rebind
+    to the trait-conforming view) is still exactly what `variant_dispatch`
+    needs at each dispatch site, so we inline the pre-deprecation body here.
+    """
+    comptime assert conforms_to(T, Trait), "Invalid downcast"
+    return rebind[downcast[T, Trait]](src)
 
 
 # `_TypePredicateGenerator` was moved from a top-level alias in
@@ -88,7 +104,7 @@ def variant_dispatch[
         comptime T = Ts[i]
         comptime if predicate[T]:
             if v.isa[T]():
-                return func(trait_downcast[Trait](v[T]))
+                return func(_trait_downcast[Trait](v[T]))
     abort("unreachable: variant_dispatch")
 
 
@@ -105,7 +121,7 @@ def variant_dispatch_raises[
         comptime T = Ts[i]
         comptime if predicate[T]:
             if v.isa[T]():
-                return func(trait_downcast[Trait](v[T]))
+                return func(_trait_downcast[Trait](v[T]))
     abort("unreachable: variant_dispatch_raises")
 
 
@@ -123,5 +139,5 @@ def variant_dispatch_raises[
         comptime T = Ts[i]
         comptime if predicate[T]:
             if v.isa[T]():
-                return func(trait_downcast[Trait](v[T]))
+                return func(_trait_downcast[Trait](v[T]))
     abort("unreachable: variant_dispatch_raises")
