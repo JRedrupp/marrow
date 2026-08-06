@@ -106,7 +106,7 @@ See ``docs/joins-design.md`` for the high-level architecture and the
 ``Phase 1b`` performance table.
 """
 
-from std.algorithm.functional import sync_parallelize
+from max.algorithm.functional import sync_parallelize
 from std.gpu.host import DeviceContext
 from std.sys.info import num_physical_cores
 

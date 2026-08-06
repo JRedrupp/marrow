@@ -142,7 +142,7 @@ def test_groupby_max_int64_precision() raises:
 
 
 def test_groupby_sum_uint64_wraps_for_large_values() raises:
-    """uint64 values > Int64.MAX wrap on cast to int64 accumulator.
+    """UInt64 values > Int64.MAX wrap on cast to int64 accumulator.
 
     The int64 accumulator is correct for uint8/16/32 and uint64 values
     below 2**63. For uint64 values above 2**63, the cast wraps (matching

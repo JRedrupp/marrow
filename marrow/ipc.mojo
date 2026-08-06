@@ -22,7 +22,7 @@ list, fixed_size_list, struct, dictionary.
 
 from std.bit import byte_swap
 from std.math import ceildiv
-from std.memory import Span
+from std.collections import Span
 from std.pathlib import Path
 from std.sys import size_of
 from std.sys.info import is_big_endian
@@ -30,7 +30,7 @@ from .arrays import AnyArray, ArrayData, DictionaryArray, NullArray
 from .buffers import Buffer, Bitmap
 from .schema import Schema
 from .tabular import RecordBatch
-import . dtypes as dt
+from . import dtypes as dt
 
 
 # ---------------------------------------------------------------------------

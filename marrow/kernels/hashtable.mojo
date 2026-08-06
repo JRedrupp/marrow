@@ -9,7 +9,7 @@ Architecture:
   Each layer is independently swappable.
 """
 
-from std.algorithm.functional import sync_parallelize
+from max.algorithm.functional import sync_parallelize
 from std.bit import count_trailing_zeros, next_power_of_two
 from std.gpu.host import DeviceContext
 from std.memory import pack_bits

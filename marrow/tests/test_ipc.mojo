@@ -546,7 +546,7 @@ def test_marrow_reads_pyarrow_stream() raises:
 
 
 def test_marrow_reads_pyarrow_all_types() raises:
-    """marrow correctly reads all Arrow primitive types written by PyArrow."""
+    """Marrow correctly reads all Arrow primitive types written by PyArrow."""
     var pa = Python.import_module("pyarrow")
     var path = _tmp_path()
 
@@ -597,7 +597,7 @@ def test_marrow_reads_pyarrow_all_types() raises:
 
 
 def test_marrow_reads_pyarrow_list() raises:
-    """marrow correctly reads a List(int32) column written by PyArrow."""
+    """Marrow correctly reads a List(int32) column written by PyArrow."""
     var pa = Python.import_module("pyarrow")
     var path = _tmp_path()
 
@@ -624,7 +624,7 @@ def test_marrow_reads_pyarrow_list() raises:
 
 
 def test_marrow_reads_pyarrow_nullable() raises:
-    """marrow correctly reads null values in a column written by PyArrow."""
+    """Marrow correctly reads null values in a column written by PyArrow."""
     var pa = Python.import_module("pyarrow")
     var path = _tmp_path()
 
@@ -695,7 +695,7 @@ def test_stream_dictionary_roundtrip() raises:
 
 
 def test_marrow_reads_pyarrow_dictionary() raises:
-    """marrow correctly reads a dictionary column written by PyArrow."""
+    """Marrow correctly reads a dictionary column written by PyArrow."""
     var pa = Python.import_module("pyarrow")
     var path = _tmp_path()
 

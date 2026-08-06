@@ -23,7 +23,7 @@ Serial cost breakdown at N=10M (from macOS `sample`, 50 iters, 8-bit baseline):
 """
 
 from std.builtin.sort import sort as _sort_impl
-from std.algorithm.functional import sync_parallelize
+from max.algorithm.functional import sync_parallelize
 from std.sys import size_of
 
 from ..arrays import (

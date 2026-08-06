@@ -50,7 +50,7 @@ from ..dtypes import (
     float64,
     string,
 )
-from std.algorithm.functional import sync_parallelize
+from max.algorithm.functional import sync_parallelize
 
 from ..views import BitmapView, BufferView
 from .aggregate import sum_
