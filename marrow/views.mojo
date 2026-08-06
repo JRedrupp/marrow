@@ -181,7 +181,7 @@ struct BufferView[
         index: Int,
         value: Scalar[Self.T],
     ) where Self.mut:
-        self._data.store(index, value)
+        self._data.unsafe_mut_cast[True]().unsafe_store(index, value)
 
     # --- SIMD ---
 
@@ -199,7 +199,7 @@ struct BufferView[
         index: Int,
         value: SIMD[Self.T, W],
     ) where Self.mut:
-        self._data.store(index, value)
+        self._data.unsafe_mut_cast[True]().unsafe_store(index, value)
 
     @always_inline
     def gather[W: Int](self, offsets: SIMD[DType.int64, W]) -> SIMD[Self.T, W]:
@@ -218,7 +218,7 @@ struct BufferView[
     ) where Self.mut:
         """Compress-store via LLVM intrinsic: write only mask=True lanes,
         packed sequentially from the start of this view."""
-        _compressed_store(value, self._data, mask)
+        _compressed_store(value, self._data.unsafe_mut_cast[True](), mask)
 
     @always_inline
     def compressed_store_sparse(
@@ -304,7 +304,7 @@ struct BufferView[
     ) where Self.mut:
         """Copy `count` elements from `src` into `self`."""
         unsafe_memcpy(
-            dest=self._data.unsafe_bitcast[UInt8](),
+            dest=self._data.unsafe_mut_cast[True]().unsafe_bitcast[UInt8](),
             src=src._data.unsafe_bitcast[UInt8](),
             count=count * size_of[Scalar[Self.T]](),
         )
@@ -312,7 +312,10 @@ struct BufferView[
     def to_string_slice(self) -> StringSlice[Self.origin]:
         """Convert this byte view to a StringSlice with origin `self_o`."""
         return StringSlice(
-            ptr=self._data.unsafe_bitcast[Byte](), length=self._length
+            unsafe_from_utf8=Span[Byte, Self.origin](
+                unsafe_ptr=self._data.unsafe_bitcast[Byte](),
+                length=self._length,
+            )
         )
 
     def copy_from(
@@ -321,7 +324,7 @@ struct BufferView[
     ) where Self.mut and Self.T == DType.uint8:
         """Copy bytes from a StringSlice into this view."""
         unsafe_memcpy(
-            dest=self._data.unsafe_bitcast[Byte](),
+            dest=self._data.unsafe_mut_cast[True]().unsafe_bitcast[Byte](),
             src=src.unsafe_ptr(),
             count=src.byte_length(),
         )
@@ -334,14 +337,13 @@ struct BufferView[
     ](self) where Self.mut:
         """Apply a SIMD function in-place over all elements."""
         comptime width = simd_byte_width() // size_of[Scalar[Self.T]]()
+        var p = self._data.unsafe_mut_cast[True]()
         var i = 0
         while i + width <= self._length:
-            self._data.store(
-                i, func[width](self._data.unsafe_load[width=width](i))
-            )
+            p.unsafe_store(i, func[width](p.unsafe_load[width=width](i)))
             i += width
         while i < self._length:
-            self._data[unsafe_offset=i] = func[1](self._data[unsafe_offset=i])
+            p[unsafe_offset=i] = func[1](p[unsafe_offset=i])
             i += 1
 
     def count[
@@ -649,7 +651,9 @@ struct BitmapView[
         No ``_offset`` adjustment — the caller is responsible for computing
         the correct element address.
         """
-        self._data.unsafe_bitcast[Scalar[T]]().store[width=W](index, val)
+        self._data.unsafe_mut_cast[True]().unsafe_bitcast[Scalar[T]]().unsafe_store[
+            width=W
+        ](index, val)
 
     @always_inline
     def store[
@@ -668,10 +672,11 @@ struct BitmapView[
             W % 8 == 0 or W < 8
         ), "W must be divisible by 8 or less than 8"
 
+        var mut_data = self._data.unsafe_mut_cast[True]()
         comptime if W % 8 == 0:
             var packed = _pack_bools(val).reduce_or()
-            var dst = self._data.unsafe_offset(bit_index >> 3)
-            dst.store(bitcast[DType.uint8, W // 8](packed))
+            var dst = mut_data.unsafe_offset(bit_index >> 3)
+            dst.unsafe_store(bitcast[DType.uint8, W // 8](packed))
         else:
             var abs_pos = self._offset + bit_index
             comptime for i in range(W):
@@ -679,11 +684,11 @@ struct BitmapView[
                 var byte_idx = p >> 3
                 var bit_off = UInt8(p & 7)
                 if val[i]:
-                    self._data[unsafe_offset=byte_idx] = self._data[
+                    mut_data[unsafe_offset=byte_idx] = mut_data[
                         unsafe_offset=byte_idx
                     ] | (UInt8(1) << bit_off)
                 else:
-                    self._data[unsafe_offset=byte_idx] = self._data[
+                    mut_data[unsafe_offset=byte_idx] = mut_data[
                         unsafe_offset=byte_idx
                     ] & ~(UInt8(1) << bit_off)
 
@@ -905,9 +910,8 @@ struct BitmapView[
         var abs_index = self._offset + index
         var byte_index = abs_index >> 3
         var bit_mask = UInt8(1 << (abs_index & 7))
-        self._data[unsafe_offset=byte_index] = self._data[
-            unsafe_offset=byte_index
-        ] | bit_mask
+        var p = self._data.unsafe_mut_cast[True]()
+        p[unsafe_offset=byte_index] = p[unsafe_offset=byte_index] | bit_mask
 
     @always_inline
     def clear(self, index: Int) where Self.mut:
@@ -916,9 +920,8 @@ struct BitmapView[
         var abs_index = self._offset + index
         var byte_index = abs_index >> 3
         var bit_mask = UInt8(1 << (abs_index & 7))
-        self._data[unsafe_offset=byte_index] = self._data[
-            unsafe_offset=byte_index
-        ] & ~bit_mask
+        var p = self._data.unsafe_mut_cast[True]()
+        p[unsafe_offset=byte_index] = p[unsafe_offset=byte_index] & ~bit_mask
 
     @always_inline
     def toggle(self, index: Int) where Self.mut:
@@ -927,9 +930,8 @@ struct BitmapView[
         var abs_index = self._offset + index
         var byte_index = abs_index >> 3
         var bit_mask = UInt8(1 << (abs_index & 7))
-        self._data[unsafe_offset=byte_index] = self._data[
-            unsafe_offset=byte_index
-        ] ^ bit_mask
+        var p = self._data.unsafe_mut_cast[True]()
+        p[unsafe_offset=byte_index] = p[unsafe_offset=byte_index] ^ bit_mask
 
     # --- Set operations (return Buffer with offset=0) ---
 
