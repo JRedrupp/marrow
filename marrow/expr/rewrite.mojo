@@ -31,7 +31,7 @@ Example
 """
 
 from std.memory import ArcPointer
-from marrow.expr.values import (
+from .values import (
     AnyValue,
     rebuild,
     LOAD,

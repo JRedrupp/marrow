@@ -26,8 +26,8 @@ from std.memory import ArcPointer
 from std.gpu.host import DeviceContext
 import std.math as math
 
-from marrow.arrays import PrimitiveArray, AnyArray
-from marrow.builders import (
+from ..arrays import PrimitiveArray, AnyArray
+from ..builders import (
     PrimitiveBuilder,
     Int8Builder,
     Int16Builder,
@@ -41,7 +41,7 @@ from marrow.builders import (
     Float32Builder,
     Float64Builder,
 )
-from marrow.dtypes import (
+from ..dtypes import (
     Int8Type,
     Int16Type,
     Int32Type,
@@ -67,9 +67,9 @@ from marrow.dtypes import (
     float64,
     bool_ as bool_dt,
 )
-from marrow.kernels.arithmetic import add, sub, mul, div, neg, abs_
-from marrow.kernels.boolean import and_, or_, not_, is_null, select
-from marrow.kernels.compare import (
+from ..kernels.arithmetic import add, sub, mul, div, neg, abs_
+from ..kernels.boolean import and_, or_, not_, is_null, select
+from ..kernels.compare import (
     equal,
     not_equal,
     less,
@@ -77,11 +77,11 @@ from marrow.kernels.compare import (
     greater,
     greater_equal,
 )
-from marrow.kernels.concat import concat
-from marrow.schema import Schema
-from marrow.tabular import RecordBatch
-from marrow.kernels.filter import filter_
-from marrow.expr.values import (
+from ..kernels.concat import concat
+from ..schema import Schema
+from ..tabular import RecordBatch
+from ..kernels.filter import filter_
+from .values import (
     AnyValue,
     Column,
     Literal,
@@ -113,12 +113,12 @@ from marrow.expr.values import (
     DISPATCH_CPU,
     DISPATCH_GPU,
 )
-from marrow.arrays import StructArray
-from marrow.dtypes import Field, struct_
-from marrow.kernels.groupby import HashGrouper
-from marrow.kernels.join import HashJoin
-from marrow.kernels.hashing import rapidhash
-from marrow.expr.relations import (
+from ..arrays import StructArray
+from ..dtypes import Field, struct_
+from ..kernels.groupby import HashGrouper
+from ..kernels.join import HashJoin
+from ..kernels.hashing import rapidhash
+from .relations import (
     AnyRelation,
     Scan,
     Filter as PlanFilter,
@@ -143,7 +143,7 @@ from marrow.expr.relations import (
     JOIN_ALL,
     JOIN_ANY,
 )
-from marrow.parquet import read_table
+from ..parquet import read_table
 
 
 # ---------------------------------------------------------------------------

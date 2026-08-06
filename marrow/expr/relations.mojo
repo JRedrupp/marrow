@@ -27,10 +27,10 @@ Example
 """
 
 from std.memory import ArcPointer
-from marrow.dtypes import Field
-from marrow.schema import Schema
-from marrow.tabular import RecordBatch
-from marrow.expr.values import AnyValue, col, resolve_columns
+from ..dtypes import Field
+from ..schema import Schema
+from ..tabular import RecordBatch
+from .values import AnyValue, col, resolve_columns
 
 
 # ---------------------------------------------------------------------------

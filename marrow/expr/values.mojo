@@ -24,10 +24,10 @@ unary ``-``.  Instance methods: ``.abs()``, ``.is_null()``, ``.cast(to)``.
 """
 
 from std.memory import ArcPointer
-from marrow.arrays import AnyArray, PrimitiveArray
-from marrow.builders import PrimitiveBuilder
-from marrow.dtypes import AnyDataType, PrimitiveType, NumericType
-from marrow.schema import Schema
+from ..arrays import AnyArray, PrimitiveArray
+from ..builders import PrimitiveBuilder
+from ..dtypes import AnyDataType, PrimitiveType, NumericType
+from ..schema import Schema
 
 
 # ---------------------------------------------------------------------------

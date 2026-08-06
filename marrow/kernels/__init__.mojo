@@ -16,12 +16,12 @@ Kernel implementations live in their respective modules:
   - `hashing.mojo` — hash_ for PrimitiveArray, StringArray, StructArray, AnyArray
 """
 
-from marrow.arrays import BoolArray, PrimitiveArray, AnyArray
-from marrow.buffers import Bitmap
-from marrow.scalars import PrimitiveScalar, AnyScalar
-from marrow.views import BitmapView
+from ..arrays import BoolArray, PrimitiveArray, AnyArray
+from ..buffers import Bitmap
+from ..scalars import PrimitiveScalar, AnyScalar
+from ..views import BitmapView
 from .execution import ExecutionContext
-from marrow.dtypes import (
+from ..dtypes import (
     PrimitiveType,
     Int8Type,
     Int16Type,
@@ -55,8 +55,8 @@ from marrow.dtypes import (
 
 
 def bitmap_and(
-    a: Optional[Bitmap[]], b: Optional[Bitmap[]]
-) raises -> Optional[Bitmap[]]:
+    a: Optional[Bitmap[mut=False]], b: Optional[Bitmap[mut=False]]
+) raises -> Optional[Bitmap[mut=False]]:
     """Compute the output validity bitmap as the bitwise AND of two input bitmaps.
 
     Output bit i is True iff both a[i] and b[i] are True (valid).
