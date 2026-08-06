@@ -41,7 +41,7 @@ def _alloc_c_string(s: String) -> UnsafePointer[c_char, MutUntrackedOrigin]:
     var n = s.byte_length()
     var buf = alloc[c_char](n + 1)
     unsafe_memcpy(dest=buf.unsafe_bitcast[UInt8](), src=s.unsafe_ptr(), count=n)
-    buf.unsafe_bitcast[UInt8]()[n] = 0
+    buf.unsafe_bitcast[UInt8]()[unsafe_offset=n] = 0
     return UnsafePointer[c_char, MutUntrackedOrigin](unsafe_from_address=Int(buf))
 
 
@@ -68,7 +68,7 @@ def _encode_c_metadata(
 
     var n_pairs = Int32(len(metadata))
     unsafe_memcpy(
-        dest=buf + head, src=UnsafePointer(to=n_pairs).unsafe_bitcast[UInt8](), count=4
+        dest=buf.unsafe_offset(head), src=UnsafePointer(to=n_pairs).unsafe_bitcast[UInt8](), count=4
     )
     head += 4
     for entry in metadata.items():
@@ -76,21 +76,21 @@ def _encode_c_metadata(
         var v = entry.value
         var k_len = Int32(k.byte_length())
         unsafe_memcpy(
-            dest=buf + head,
+            dest=buf.unsafe_offset(head),
             src=UnsafePointer(to=k_len).unsafe_bitcast[UInt8](),
             count=4,
         )
         head += 4
-        unsafe_memcpy(dest=buf + head, src=k.unsafe_ptr(), count=k.byte_length())
+        unsafe_memcpy(dest=buf.unsafe_offset(head), src=k.unsafe_ptr(), count=k.byte_length())
         head += k.byte_length()
         var v_len = Int32(v.byte_length())
         unsafe_memcpy(
-            dest=buf + head,
+            dest=buf.unsafe_offset(head),
             src=UnsafePointer(to=v_len).unsafe_bitcast[UInt8](),
             count=4,
         )
         head += 4
-        unsafe_memcpy(dest=buf + head, src=v.unsafe_ptr(), count=v.byte_length())
+        unsafe_memcpy(dest=buf.unsafe_offset(head), src=v.unsafe_ptr(), count=v.byte_length())
         head += v.byte_length()
     return buf.unsafe_bitcast[c_char]()
 
@@ -107,29 +107,41 @@ def _decode_c_metadata(
 
     var n_pairs = Int32(0)
     unsafe_memcpy(
-        dest=UnsafePointer(to=n_pairs).unsafe_bitcast[UInt8](), src=p + head, count=4
+        dest=UnsafePointer(to=n_pairs).unsafe_bitcast[UInt8](), src=p.unsafe_offset(head), count=4
     )
     head += 4
     for _ in range(Int(n_pairs)):
         var k_len = Int32(0)
         unsafe_memcpy(
-            dest=UnsafePointer(to=k_len).unsafe_bitcast[UInt8](), src=p + head, count=4
+            dest=UnsafePointer(to=k_len).unsafe_bitcast[UInt8](), src=p.unsafe_offset(head), count=4
         )
         head += 4
-        var k = String(StringSlice(ptr=p + head, length=Int(k_len)))
+        var k = String(
+            StringSlice(
+                unsafe_from_utf8=Span(
+                    unsafe_ptr=p.unsafe_offset(head), length=Int(k_len)
+                )
+            )
+        )
         head += Int(k_len)
         var v_len = Int32(0)
         unsafe_memcpy(
-            dest=UnsafePointer(to=v_len).unsafe_bitcast[UInt8](), src=p + head, count=4
+            dest=UnsafePointer(to=v_len).unsafe_bitcast[UInt8](), src=p.unsafe_offset(head), count=4
         )
         head += 4
-        var v = String(StringSlice(ptr=p + head, length=Int(v_len)))
+        var v = String(
+            StringSlice(
+                unsafe_from_utf8=Span(
+                    unsafe_ptr=p.unsafe_offset(head), length=Int(v_len)
+                )
+            )
+        )
         head += Int(v_len)
         result[k^] = v^
     return result^
 
 
-def _release_schema_capsule(capsule: PyObjectPtr):
+def _release_schema_capsule(capsule: PyObjectPtr) abi("C"):
     """PyCapsule destructor for "arrow_schema" capsules.
 
     Called by Python's GC when a schema capsule is collected.
@@ -148,7 +160,7 @@ def _release_schema_capsule(capsule: PyObjectPtr):
             var c_schema = ptr.unsafe_bitcast[CArrowSchema]()
             # Guard against double-free: an Arrow importer zeroes the release
             # field after taking ownership.
-            if UnsafePointer(to=c_schema[].release).unsafe_bitcast[UInt64]()[0] != 0:
+            if UnsafePointer(to=c_schema[].release).unsafe_bitcast[UInt64]()[unsafe_offset=0] != 0:
                 c_schema[].release(c_schema)
             c_schema.unsafe_free()
     except:
@@ -167,7 +179,7 @@ def _release_exported_schema(ptr: UnsafePointer[CArrowSchema, MutUntrackedOrigin
     Nulls the release field per the Arrow spec so double-free is detectable.
     """
     for i in range(Int(ptr[].n_children)):
-        ptr[].children[i].unsafe_free()
+        ptr[].children[unsafe_offset=i].unsafe_free()
     if ptr[].n_children > 0:
         ptr[].children.unsafe_free()
     if Int(ptr[].format) != 0:
@@ -176,7 +188,7 @@ def _release_exported_schema(ptr: UnsafePointer[CArrowSchema, MutUntrackedOrigin
         ptr[].name.unsafe_free()
     if Int(ptr[].metadata) != 0:
         ptr[].metadata.unsafe_free()
-    UnsafePointer(to=ptr[].release).unsafe_bitcast[UInt64]()[0] = 0
+    UnsafePointer(to=ptr[].release).unsafe_bitcast[UInt64]()[unsafe_offset=0] = 0
 
 
 @fieldwise_init
@@ -217,7 +229,7 @@ struct CArrowSchema(Copyable, Movable):
     def __deinit__(deinit self):
         # Guard: release is zeroed by an Arrow importer after it takes ownership,
         # so we only call it when we still own the resources.
-        if UnsafePointer(to=self.release).unsafe_bitcast[UInt64]()[0] != 0:
+        if UnsafePointer(to=self.release).unsafe_bitcast[UInt64]()[unsafe_offset=0] != 0:
             self.release(UnsafePointer(to=self).unsafe_origin_cast[MutUntrackedOrigin]())
 
     @staticmethod
@@ -289,7 +301,7 @@ struct CArrowSchema(Copyable, Movable):
             )
             var child0_ptr = alloc[CArrowSchema](1)
             child0_ptr.unsafe_write(child0^)
-            children[0] = child0_ptr
+            children[unsafe_offset=0] = child0_ptr
         elif dtype.is_large_list():
             fmt = "+L"
             n_children = 1
@@ -299,7 +311,7 @@ struct CArrowSchema(Copyable, Movable):
             )
             var child0_ptr = alloc[CArrowSchema](1)
             child0_ptr.unsafe_write(child0^)
-            children[0] = child0_ptr
+            children[unsafe_offset=0] = child0_ptr
         elif dtype.is_fixed_size_list():
             ref fsl = dtype.as_fixed_size_list()
             fmt = {"+w:", fsl.size}
@@ -308,7 +320,7 @@ struct CArrowSchema(Copyable, Movable):
             var child0 = CArrowSchema.from_field(fsl.value_field().copy())
             var child0_ptr = alloc[CArrowSchema](1)
             child0_ptr.unsafe_write(child0^)
-            children[0] = child0_ptr
+            children[unsafe_offset=0] = child0_ptr
         elif dtype.is_fixed_size_binary():
             ref fsb = dtype.as_fixed_size_binary()
             fmt = {"w:", fsb.byte_width}
@@ -379,7 +391,7 @@ struct CArrowSchema(Copyable, Movable):
                 var child = CArrowSchema.from_field(st.fields[i])
                 var child_ptr = alloc[CArrowSchema](1)
                 child_ptr.unsafe_write(child^)
-                children[i] = child_ptr
+                children[unsafe_offset=i] = child_ptr
         elif dtype.is_dictionary():
             ref dt = dtype.as_dictionary()
             ref idx = dt.index_type()
@@ -468,7 +480,7 @@ struct CArrowSchema(Copyable, Movable):
                 var child = CArrowSchema.from_field(schema.fields[i])
                 var child_ptr = alloc[CArrowSchema](1)
                 child_ptr.unsafe_write(child^)
-                children[i] = child_ptr
+                children[unsafe_offset=i] = child_ptr
 
         return CArrowSchema(
             format=_alloc_c_string("+s"),
@@ -498,7 +510,7 @@ struct CArrowSchema(Copyable, Movable):
             capsule._obj_ptr, "arrow_schema"
         ).unsafe_bitcast[CArrowSchema]()
         var schema = src[].copy()
-        UnsafePointer(to=src[].release).unsafe_bitcast[UInt64]()[0] = 0
+        UnsafePointer(to=src[].release).unsafe_bitcast[UInt64]()[unsafe_offset=0] = 0
         return schema^
 
     def to_pycapsule(deinit self) raises -> PythonObject:
@@ -525,11 +537,11 @@ struct CArrowSchema(Copyable, Movable):
         )
 
     def to_dtype(self) raises -> AnyDataType:
-        var fmt = StringSlice(unsafe_from_utf8_ptr=self.format)
+        var fmt = String(unsafe_from_utf8_ptr=self.format)
         # Dictionary type: non-null `dictionary` field signals dictionary encoding.
         # The format string is the index type's format (e.g. "i" for int32).
         # Must be checked before the regular format string dispatch.
-        if UnsafePointer(to=self.dictionary).unsafe_bitcast[UInt64]()[0] != 0:
+        if UnsafePointer(to=self.dictionary).unsafe_bitcast[UInt64]()[unsafe_offset=0] != 0:
             var index_type: AnyDataType
             if fmt == "c":
                 index_type = int8
@@ -593,13 +605,13 @@ struct CArrowSchema(Copyable, Movable):
         elif fmt == "+l":
             # Preserve the child Field as-is (its name may not be the default
             # "item" when constructed by other Arrow implementations).
-            return ListType(self.children[0][].to_field()).to_any()
+            return ListType(self.children[unsafe_offset=0][].to_field()).to_any()
         elif fmt == "+L":
-            return LargeListType(self.children[0][].to_field()).to_any()
+            return LargeListType(self.children[unsafe_offset=0][].to_field()).to_any()
         elif fmt.startswith("+w:"):
             var size = Int(String(fmt).removeprefix("+w:"))
             return FixedSizeListType(
-                self.children[0][].to_field(), size
+                self.children[unsafe_offset=0][].to_field(), size
             ).to_any()
         elif fmt.startswith("w:"):
             var width = Int(String(fmt).removeprefix("w:"))
@@ -649,7 +661,7 @@ struct CArrowSchema(Copyable, Movable):
         elif fmt == "+s":
             var fields = List[Field](capacity=Int(self.n_children))
             for i in range(self.n_children):
-                fields.append(self.children[i][].to_field())
+                fields.append(self.children[unsafe_offset=i][].to_field())
             return struct_(fields^)
         elif fmt.startswith("d:"):
             var rest = String(fmt).removeprefix("d:")
@@ -671,7 +683,7 @@ struct CArrowSchema(Copyable, Movable):
             raise Error("Unknown format: ", fmt)
 
     def to_field(self) raises -> Field:
-        var name = StringSlice(unsafe_from_utf8_ptr=self.name)
+        var name = String(unsafe_from_utf8_ptr=self.name)
         var dtype = self.to_dtype()
         var nullable = self.flags & ARROW_FLAG_NULLABLE
         var metadata = _decode_c_metadata(self.metadata)
@@ -681,12 +693,12 @@ struct CArrowSchema(Copyable, Movable):
         """Build a Schema from this top-level struct CArrowSchema."""
         var fields = List[Field]()
         for i in range(self.n_children):
-            fields.append(self.children[i][].to_field())
+            fields.append(self.children[unsafe_offset=i][].to_field())
         var metadata = _decode_c_metadata(self.metadata)
         return Schema(fields=fields^, metadata=metadata^)
 
 
-def _release_array_capsule(capsule: PyObjectPtr):
+def _release_array_capsule(capsule: PyObjectPtr) abi("C"):
     """PyCapsule destructor for "arrow_array" capsules.
 
     Mirrors `_release_schema_capsule`.  The capsule holds a raw pointer to a
@@ -702,7 +714,7 @@ def _release_array_capsule(capsule: PyObjectPtr):
             var c_arr = ptr.unsafe_bitcast[CArrowArray]()
             # Guard: release is zeroed by _release_exported_array after it runs,
             # or by an Arrow importer after it takes ownership.
-            if UnsafePointer(to=c_arr[].release).unsafe_bitcast[UInt64]()[0] != 0:
+            if UnsafePointer(to=c_arr[].release).unsafe_bitcast[UInt64]()[unsafe_offset=0] != 0:
                 c_arr[].release(c_arr)
             c_arr.unsafe_free()
     except:
@@ -735,14 +747,14 @@ def _release_exported_array(ptr: UnsafePointer[CArrowArray, MutUntrackedOrigin])
     """
     if ptr[].n_children > 0:
         for i in range(Int(ptr[].n_children)):
-            ptr[].children[i].unsafe_free()
+            ptr[].children[unsafe_offset=i].unsafe_free()
         ptr[].children.unsafe_free()
     if Int(ptr[].buffers) != 0:
         ptr[].buffers.unsafe_free()
     var data_ptr = ptr[].private_data.unsafe_bitcast[ArrayData]()
     data_ptr.unsafe_deinit_pointee()
     data_ptr.unsafe_free()
-    UnsafePointer(to=ptr[].release).unsafe_bitcast[UInt64]()[0] = 0
+    UnsafePointer(to=ptr[].release).unsafe_bitcast[UInt64]()[unsafe_offset=0] = 0
 
 
 @fieldwise_init
@@ -788,7 +800,7 @@ struct CArrowArray(Copyable, Movable):
 
     def __deinit__(deinit self):
         # Guard: release is zeroed by an Arrow importer after it takes ownership.
-        if UnsafePointer(to=self.release).unsafe_bitcast[UInt64]()[0] != 0:
+        if UnsafePointer(to=self.release).unsafe_bitcast[UInt64]()[unsafe_offset=0] != 0:
             self.release(UnsafePointer(to=self).unsafe_origin_cast[MutUntrackedOrigin]())
 
     def to_data(
@@ -810,10 +822,10 @@ struct CArrowArray(Copyable, Movable):
         # Null arrays carry no buffers — `self.buffers` itself may be a null
         # pointer — so skip the validity read for them.
         var bitmap: Optional[Bitmap[]] = None
-        if not dtype.is_null() and Int(self.buffers[0]) != 0:
+        if not dtype.is_null() and Int(self.buffers[unsafe_offset=0]) != 0:
             bitmap = Bitmap(
                 Buffer.from_foreign(
-                    self.buffers[0],
+                    self.buffers[unsafe_offset=0],
                     math.ceildiv(Int(length), 8),
                     owner,
                 ),
@@ -828,68 +840,68 @@ struct CArrowArray(Copyable, Movable):
         elif dtype.is_bool():
             buffers.append(
                 Buffer.from_foreign(
-                    self.buffers[1], math.ceildiv(Int(length), 8), owner
+                    self.buffers[unsafe_offset=1], math.ceildiv(Int(length), 8), owner
                 )
             )
         elif dtype.is_primitive():
             buffers.append(
                 Buffer.from_foreign(
-                    self.buffers[1], Int(length) * dtype.byte_width(), owner
+                    self.buffers[unsafe_offset=1], Int(length) * dtype.byte_width(), owner
                 )
             )
         elif dtype.is_string() or dtype.is_binary():
             var offsets = Buffer.from_foreign(
-                self.buffers[1],
+                self.buffers[unsafe_offset=1],
                 (Int(length) + 1) * size_of[DType.int32](),
                 owner,
             )
             var n = Int(offsets.unsafe_get[DType.int32](Int(length)))
             buffers.append(offsets^)
-            buffers.append(Buffer.from_foreign(self.buffers[2], n, owner))
+            buffers.append(Buffer.from_foreign(self.buffers[unsafe_offset=2], n, owner))
         elif dtype.is_large_string() or dtype.is_large_binary():
             var offsets = Buffer.from_foreign(
-                self.buffers[1],
+                self.buffers[unsafe_offset=1],
                 (Int(length) + 1) * size_of[DType.int64](),
                 owner,
             )
             var n = Int(offsets.unsafe_get[DType.int64](Int(length)))
             buffers.append(offsets^)
-            buffers.append(Buffer.from_foreign(self.buffers[2], n, owner))
+            buffers.append(Buffer.from_foreign(self.buffers[unsafe_offset=2], n, owner))
         elif dtype.is_list():
             buffers.append(
                 Buffer.from_foreign(
-                    self.buffers[1],
+                    self.buffers[unsafe_offset=1],
                     (Int(length) + 1) * size_of[DType.int32](),
                     owner,
                 )
             )
             children.append(
-                self.children[0][].to_data(dtype.as_list().value_type(), owner)
+                self.children[unsafe_offset=0][].to_data(dtype.as_list().value_type(), owner)
             )
         elif dtype.is_large_list():
             buffers.append(
                 Buffer.from_foreign(
-                    self.buffers[1],
+                    self.buffers[unsafe_offset=1],
                     (Int(length) + 1) * size_of[DType.int64](),
                     owner,
                 )
             )
             children.append(
-                self.children[0][].to_data(
+                self.children[unsafe_offset=0][].to_data(
                     dtype.as_large_list().value_type(), owner
                 )
             )
         elif dtype.is_fixed_size_binary():
             buffers.append(
                 Buffer.from_foreign(
-                    self.buffers[1],
+                    self.buffers[unsafe_offset=1],
                     Int(length) * dtype.as_fixed_size_binary().byte_width,
                     owner,
                 )
             )
         elif dtype.is_fixed_size_list():
             children.append(
-                self.children[0][].to_data(
+                self.children[unsafe_offset=0][].to_data(
                     dtype.as_fixed_size_list().value_type(), owner
                 )
             )
@@ -897,13 +909,13 @@ struct CArrowArray(Copyable, Movable):
             ref st = dtype.as_struct()
             for i in range(Int(self.n_children)):
                 children.append(
-                    self.children[i][].to_data(st.fields[i].dtype, owner)
+                    self.children[unsafe_offset=i][].to_data(st.fields[i].dtype, owner)
                 )
         elif dtype.is_dictionary():
             ref dt = dtype.as_dictionary()
             buffers.append(
                 Buffer.from_foreign(
-                    self.buffers[1],
+                    self.buffers[unsafe_offset=1],
                     Int(length) * dt.index_type().byte_width(),
                     owner,
                 )
@@ -975,15 +987,15 @@ struct CArrowArray(Copyable, Movable):
         if not is_null_dtype:
             buffers = alloc[OpaquePointer[MutUntrackedOrigin]](Int(n_buffers))
             if data_heap[].bitmap:
-                buffers[0] = OpaquePointer[MutUntrackedOrigin](
+                buffers[unsafe_offset=0] = OpaquePointer[MutUntrackedOrigin](
                     unsafe_from_address=Int(
                         data_heap[].bitmap.value().view().unsafe_ptr()
                     )
                 )
             else:
-                buffers[0] = _null_ptr[NoneType]()
+                buffers[unsafe_offset=0] = _null_ptr[NoneType]()
             for i in range(len(data_heap[].buffers)):
-                buffers[1 + i] = OpaquePointer[MutUntrackedOrigin](
+                buffers[unsafe_offset=1 + i] = OpaquePointer[MutUntrackedOrigin](
                     unsafe_from_address=Int(
                         data_heap[].buffers[i].view[DType.uint8]().unsafe_ptr()
                     )
@@ -1004,7 +1016,7 @@ struct CArrowArray(Copyable, Movable):
                 )
                 var child_ptr = alloc[CArrowArray](1)
                 child_ptr.unsafe_write(child^)
-                children_ptr[i] = child_ptr
+                children_ptr[unsafe_offset=i] = child_ptr
 
         # For dictionary arrays, children[0] holds the values array; expose it
         # as the C dictionary field.
@@ -1041,7 +1053,7 @@ struct CArrowArray(Copyable, Movable):
             capsule._obj_ptr, "arrow_array"
         ).unsafe_bitcast[CArrowArray]()
         var array = src[].copy()
-        UnsafePointer(to=src[].release).unsafe_bitcast[UInt64]()[0] = 0
+        UnsafePointer(to=src[].release).unsafe_bitcast[UInt64]()[unsafe_offset=0] = 0
         return array^
 
     def to_pycapsule(deinit self) raises -> PythonObject:
@@ -1157,7 +1169,7 @@ struct CArrowDeviceArray(Movable):
             An `AnyArray` whose buffers reference the device memory directly
             (zero-copy for device types; CPU for ARROW_DEVICE_CPU).
         """
-        if self.sync_event:
+        if Int(self.sync_event) != 0:
             ctx.synchronize()
 
         var heap_c = alloc[CArrowDeviceArray](1)
@@ -1231,7 +1243,7 @@ def _stream_get_next(
         var data = stream_ptr[].private_data.unsafe_bitcast[_StreamPrivateData]()
         if data[].index >= len(data[].batches):
             # Signal end-of-stream: set release to null.
-            UnsafePointer(to=array_out[].release).unsafe_bitcast[UInt64]()[0] = 0
+            UnsafePointer(to=array_out[].release).unsafe_bitcast[UInt64]()[unsafe_offset=0] = 0
             return 0
         var batch = data[].batches[data[].index].copy()
         data[].index += 1
@@ -1256,10 +1268,10 @@ def _stream_release(
     var data = stream_ptr[].private_data.unsafe_bitcast[_StreamPrivateData]()
     data.unsafe_deinit_pointee()
     data.unsafe_free()
-    UnsafePointer(to=stream_ptr[].release).unsafe_bitcast[UInt64]()[0] = 0
+    UnsafePointer(to=stream_ptr[].release).unsafe_bitcast[UInt64]()[unsafe_offset=0] = 0
 
 
-def _release_stream_capsule(capsule: PyObjectPtr):
+def _release_stream_capsule(capsule: PyObjectPtr) abi("C"):
     """PyCapsule destructor for "arrow_array_stream" capsules."""
     try:
         var py = Python()
@@ -1267,7 +1279,7 @@ def _release_stream_capsule(capsule: PyObjectPtr):
         var ptr = cpy.PyCapsule_GetPointer(capsule, "arrow_array_stream")
         if Int(ptr) != 0:
             var c_stream = ptr.unsafe_bitcast[CArrowArrayStream]()
-            if UnsafePointer(to=c_stream[].release).unsafe_bitcast[UInt64]()[0] != 0:
+            if UnsafePointer(to=c_stream[].release).unsafe_bitcast[UInt64]()[unsafe_offset=0] != 0:
                 c_stream[].release(c_stream)
             c_stream.unsafe_free()
     except:
@@ -1332,7 +1344,7 @@ struct CArrowArrayStream(Copyable, TrivialRegisterPassable):
             capsule._obj_ptr, "arrow_array_stream"
         ).unsafe_bitcast[CArrowArrayStream]()
         var stream = src[].copy()
-        UnsafePointer(to=src[].release).unsafe_bitcast[UInt64]()[0] = 0
+        UnsafePointer(to=src[].release).unsafe_bitcast[UInt64]()[unsafe_offset=0] = 0
         return stream
 
     def to_pycapsule(self) raises -> PythonObject:
@@ -1364,7 +1376,7 @@ struct CArrowArrayStream(Copyable, TrivialRegisterPassable):
             heap[].release(heap)
             heap.unsafe_free()
             raise Error("CArrowArrayStream: get_schema failed with code ", err)
-        var schema = c_schema.take_pointee().to_schema()
+        var schema = c_schema.unsafe_take_pointee().to_schema()
 
         # Iterate batches.
         var batches = List[RecordBatch]()
@@ -1378,11 +1390,11 @@ struct CArrowArrayStream(Copyable, TrivialRegisterPassable):
                     "CArrowArrayStream: get_next failed with code ", err
                 )
             # End-of-stream: release field is null.
-            if UnsafePointer(to=c_array[].release).unsafe_bitcast[UInt64]()[0] == 0:
+            if UnsafePointer(to=c_array[].release).unsafe_bitcast[UInt64]()[unsafe_offset=0] == 0:
                 c_array.unsafe_free()
                 break
             var struct_dtype = struct_(schema.fields.copy())
-            var arr = c_array.take_pointee().to_array(struct_dtype^)
+            var arr = c_array.unsafe_take_pointee().to_array(struct_dtype^)
             var columns = List[AnyArray]()
             for child in arr.as_struct().children:
                 columns.append(child.copy())
