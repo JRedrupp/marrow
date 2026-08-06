@@ -45,7 +45,7 @@ from std.builtin.simd import Scalar as _Scalar
 # ---------------------------------------------------------------------------
 
 
-trait Scalar(Copyable, Equatable, Movable, Writable):
+trait Scalar(Copyable, Deinitable, Equatable, Movable, Writable):
     """Common interface for all typed Arrow scalars."""
 
     def type(self) -> AnyDataType:
@@ -535,6 +535,16 @@ struct AnyScalar(ConvertibleToPython, Copyable, Equatable, Movable, Writable):
 
     def __init__(out self, *, copy: Self):
         self._v = Self.VariantType(copy=copy._v)
+
+    def __deinit__(deinit self):
+        # `AnyScalar.VariantType` members (ListScalar, StructScalar,
+        # DictionaryScalar, ...) recursively embed `OwnedPointer[AnyArray]` /
+        # `List[AnyScalar]`. An implicit destructor for this mutually
+        # recursive type can't be auto-derived (the compiler can't resolve
+        # the cycle), so this explicit no-op forces `AnyScalar` to
+        # unconditionally implement `Deinitable`. Mojo still destroys all
+        # fields normally afterwards — see docs/manual/lifecycle/death.mdx.
+        pass
 
     # --- dispatch-based methods ---
 

@@ -53,7 +53,7 @@ from .utils import _always_true, variant_dispatch, variant_dispatch_raises
 # ---------------------------------------------------------------------------
 
 
-trait DataType(Copyable, Equatable, Movable, Writable):
+trait DataType(Copyable, Deinitable, Equatable, Movable, Writable):
     def to_any(deinit self) -> AnyDataType:
         return AnyDataType(self^)
 
@@ -736,6 +736,16 @@ struct AnyDataType(
         except:
             raise Error("cannot convert Python object to AnyDataType")
         self = CArrowSchema.from_pycapsule(capsule).to_dtype()
+
+    def __deinit__(deinit self):
+        # `AnyDataType.VariantType` includes `DictionaryType`, which embeds
+        # `OwnedPointer[AnyDataType]` for its index/value types. An implicit
+        # destructor for this mutually-recursive type can't be auto-derived
+        # (the compiler can't resolve the cycle), so this explicit no-op
+        # forces `AnyDataType` to unconditionally implement `Deinitable`.
+        # Mojo still destroys all fields normally afterwards — see
+        # docs/manual/lifecycle/death.mdx.
+        pass
 
     def to_python_object(var self) raises -> PythonObject:
         return PythonObject(alloc=self^)
