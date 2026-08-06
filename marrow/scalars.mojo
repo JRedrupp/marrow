@@ -45,7 +45,7 @@ from std.builtin.simd import Scalar as _Scalar
 # ---------------------------------------------------------------------------
 
 
-trait Scalar(Copyable, Deinitable, Equatable, Movable, Writable):
+trait Scalar(Copyable, Equatable, ImplicitlyDeletable, Movable, Writable):
     """Common interface for all typed Arrow scalars."""
 
     def type(self) -> AnyDataType:

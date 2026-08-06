@@ -53,7 +53,7 @@ from .utils import _always_true, variant_dispatch, variant_dispatch_raises
 # ---------------------------------------------------------------------------
 
 
-trait DataType(Copyable, Deinitable, Equatable, Movable, Writable):
+trait DataType(Copyable, Equatable, ImplicitlyDeletable, Movable, Writable):
     def to_any(deinit self) -> AnyDataType:
         return AnyDataType(self^)
 
