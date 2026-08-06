@@ -131,6 +131,14 @@ struct ArrayData(Copyable, Movable):
     var buffers: List[Buffer[mut=False]]
     var children: List[ArrayData]
 
+    def __deinit__(deinit self):
+        # `children: List[ArrayData]` is directly self-referential; the
+        # compiler can't auto-derive an implicit destructor for a type whose
+        # own Deinitable-ness depends on itself.  This explicit no-op forces
+        # unconditional `Deinitable` conformance — fields still get destroyed
+        # normally afterwards (see docs/manual/lifecycle/death.mdx).
+        pass
+
 
 # ---------------------------------------------------------------------------
 # BoolArray
@@ -1969,6 +1977,17 @@ struct AnyArray(
                 "cannot convert Python object of type",
                 t" '{py.__class__.__name__}' to AnyArray",
             )
+
+    def __deinit__(deinit self):
+        # `AnyArray.VariantType` members (ListArray, StructArray,
+        # DictionaryArray, FixedSizeListArray, ...) recursively embed
+        # `OwnedPointer[AnyArray]` / `List[AnyArray]` for child arrays.  An
+        # implicit destructor for this mutually-recursive type can't be
+        # auto-derived (the compiler can't resolve the cycle), so this
+        # explicit no-op destructor forces `AnyArray` to unconditionally
+        # implement `Deinitable`.  Mojo still destroys all fields normally
+        # afterwards — see docs/manual/lifecycle/death.mdx.
+        pass
 
     # --- dispatch-based methods ---
 

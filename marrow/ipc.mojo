@@ -168,6 +168,14 @@ struct _FieldIpcInfo(Copyable, Movable):
         self.dict_id = copy.dict_id
         self.children = copy.children.copy()
 
+    def __deinit__(deinit self):
+        # `children: List[_FieldIpcInfo]` is directly self-referential; the
+        # compiler can't auto-derive an implicit destructor for a type whose
+        # own Deinitable-ness depends on itself.  This explicit no-op forces
+        # unconditional `Deinitable` conformance — fields still get destroyed
+        # normally afterwards (see docs/manual/lifecycle/death.mdx).
+        pass
+
     @staticmethod
     def find(
         dtype: dt.AnyDataType, ipc_info: _FieldIpcInfo, target_id: Int

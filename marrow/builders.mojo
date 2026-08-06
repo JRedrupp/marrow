@@ -163,6 +163,16 @@ struct AnyBuilder(ImplicitlyCopyable, Movable):
     def __init__(out self, *, copy: Self):
         self._ptr = copy._ptr.copy()
 
+    def __deinit__(deinit self):
+        # `AnyBuilder.VariantType` members (StructBuilder, ListBuilder,
+        # DictionaryBuilder, ...) recursively embed `List[AnyBuilder]` for
+        # child builders. An implicit destructor for this mutually recursive
+        # type can't be auto-derived (the compiler can't resolve the cycle),
+        # so this explicit no-op forces `AnyBuilder` to unconditionally
+        # implement `Deinitable`. Mojo still destroys all fields normally
+        # afterwards — see docs/manual/lifecycle/death.mdx.
+        pass
+
     def __init__(out self, dtype: AnyDataType, capacity: Int = 0) raises:
         if dtype.is_null():
             self = NullBuilder(capacity)
