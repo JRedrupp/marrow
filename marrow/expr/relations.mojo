@@ -284,7 +284,7 @@ struct AnyRelation(ImplicitlyCopyable, Movable, Writable):
         Returns:
             Plan node whose schema has key columns + agg result columns.
         """
-        from marrow.dtypes import float64, int64, AnyDataType
+        from ..dtypes import float64, int64, AnyDataType
 
         var input_schema = self.schema()
         var resolved_keys = List[AnyValue]()
@@ -775,7 +775,7 @@ def parquet_scan(path: String) raises -> AnyRelation:
     Reads the schema from the Parquet footer metadata (no data I/O).
     """
     from std.python import Python
-    from marrow.c_data import CArrowSchema
+    from ..c_data import CArrowSchema
 
     var pq = Python.import_module("pyarrow.parquet")
     var pa_schema = pq.read_schema(path)

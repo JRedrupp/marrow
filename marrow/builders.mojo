@@ -1136,6 +1136,16 @@ struct StructBuilder(Builder):
         self._bitmap = Bitmap.alloc_zeroed(capacity)
         self._children = children^
 
+    def __deinit__(deinit self):
+        # `_children: List[AnyBuilder]` embeds `AnyBuilder`, whose own
+        # variants recursively embed `List[AnyBuilder]` (e.g. nested
+        # StructBuilder/ListBuilder fields). The compiler can't auto-derive
+        # an implicit destructor across that cycle, so this explicit no-op
+        # forces `StructBuilder` to unconditionally implement `Deinitable`.
+        # Mojo still destroys all fields normally afterwards — see
+        # docs/manual/lifecycle/death.mdx.
+        pass
+
     def length(self) -> Int:
         return self._length
 
