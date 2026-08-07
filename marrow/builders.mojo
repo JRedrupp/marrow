@@ -327,7 +327,7 @@ struct AnyBuilder(ImplicitlyCopyable, Movable):
 
     def as_primitive[
         T: PrimitiveType
-    ](ref self) -> ref[self._ptr[]] PrimitiveBuilder[T]:
+    ](ref self) -> ref[self._ptr[][PrimitiveBuilder[T]]] PrimitiveBuilder[T]:
         return self._as[PrimitiveBuilder[T]]()
 
     def as_null(ref self) -> ref[self._ptr[][NullBuilder]] NullBuilder:
@@ -392,7 +392,7 @@ struct AnyBuilder(ImplicitlyCopyable, Movable):
 
     def as_fixed_size_binary(
         ref self,
-    ) -> ref[self._ptr[]] FixedSizeBinaryBuilder:
+    ) -> ref[self._ptr[][FixedSizeBinaryBuilder]] FixedSizeBinaryBuilder:
         return self._as[FixedSizeBinaryBuilder]()
 
     def as_date32(ref self) -> ref[self._ptr[][Date32Builder]] Date32Builder:
@@ -415,17 +415,17 @@ struct AnyBuilder(ImplicitlyCopyable, Movable):
 
     def as_year_month_interval(
         ref self,
-    ) -> ref[self._ptr[]] YearMonthIntervalBuilder:
+    ) -> ref[self._ptr[][YearMonthIntervalBuilder]] YearMonthIntervalBuilder:
         return self._as[YearMonthIntervalBuilder]()
 
     def as_day_time_interval(
         ref self,
-    ) -> ref[self._ptr[]] DayTimeIntervalBuilder:
+    ) -> ref[self._ptr[][DayTimeIntervalBuilder]] DayTimeIntervalBuilder:
         return self._as[DayTimeIntervalBuilder]()
 
     def as_month_day_nano_interval(
         ref self,
-    ) -> ref[self._ptr[]] MonthDayNanoIntervalBuilder:
+    ) -> ref[self._ptr[][MonthDayNanoIntervalBuilder]] MonthDayNanoIntervalBuilder:
         return self._as[MonthDayNanoIntervalBuilder]()
 
     def as_decimal32(ref self) -> ref[self._ptr[][Decimal32Builder]] Decimal32Builder:
