@@ -2,6 +2,76 @@
 
 ## [Unreleased]
 
+### Fixes
+
+- **Nightly compat: compile errors against Mojo `1.0.0b3.dev2026080206`**
+  (`marrow/{builders,kernels/hashtable,expr/relations}.mojo`, continuing the
+  migration started in `28ad12f`..`7b4e978`): explicit `__deinit__` on
+  `StructBuilder` to break the same mutually-recursive `Deinitable`
+  auto-derivation cycle already fixed for `AnyBuilder`/`ArrayData` in
+  `ab07e88`; explicit import of `Int32Type` in `kernels/hashtable.mojo`
+  (implicit package-level re-export is now deprecated); two inline absolute
+  `from marrow.x import Y` imports in `expr/relations.mojo` that created a
+  second nominal identity for `AnyDataType`/`Schema` distinct from the
+  relative imports used elsewhere in the file (same class of bug as
+  `f149a0c`/`d2c92b5`), switched to relative imports; and five remaining
+  `as_*` builder downcasts (`as_primitive`, `as_fixed_size_binary`,
+  `as_year_month_interval`, `as_day_time_interval`,
+  `as_month_day_nano_interval`) whose `ref[self._ptr[]]` return-type
+  annotation was wider than the returned expression, narrowed to
+  `ref[self._ptr[][T]]` matching the pattern established in `7b4e978`.
+
+  Compiling `marrow/` (excluding `tests/` subdirectories — see note below)
+  with `mojo package --Werror` now produces exactly one remaining error
+  category: 11 errors in `marrow/views.mojo` from `elementwise`'s `Coord`-
+  based signature and mandatory `DeviceContext` parameter, which no longer
+  matches marrow's `IndexList`-based SIMD kernel callback type
+  (`_apply_dispatch`, `_reduce_generator_wrapper` and their CPU-only call
+  sites). This is a deliberately deferred, large elementwise/`Coord`/
+  mandatory-`DeviceContext` GPU API rework — first flagged in `34dc32a` — not
+  solved here.
+
+  **Known separate issue, not fixed in this pass:** `mojo package marrow`
+  (marrow's own `pixi run package` task, and bison's `build-marrow` task)
+  walks every `.mojo` file under the given directory unconditionally,
+  including `marrow/tests/`, `marrow/kernels/tests/`, and
+  `marrow/expr/tests/`. Those directories contain `def main()` entry points
+  (by design — see `CLAUDE.md`'s `TestSuite.run` convention; they're built
+  individually via `mojo build` by the pytest harness, never packaged), and
+  the current nightly's `mojo package`/`mojo precompile` unconditionally
+  rejects any `def main()` reachable under the packaged directory with
+  `'main()' is not supported within packages`, regardless of `__init__.mojo`
+  placement (confirmed with a minimal repro outside this package). Whether
+  this is new nightly behavior or a long-unexercised path in marrow's own
+  `package`/CI tasks was not determined. It affects `mojo package marrow`
+  directly and therefore blocks bison's `build-marrow` pixi task, which runs
+  the identical command against this fork.
+
+  This defect also makes the *count* of errors from the literal
+  `mojo package marrow --Werror` command an unreliable signal: on the
+  unmodified `tests/`-inclusive tree, a single early parse failure in a
+  `main()`-bearing test file appears to poison symbol resolution for
+  sibling modules, producing large, non-representative secondary error
+  counts (`unable to locate module 'marrow'`, `use of unknown declaration
+  '...'`) that vary sharply — and non-monotonically with respect to real
+  fixes — depending on unrelated changes elsewhere in the tree. Concretely,
+  switching the two `expr/relations.mojo` imports above from absolute to
+  relative (correct per the `f149a0c`/`d2c92b5` convention, and verified to
+  fix the underlying identity-mismatch bug when compiling `marrow/` with
+  `tests/` excluded) raises the *tests-inclusive* `--Werror` error count
+  from 124 to ~872, isolated by bisection to that one change. The
+  tests-excluded build is the reliable signal; the tests-inclusive count is
+  not meaningful until the `main()`-in-package-root issue below is fixed.
+
+  Fixing it requires relocating the three `tests/` directories out
+  from under the `marrow/` package root (plus updating `pixi.toml`
+  pytest paths, `conftest.py`, and any relative imports inside the moved
+  test files) — a structural change with wide blast radius that could not be
+  safely verified in this pass, since marrow's own `pixi run -e dev pytest`
+  is currently blocked by the same `pontoneer` build-dependency failure
+  noted for `pixi run -- mojo package` (see `progress.md`/task-4 report).
+  Left as a follow-up task.
+
 ### Features
 
 - **Sort kernel — `argsort` and `sort`** (`marrow/kernels/sort.mojo`):
