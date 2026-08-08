@@ -5,16 +5,17 @@ from marrow.builders import (
     array,
     arange,
     nulls,
-    AnyBuilder,
     BoolBuilder,
     PrimitiveBuilder,
     StringBuilder,
     ListBuilder,
     FixedSizeListBuilder,
     StructBuilder,
+    DictionaryBuilder,
     Int8Builder,
     Int32Builder,
     Int64Builder,
+    Float64Builder,
 )
 from marrow.dtypes import *
 from marrow.buffers import Buffer
@@ -85,7 +86,7 @@ def test_array_data_fieldwise_init() raises:
 
 
 def test_array_from_primitive() raises:
-    var a = array[Int32Type]([1, 2, 3])
+    var a = array([1, 2, 3], int32)
     assert_equal(a.length, 3)
 
 
@@ -99,7 +100,7 @@ def test_array_from_string() raises:
 
 def test_array_from_list() raises:
     var ints_b = Int64Builder()
-    var l = ListBuilder(AnyBuilder(ints_b^))
+    var l = ListBuilder(ints_b^)
     var a: AnyArray = l.finish()
     assert_true(a.dtype().is_list())
 
@@ -187,15 +188,16 @@ def test_append() raises:
 
 
 def test_array_empty() raises:
-    var a = array[Int32Type]()
+    var b = Int32Builder()
+    var a = b.finish()
     assert_equal(len(a), 0)
 
 
 def test_array_from_ints() raises:
-    var g = array[Int8Type]([1, 2])
+    var g = array([1, 2], int8)
     assert_equal(len(g), 2)
-    assert_equal(g[0], 1)
-    assert_equal(g[1], 2)
+    assert_equal(g[0].value(), 1)
+    assert_equal(g[1].value(), 2)
 
     var b = array([True, False, True])
     assert_equal(len(b), 3)
@@ -205,14 +207,14 @@ def test_array_from_ints() raises:
 
 
 def test_array_with_nulls() raises:
-    var a = array[Int32Type]([1, None, 3])
+    var a = array([1, None, 3], int32)
     assert_equal(len(a), 3)
     assert_equal(a.null_count(), 1)
     assert_true(a.is_valid(0))
     assert_false(a.is_valid(1))
     assert_true(a.is_valid(2))
-    assert_equal(a[0], 1)
-    assert_equal(a[2], 3)
+    assert_equal(a[0].value(), 1)
+    assert_equal(a[2].value(), 3)
 
     var b = array([True, None, False])
     assert_equal(b.length, 3)
@@ -224,15 +226,15 @@ def test_array_with_nulls() raises:
 def test_arange() raises:
     var a = arange[Int32Type](1, 5)
     assert_equal(len(a), 4)
-    assert_equal(a[0], 1)
-    assert_equal(a[1], 2)
-    assert_equal(a[2], 3)
-    assert_equal(a[3], 4)
+    assert_equal(a[0].value(), 1)
+    assert_equal(a[1].value(), 2)
+    assert_equal(a[2].value(), 3)
+    assert_equal(a[3].value(), 4)
 
     var b = arange[UInt8Type](0, 3)
     assert_equal(len(b), 3)
-    assert_equal(b[0], 0)
-    assert_equal(b[2], 2)
+    assert_equal(b[0].value(), 0)
+    assert_equal(b[2].value(), 2)
 
 
 def test_arange_empty() raises:
@@ -243,7 +245,7 @@ def test_arange_empty() raises:
 def test_arange_single() raises:
     var a = arange[Int64Type](7, 8)
     assert_equal(len(a), 1)
-    assert_equal(a[0], 7)
+    assert_equal(a[0].value(), 7)
 
 
 def test_arange_validity() raises:
@@ -255,15 +257,15 @@ def test_arange_validity() raises:
 def test_arange_int8() raises:
     var a = arange[Int8Type](10, 15)
     assert_equal(len(a), 5)
-    assert_equal(a[0], 10)
-    assert_equal(a[4], 14)
+    assert_equal(a[0].value(), 10)
+    assert_equal(a[4].value(), 14)
 
 
 def test_arange_uint64() raises:
     var a = arange[UInt64Type](100, 103)
     assert_equal(len(a), 3)
-    assert_equal(a[0], 100)
-    assert_equal(a[2], 102)
+    assert_equal(a[0].value(), 100)
+    assert_equal(a[2].value(), 102)
 
 
 def test_primitive_array_with_offset() raises:
@@ -278,22 +280,22 @@ def test_primitive_array_with_offset() raises:
 
     # Default offset should be 0
     assert_equal(arr.offset, 0)
-    assert_equal(arr[0], 100)
-    assert_equal(arr[1], 200)
+    assert_equal(arr[0].value(), 100)
+    assert_equal(arr[1].value(), 200)
 
     # Create a zero-copy slice, should point to the same buffers.
     var sliced = arr.slice(2)
     assert_equal(sliced.offset, 2)
 
     # Test that offset affects get operations
-    assert_equal(sliced[0], 300)  # Should get arr[2]
-    assert_equal(sliced[1], 400)  # Should get arr[3]
-    assert_equal(sliced[2], 500)  # Should get arr[4]
+    assert_equal(sliced[0].value(), 300)  # Should get arr[2]
+    assert_equal(sliced[1].value(), 400)  # Should get arr[3]
+    assert_equal(sliced[2].value(), 500)  # Should get arr[4]
 
 
 def test_primitive_array_nulls_with_offset() raises:
     """Test nulls() creates an array with all null values and default offset."""
-    var null_arr = nulls[Int64Type](5)
+    var null_arr = nulls(5, int64)
     assert_equal(null_arr.offset, 0)
 
     # All elements should be invalid (null)
@@ -338,7 +340,7 @@ def test_list_bool_array() raises:
     bool_b.append(True)
     bool_b.append_null()
     bool_b.append(True)
-    var list_b = ListBuilder(AnyBuilder(bool_b^))
+    var list_b = ListBuilder(bool_b^)
     list_b.append_valid()
     var lists = list_b.finish()
     assert_equal(len(lists), 1)
@@ -355,7 +357,7 @@ def test_list_str() raises:
     var str_b = StringBuilder()
     str_b.append("hello")
     str_b.append("world")
-    var list_b = ListBuilder(AnyBuilder(str_b^))
+    var list_b = ListBuilder(str_b^)
     list_b.append_valid()
     var lists = list_b.finish()
     assert_equal(len(lists), 1)
@@ -368,9 +370,7 @@ def test_list_str() raises:
 
 def test_list_of_list() raises:
     var top_b = ListBuilder(
-        AnyBuilder(
-            ListBuilder(AnyBuilder(Int64Builder(capacity=10)), capacity=6)
-        ),
+        ListBuilder(Int64Builder(capacity=10), capacity=6),
         capacity=3,
     )
     var middle_any = top_b.values()
@@ -402,12 +402,12 @@ def test_list_of_list() raises:
     ref top = top_val.as_list()
     middle_0 = top[0].value()
     ref bottom_0 = middle_0.as_int64()
-    assert_equal(bottom_0[1], 2)
-    assert_equal(bottom_0[0], 1)
+    assert_equal(bottom_0[1].value(), 2)
+    assert_equal(bottom_0[0].value(), 1)
     middle_1 = top[1].value()
     ref bottom_1 = middle_1.as_int64()
-    assert_equal(bottom_1[0], 3)
-    assert_equal(bottom_1[1], 4)
+    assert_equal(bottom_1[0].value(), 3)
+    assert_equal(bottom_1[1].value(), 4)
 
 
 def test_fixed_size_list_int_array() raises:
@@ -419,27 +419,27 @@ def test_fixed_size_list_int_array() raises:
     ints_b.append(4)
     ints_b.append(5)
     ints_b.append(6)
-    var builder = FixedSizeListBuilder(AnyBuilder(ints_b^), list_size=3)
+    var builder = FixedSizeListBuilder(ints_b^, list_size=3)
     builder.append_valid()
     builder.append_valid()
     assert_equal(builder.dtype(), fixed_size_list_(int64, 3))
     assert_equal(len(builder), 2)
     var fsl = builder.finish()
     assert_equal(len(fsl), 2)
-    assert_equal(fsl.dtype.as_fixed_size_list_type().size, 3)
+    assert_equal(fsl.dtype.as_fixed_size_list().size, 3)
 
     # First list: [1, 2, 3]
     ref first = fsl[0].value().as_int64()
     assert_equal(len(first), 3)
-    assert_equal(first[0], 1)
-    assert_equal(first[1], 2)
-    assert_equal(first[2], 3)
+    assert_equal(first[0].value(), 1)
+    assert_equal(first[1].value(), 2)
+    assert_equal(first[2].value(), 3)
 
     # Second list: [4, 5, 6]
     ref second = fsl[1].value().as_int64()
-    assert_equal(second[0], 4)
-    assert_equal(second[1], 5)
-    assert_equal(second[2], 6)
+    assert_equal(second[0].value(), 4)
+    assert_equal(second[1].value(), 5)
+    assert_equal(second[2].value(), 6)
 
 
 def test_fixed_size_list_roundtrip() raises:
@@ -449,18 +449,18 @@ def test_fixed_size_list_roundtrip() raises:
     ints_b.append(20)
     ints_b.append(30)
     ints_b.append(40)
-    var builder = FixedSizeListBuilder(AnyBuilder(ints_b^), list_size=2)
+    var builder = FixedSizeListBuilder(ints_b^, list_size=2)
     builder.append_valid()
     builder.append_valid()
     var fsl = builder.finish()
 
     assert_true(fsl.dtype.is_fixed_size_list())
-    assert_equal(fsl.dtype.as_fixed_size_list_type().size, 2)
+    assert_equal(fsl.dtype.as_fixed_size_list().size, 2)
     assert_equal(len(fsl), 2)
 
     ref first = fsl[0].value().as_int32()
-    assert_equal(first[0], 10)
-    assert_equal(first[1], 20)
+    assert_equal(first[0].value(), 10)
+    assert_equal(first[1].value(), 20)
 
 
 def test_fixed_size_list_with_nulls() raises:
@@ -472,9 +472,7 @@ def test_fixed_size_list_with_nulls() raises:
     ints_b.append(4)
     ints_b.append(5)
     ints_b.append(6)
-    var builder = FixedSizeListBuilder(
-        AnyBuilder(ints_b^), list_size=3, capacity=3
-    )
+    var builder = FixedSizeListBuilder(ints_b^, list_size=3, capacity=3)
     builder.append_valid()
     builder.append_valid()
     builder.append_null()
@@ -487,13 +485,13 @@ def test_fixed_size_list_with_nulls() raises:
 
     # unsafe_get on valid entries returns correct values even when array has nulls
     ref first = fsl[0].value().as_int64()
-    assert_equal(first[0], 1)
-    assert_equal(first[1], 2)
-    assert_equal(first[2], 3)
+    assert_equal(first[0].value(), 1)
+    assert_equal(first[1].value(), 2)
+    assert_equal(first[2].value(), 3)
     ref second = fsl[1].value().as_int64()
-    assert_equal(second[0], 4)
-    assert_equal(second[1], 5)
-    assert_equal(second[2], 6)
+    assert_equal(second[0].value(), 4)
+    assert_equal(second[1].value(), 5)
+    assert_equal(second[2].value(), 6)
 
 
 def test_fixed_size_list_unsafe_get_dtype() raises:
@@ -503,7 +501,7 @@ def test_fixed_size_list_unsafe_get_dtype() raises:
     ints_b.append(20)
     ints_b.append(30)
     ints_b.append(40)
-    var builder = FixedSizeListBuilder(AnyBuilder(ints_b^), list_size=2)
+    var builder = FixedSizeListBuilder(ints_b^, list_size=2)
     builder.append_valid()
     builder.append_valid()
     var fsl = builder.finish()
@@ -545,41 +543,41 @@ def test_struct_array() raises:
     var data: AnyArray = struct_builder.finish()
     assert_equal(data.length(), 0)
     assert_true(data.dtype().is_struct())
-    assert_equal(len(data.dtype().as_struct_type().fields), 3)
-    assert_equal(data.dtype().as_struct_type().fields[0].name, "id")
-    assert_equal(data.dtype().as_struct_type().fields[1].name, "name")
-    assert_equal(data.dtype().as_struct_type().fields[2].name, "active")
+    assert_equal(len(data.dtype().as_struct().fields), 3)
+    assert_equal(data.dtype().as_struct().fields[0].name, "id")
+    assert_equal(data.dtype().as_struct().fields[1].name, "name")
+    assert_equal(data.dtype().as_struct().fields[2].name, "active")
 
 
 def test_struct_array_unsafe_get() raises:
     var sb = StructBuilder(
         [field("int_data_a", int32), field("int_data_b", int32)], capacity=2
     )
-    sb.field_builder(0).as_primitive[Int32Type]().append(1)
-    sb.field_builder(0).as_primitive[Int32Type]().append(2)
-    sb.field_builder(0).as_primitive[Int32Type]().append(3)
-    sb.field_builder(0).as_primitive[Int32Type]().append(4)
-    sb.field_builder(0).as_primitive[Int32Type]().append(5)
-    sb.field_builder(1).as_primitive[Int32Type]().append(10)
-    sb.field_builder(1).as_primitive[Int32Type]().append(20)
-    sb.field_builder(1).as_primitive[Int32Type]().append(30)
+    sb.field_builder(0).as_int32().append(1)
+    sb.field_builder(0).as_int32().append(2)
+    sb.field_builder(0).as_int32().append(3)
+    sb.field_builder(0).as_int32().append(4)
+    sb.field_builder(0).as_int32().append(5)
+    sb.field_builder(1).as_int32().append(10)
+    sb.field_builder(1).as_int32().append(20)
+    sb.field_builder(1).as_int32().append(30)
     sb.append_valid()
     sb.append_valid()
     var struct_array = sb.finish()
     ref int_data_a = struct_array.unsafe_get("int_data_a")
     ref int_a = int_data_a.as_int32()
-    assert_equal(int_a[0], 1)
-    assert_equal(int_a[4], 5)
+    assert_equal(int_a[0].value(), 1)
+    assert_equal(int_a[4].value(), 5)
     ref int_data_b = struct_array.unsafe_get("int_data_b")
     ref int_b = int_data_b.as_int32()
-    assert_equal(int_b[0], 10)
-    assert_equal(int_b[2], 30)
+    assert_equal(int_b[0].value(), 10)
+    assert_equal(int_b[2].value(), 30)
 
 
 def test_chunked_array() raises:
     var arrays: List[AnyArray] = [
-        array[UInt8Type]([0]),
-        array[UInt8Type]([0, 1]),
+        array([0], uint8),
+        array([0, 1], uint8),
     ]
 
     var chunked_array = ChunkedArray(int8, arrays^)
@@ -589,20 +587,20 @@ def test_chunked_array() raises:
     var second_chunk_any = chunked_array.chunk(1).copy()
     ref second_chunk = second_chunk_any.as_uint8()
     assert_equal(second_chunk.length, 2)
-    assert_equal(second_chunk[0], 0)
-    assert_equal(second_chunk[1], 1)
+    assert_equal(second_chunk[0].value(), 0)
+    assert_equal(second_chunk[1].value(), 1)
 
 
 def test_combine_chunked_array() raises:
     var arrays: List[AnyArray] = [
-        array[UInt8Type]([0]),
-        array[UInt8Type]([0, 1]),
+        array([0], uint8),
+        array([0, 1], uint8),
     ]
 
     var chunked_array = ChunkedArray(uint8, arrays^)
     assert_equal(chunked_array.length, 3)
     assert_equal(len(chunked_array.chunks), 2)
-    assert_equal(chunked_array.chunk(1).copy().as_uint8()[1], 1)
+    assert_equal(chunked_array.chunk(1).copy().as_uint8()[1].value(), 1)
 
     var combined_array = chunked_array^.combine_chunks()
     assert_equal(combined_array.length(), 3)
@@ -619,8 +617,8 @@ def test_primitive_finish_shrinks() raises:
     a.append(99)
     var frozen = a.finish()
     assert_equal(frozen.length, 2)
-    assert_equal(frozen[0], 42)
-    assert_equal(frozen[1], 99)
+    assert_equal(frozen[0].value(), 42)
+    assert_equal(frozen[1].value(), 99)
 
     var values_buffer = frozen.buffer
     # 2 int64 values = 16 bytes, but buffer padded to 64 bytes for alignment
@@ -635,8 +633,8 @@ def test_primitive_finish_via_append() raises:
     a.append(3)
     var frozen = a.finish()
     assert_equal(frozen.length, 3)
-    assert_equal(frozen[0], 1)
-    assert_equal(frozen[2], 3)
+    assert_equal(frozen[0].value(), 1)
+    assert_equal(frozen[2].value(), 3)
 
 
 def test_primitive_finish_preserves_nulls() raises:
@@ -659,8 +657,8 @@ def test_primitive_finish_converts_to_array() raises:
     a.append(8)
     var frozen = a.finish()
     assert_equal(frozen.length, 2)
-    assert_equal(frozen[0], 7)
-    assert_equal(frozen[1], 8)
+    assert_equal(frozen[0].value(), 7)
+    assert_equal(frozen[1].value(), 8)
 
 
 def test_getitem_bounds_check() raises:
@@ -679,8 +677,8 @@ def test_getitem_bounds_check() raises:
         assert_true(False, "should have raised")
     except:
         pass
-    assert_equal(a[0], 1)
-    assert_equal(a[1], 2)
+    assert_equal(a[0].value(), 1)
+    assert_equal(a[1].value(), 2)
 
 
 def test_setitem_bounds_check() raises:
@@ -688,7 +686,7 @@ def test_setitem_bounds_check() raises:
     var a = Int64Builder()
     a.append(99)
     var frozen = a.finish()
-    assert_equal(frozen[0], 99)
+    assert_equal(frozen[0].value(), 99)
 
 
 def test_string_finish_zero_copy() raises:
@@ -730,7 +728,7 @@ def test_string_getitem_bounds_check() raises:
 
 
 def test_str_primitive_array() raises:
-    var a = array[Int32Type]([1, 2, 3])
+    var a = array([1, 2, 3], int32)
     var s = String(a)
     assert_true("PrimitiveArray" in s)
     assert_true("1" in s)
@@ -739,7 +737,7 @@ def test_str_primitive_array() raises:
 
 
 def test_str_primitive_array_with_nulls() raises:
-    var a = array[Int32Type]([1, None, 3])
+    var a = array([1, None, 3], int32)
     var s = String(a)
     assert_true("NULL" in s)
     assert_true("1" in s)
@@ -780,7 +778,7 @@ def test_str_list_array() raises:
     ints_b.append(1)
     ints_b.append(2)
     ints_b.append(3)
-    var list_b = ListBuilder(AnyBuilder(ints_b^))
+    var list_b = ListBuilder(ints_b^)
     list_b.append_valid()
     var lists = list_b.finish()
     var s = String(lists)
@@ -793,7 +791,7 @@ def test_str_fixed_size_list_array() raises:
     ints_b.append(20)
     ints_b.append(30)
     ints_b.append(40)
-    var builder = FixedSizeListBuilder(AnyBuilder(ints_b^), list_size=2)
+    var builder = FixedSizeListBuilder(ints_b^, list_size=2)
     builder.append_valid()
     builder.append_valid()
     var fsl = builder.finish()
@@ -803,8 +801,8 @@ def test_str_fixed_size_list_array() raises:
 
 def test_str_struct_array() raises:
     var sb = StructBuilder([field("x", int32)], capacity=2)
-    sb.field_builder(0).as_primitive[Int32Type]().append(1)
-    sb.field_builder(0).as_primitive[Int32Type]().append(2)
+    sb.field_builder(0).as_int32().append(1)
+    sb.field_builder(0).as_int32().append(2)
     sb.append_valid()
     sb.append_valid()
     var sa = sb.finish()
@@ -847,7 +845,7 @@ def test_list_array_is_valid() raises:
     ints_b.append(1)
     ints_b.append(2)
     ints_b.append(3)
-    var list_b = ListBuilder(AnyBuilder(ints_b^))
+    var list_b = ListBuilder(ints_b^)
     list_b.append_valid()
     list_b.append_null()
     list_b.append_valid()
@@ -861,9 +859,9 @@ def test_list_array_is_valid() raises:
 
 def test_struct_array_is_valid() raises:
     var sb = StructBuilder([field("val", int32)], capacity=3)
-    sb.field_builder(0).as_primitive[Int32Type]().append(10)
-    sb.field_builder(0).as_primitive[Int32Type]().append(20)
-    sb.field_builder(0).as_primitive[Int32Type]().append(30)
+    sb.field_builder(0).as_int32().append(10)
+    sb.field_builder(0).as_int32().append(20)
+    sb.field_builder(0).as_int32().append(30)
     sb.append_valid()
     sb.append_null()
     sb.append_valid()
@@ -909,7 +907,7 @@ def test_string_array_getitem_bounds() raises:
 
 def test_list_array_getitem() raises:
     var ints_b = Int64Builder()
-    var list_b = ListBuilder(AnyBuilder(ints_b^))
+    var list_b = ListBuilder(ints_b^)
     var child_any = list_b.values()
     ref child = child_any.as_int64()
     child.append(10)
@@ -929,7 +927,7 @@ def test_list_array_getitem() raises:
 def test_list_array_getitem_bounds() raises:
     var ints_b = Int64Builder()
     ints_b.append(1)
-    var list_b = ListBuilder(AnyBuilder(ints_b^))
+    var list_b = ListBuilder(ints_b^)
     list_b.append_valid()
     var lists = list_b.finish()
     try:
@@ -952,18 +950,18 @@ def test_fixed_size_list_getitem() raises:
     ints_b.append(4)
     ints_b.append(5)
     ints_b.append(6)
-    var builder = FixedSizeListBuilder(AnyBuilder(ints_b^), list_size=3)
+    var builder = FixedSizeListBuilder(ints_b^, list_size=3)
     builder.append_valid()
     builder.append_valid()
     var fsl = builder.finish()
     ref first = fsl[0].value().as_int32()
-    assert_equal(first[0], 1)
-    assert_equal(first[1], 2)
-    assert_equal(first[2], 3)
+    assert_equal(first[0].value(), 1)
+    assert_equal(first[1].value(), 2)
+    assert_equal(first[2].value(), 3)
     ref second = fsl[1].value().as_int32()
-    assert_equal(second[0], 4)
-    assert_equal(second[1], 5)
-    assert_equal(second[2], 6)
+    assert_equal(second[0].value(), 4)
+    assert_equal(second[1].value(), 5)
+    assert_equal(second[2].value(), 6)
 
 
 def test_fixed_size_list_getitem_bounds() raises:
@@ -971,7 +969,7 @@ def test_fixed_size_list_getitem_bounds() raises:
     ints_b.append(1)
     ints_b.append(2)
     ints_b.append(3)
-    var builder = FixedSizeListBuilder(AnyBuilder(ints_b^), list_size=3)
+    var builder = FixedSizeListBuilder(ints_b^, list_size=3)
     builder.append_valid()
     var fsl = builder.finish()
     try:
@@ -990,8 +988,8 @@ def test_struct_array_field_by_index() raises:
     var sb = StructBuilder(
         [field("id", int32), field("name", string)], capacity=2
     )
-    sb.field_builder(0).as_primitive[Int32Type]().append(1)
-    sb.field_builder(0).as_primitive[Int32Type]().append(2)
+    sb.field_builder(0).as_int32().append(1)
+    sb.field_builder(0).as_int32().append(2)
     sb.field_builder(1).as_string().append("x")
     sb.field_builder(1).as_string().append("y")
     sb.append_valid()
@@ -1000,8 +998,8 @@ def test_struct_array_field_by_index() raises:
 
     var field_0 = sa.field(0)
     ref id_arr = field_0.as_int32()
-    assert_equal(id_arr[0], 1)
-    assert_equal(id_arr[1], 2)
+    assert_equal(id_arr[0].value(), 1)
+    assert_equal(id_arr[1].value(), 2)
 
     var field_1 = sa.field(1)
     ref name_arr = field_1.as_string()
@@ -1011,21 +1009,21 @@ def test_struct_array_field_by_index() raises:
 
 def test_struct_array_field_by_name() raises:
     var sb = StructBuilder([field("val", int32)], capacity=2)
-    sb.field_builder(0).as_primitive[Int32Type]().append(10)
-    sb.field_builder(0).as_primitive[Int32Type]().append(20)
+    sb.field_builder(0).as_int32().append(10)
+    sb.field_builder(0).as_int32().append(20)
     sb.append_valid()
     sb.append_valid()
     var sa = sb.finish()
 
     var field_val = sa.field("val")
     ref val_arr = field_val.as_int32()
-    assert_equal(val_arr[0], 10)
-    assert_equal(val_arr[1], 20)
+    assert_equal(val_arr[0].value(), 10)
+    assert_equal(val_arr[1].value(), 20)
 
 
 def test_struct_array_field_bounds() raises:
     var sb = StructBuilder([field("x", int32)], capacity=1)
-    sb.field_builder(0).as_primitive[Int32Type]().append(1)
+    sb.field_builder(0).as_int32().append(1)
     sb.append_valid()
     var sa = sb.finish()
     try:
@@ -1067,7 +1065,7 @@ def test_fixed_size_list_len_and_null_count() raises:
     ints_b.append(4)
     ints_b.append(5)
     ints_b.append(6)
-    var builder = FixedSizeListBuilder(AnyBuilder(ints_b^), list_size=2)
+    var builder = FixedSizeListBuilder(ints_b^, list_size=2)
     builder.append_valid()
     builder.append_null()
     builder.append_valid()
@@ -1080,7 +1078,7 @@ def test_list_array_null_count() raises:
     var ints_b = Int64Builder()
     ints_b.append(1)
     ints_b.append(2)
-    var list_b = ListBuilder(AnyBuilder(ints_b^))
+    var list_b = ListBuilder(ints_b^)
     list_b.append_valid()
     list_b.append_null()
     var lists = list_b.finish()
@@ -1089,7 +1087,7 @@ def test_list_array_null_count() raises:
 
 
 def test_primitive_array_no_nulls_is_valid() raises:
-    var a = array[Int64Type]([10, 20, 30])
+    var a = array([10, 20, 30], int64)
     assert_equal(a.null_count(), 0)
     for i in range(3):
         assert_true(a.is_valid(i))
@@ -1101,12 +1099,12 @@ def test_primitive_array_no_nulls_is_valid() raises:
 
 
 def test_primitive_array_slice_with_length() raises:
-    var a = array[Int32Type]([10, 20, 30, 40, 50])
+    var a = array([10, 20, 30, 40, 50], int32)
     var s = a.slice(1, 3)
     assert_equal(len(s), 3)
-    assert_equal(s[0], 20)
-    assert_equal(s[1], 30)
-    assert_equal(s[2], 40)
+    assert_equal(s[0].value(), 20)
+    assert_equal(s[1].value(), 30)
+    assert_equal(s[2].value(), 40)
 
 
 def test_string_array_slice_with_length() raises:
@@ -1124,7 +1122,7 @@ def test_string_array_slice_with_length() raises:
 
 def test_list_array_slice() raises:
     var ints_b = Int64Builder()
-    var list_b = ListBuilder(AnyBuilder(ints_b^))
+    var list_b = ListBuilder(ints_b^)
     var child_any = list_b.values()
     ref child = child_any.as_int64()
     child.append(1)
@@ -1148,7 +1146,7 @@ def test_fixed_size_list_slice() raises:
     ints_b.append(4)
     ints_b.append(5)
     ints_b.append(6)
-    var builder = FixedSizeListBuilder(AnyBuilder(ints_b^), list_size=2)
+    var builder = FixedSizeListBuilder(ints_b^, list_size=2)
     builder.append_valid()
     builder.append_valid()
     builder.append_valid()
@@ -1156,8 +1154,8 @@ def test_fixed_size_list_slice() raises:
     var s = fsl.slice(1, 2)
     assert_equal(len(s), 2)
     ref first = s[0].value().as_int32()
-    assert_equal(first[0], 3)
-    assert_equal(first[1], 4)
+    assert_equal(first[0].value(), 3)
+    assert_equal(first[1].value(), 4)
 
 
 # ---------------------------------------------------------------------------
@@ -1167,7 +1165,7 @@ def test_fixed_size_list_slice() raises:
 
 def test_list_array_flatten() raises:
     var ints_b = Int64Builder()
-    var list_b = ListBuilder(AnyBuilder(ints_b^))
+    var list_b = ListBuilder(ints_b^)
     var child_any = list_b.values()
     ref child = child_any.as_int64()
     child.append(1)
@@ -1182,7 +1180,7 @@ def test_list_array_flatten() raises:
 
 def test_list_array_value_lengths() raises:
     var ints_b = Int64Builder()
-    var list_b = ListBuilder(AnyBuilder(ints_b^))
+    var list_b = ListBuilder(ints_b^)
     var child_any = list_b.values()
     ref child = child_any.as_int64()
     child.append(1)
@@ -1197,9 +1195,9 @@ def test_list_array_value_lengths() raises:
     var lists = list_b.finish()
     var lengths = lists.value_lengths()
     assert_equal(len(lengths), 3)
-    assert_equal(lengths[0], 2)
-    assert_equal(lengths[1], 1)
-    assert_equal(lengths[2], 3)
+    assert_equal(lengths[0].value(), 2)
+    assert_equal(lengths[1].value(), 1)
+    assert_equal(lengths[2].value(), 3)
 
 
 def test_fixed_size_list_flatten() raises:
@@ -1208,7 +1206,7 @@ def test_fixed_size_list_flatten() raises:
     ints_b.append(20)
     ints_b.append(30)
     ints_b.append(40)
-    var builder = FixedSizeListBuilder(AnyBuilder(ints_b^), list_size=2)
+    var builder = FixedSizeListBuilder(ints_b^, list_size=2)
     builder.append_valid()
     builder.append_valid()
     var fsl = builder.finish()
@@ -1220,8 +1218,8 @@ def test_struct_array_flatten() raises:
     var sb = StructBuilder(
         [field("id", int32), field("name", string)], capacity=2
     )
-    sb.field_builder(0).as_primitive[Int32Type]().append(1)
-    sb.field_builder(0).as_primitive[Int32Type]().append(2)
+    sb.field_builder(0).as_int32().append(1)
+    sb.field_builder(0).as_int32().append(2)
     sb.field_builder(1).as_string().append("x")
     sb.field_builder(1).as_string().append("y")
     sb.append_valid()
@@ -1243,12 +1241,12 @@ def test_struct_array_select_basic() raises:
     var sb = StructBuilder(
         [field("a", int32), field("b", int32), field("c", int32)], capacity=2
     )
-    sb.field_builder(0).as_primitive[Int32Type]().append(1)
-    sb.field_builder(0).as_primitive[Int32Type]().append(2)
-    sb.field_builder(1).as_primitive[Int32Type]().append(10)
-    sb.field_builder(1).as_primitive[Int32Type]().append(20)
-    sb.field_builder(2).as_primitive[Int32Type]().append(100)
-    sb.field_builder(2).as_primitive[Int32Type]().append(200)
+    sb.field_builder(0).as_int32().append(1)
+    sb.field_builder(0).as_int32().append(2)
+    sb.field_builder(1).as_int32().append(10)
+    sb.field_builder(1).as_int32().append(20)
+    sb.field_builder(2).as_int32().append(100)
+    sb.field_builder(2).as_int32().append(200)
     sb.append_valid()
     sb.append_valid()
     var sa = sb.finish()
@@ -1259,20 +1257,20 @@ def test_struct_array_select_basic() raises:
     var result = sa.select(indices)
 
     assert_equal(len(result.children), 2)
-    assert_equal(result.dtype.as_struct_type().fields[0].name, "a")
-    assert_equal(result.dtype.as_struct_type().fields[1].name, "c")
+    assert_equal(result.dtype.as_struct().fields[0].name, "a")
+    assert_equal(result.dtype.as_struct().fields[1].name, "c")
     assert_equal(len(result), 2)
 
 
 def test_struct_array_select_inherits_nulls_and_bitmap() raises:
     """`select` preserves nulls count, bitmap, and offset from the source."""
     var sb = StructBuilder([field("x", int32), field("y", int32)], capacity=3)
-    sb.field_builder(0).as_primitive[Int32Type]().append(1)
-    sb.field_builder(0).as_primitive[Int32Type]().append(2)
-    sb.field_builder(0).as_primitive[Int32Type]().append(3)
-    sb.field_builder(1).as_primitive[Int32Type]().append(10)
-    sb.field_builder(1).as_primitive[Int32Type]().append(20)
-    sb.field_builder(1).as_primitive[Int32Type]().append(30)
+    sb.field_builder(0).as_int32().append(1)
+    sb.field_builder(0).as_int32().append(2)
+    sb.field_builder(0).as_int32().append(3)
+    sb.field_builder(1).as_int32().append(10)
+    sb.field_builder(1).as_int32().append(20)
+    sb.field_builder(1).as_int32().append(30)
     sb.append_null()
     sb.append_valid()
     sb.append_valid()
@@ -1291,12 +1289,12 @@ def test_struct_array_select_inherits_nulls_and_bitmap() raises:
 def test_struct_array_select_inherits_offset() raises:
     """`select` preserves the offset of the source array."""
     var sb = StructBuilder([field("a", int32), field("b", int32)], capacity=3)
-    sb.field_builder(0).as_primitive[Int32Type]().append(1)
-    sb.field_builder(0).as_primitive[Int32Type]().append(2)
-    sb.field_builder(0).as_primitive[Int32Type]().append(3)
-    sb.field_builder(1).as_primitive[Int32Type]().append(10)
-    sb.field_builder(1).as_primitive[Int32Type]().append(20)
-    sb.field_builder(1).as_primitive[Int32Type]().append(30)
+    sb.field_builder(0).as_int32().append(1)
+    sb.field_builder(0).as_int32().append(2)
+    sb.field_builder(0).as_int32().append(3)
+    sb.field_builder(1).as_int32().append(10)
+    sb.field_builder(1).as_int32().append(20)
+    sb.field_builder(1).as_int32().append(30)
     sb.append_valid()
     sb.append_valid()
     sb.append_valid()
@@ -1317,57 +1315,57 @@ def test_struct_array_select_inherits_offset() raises:
 
 def test_primitive_array_eq() raises:
     # Fast path: no nulls, offset=0 — uses Buffer.__eq__
-    var a = array[Int32Type]([1, 2, 3])
-    var b = array[Int32Type]([1, 2, 3])
+    var a = array([1, 2, 3], int32)
+    var b = array([1, 2, 3], int32)
     assert_true(a == b)
 
 
 def test_primitive_array_eq_unequal() raises:
-    var a = array[Int32Type]([1, 2, 3])
-    var b = array[Int32Type]([1, 2, 4])
+    var a = array([1, 2, 3], int32)
+    var b = array([1, 2, 4], int32)
     assert_false(a == b)
 
 
 def test_primitive_array_eq_length_mismatch() raises:
-    var a = array[Int32Type]([1, 2, 3])
-    var b = array[Int32Type]([1, 2])
+    var a = array([1, 2, 3], int32)
+    var b = array([1, 2], int32)
     assert_false(a == b)
 
 
 def test_primitive_array_eq_sliced() raises:
     # Regression test: sliced arrays with non-zero offset must compare correctly.
     # Old _arrays_equal bug: compared raw buffer bytes ignoring offset.
-    var a = array[Int32Type]([10, 20, 30, 40, 50])
-    var b = array[Int32Type]([10, 20, 30, 40, 50])
+    var a = array([10, 20, 30, 40, 50], int32)
+    var b = array([10, 20, 30, 40, 50], int32)
     var sa = a.slice(1, 3)  # [20, 30, 40], offset=1
     var sb = b.slice(1, 3)  # [20, 30, 40], offset=1
     assert_true(sa == sb)
 
 
 def test_primitive_array_eq_sliced_unequal() raises:
-    var a = array[Int32Type]([10, 20, 30, 40, 50])
-    var b = array[Int32Type]([10, 20, 99, 40, 50])
+    var a = array([10, 20, 30, 40, 50], int32)
+    var b = array([10, 20, 99, 40, 50], int32)
     var sa = a.slice(1, 3)  # [20, 30, 40]
     var sb = b.slice(1, 3)  # [20, 99, 40]
     assert_false(sa == sb)
 
 
 def test_primitive_array_eq_nulls_equal() raises:
-    var a = array[Int32Type]([1, None, 3])
-    var b = array[Int32Type]([1, None, 3])
+    var a = array([1, None, 3], int32)
+    var b = array([1, None, 3], int32)
     assert_true(a == b)
 
 
 def test_primitive_array_eq_nulls_mismatch_count() raises:
-    var a = array[Int32Type]([1, None, 3])
-    var b = array[Int32Type]([1, 2, 3])
+    var a = array([1, None, 3], int32)
+    var b = array([1, 2, 3], int32)
     assert_false(a == b)
 
 
 def test_primitive_array_eq_nulls_mismatch_pattern() raises:
     # Same null count but different null positions
-    var a = array[Int32Type]([None, 2, 3])
-    var b = array[Int32Type]([1, None, 3])
+    var a = array([None, 2, 3], int32)
+    var b = array([1, None, 3], int32)
     assert_false(a == b)
 
 
@@ -1430,7 +1428,7 @@ def test_string_array_eq_nulls() raises:
 
 def test_list_array_eq() raises:
     var ints_a = Int64Builder()
-    var list_a = ListBuilder(AnyBuilder(ints_a^))
+    var list_a = ListBuilder(ints_a^)
     var child_a_any = list_a.values()
     ref child_a = child_a_any.as_int64()
     child_a.append(1)
@@ -1441,7 +1439,7 @@ def test_list_array_eq() raises:
     var a = list_a.finish()
 
     var ints_b = Int64Builder()
-    var list_b = ListBuilder(AnyBuilder(ints_b^))
+    var list_b = ListBuilder(ints_b^)
     var child_b_any = list_b.values()
     ref child_b = child_b_any.as_int64()
     child_b.append(1)
@@ -1456,7 +1454,7 @@ def test_list_array_eq() raises:
 
 def test_list_array_eq_unequal() raises:
     var ints_a = Int64Builder()
-    var list_a = ListBuilder(AnyBuilder(ints_a^))
+    var list_a = ListBuilder(ints_a^)
     var child_a_any = list_a.values()
     ref child_a = child_a_any.as_int64()
     child_a.append(1)
@@ -1465,7 +1463,7 @@ def test_list_array_eq_unequal() raises:
     var a = list_a.finish()
 
     var ints_b = Int64Builder()
-    var list_b = ListBuilder(AnyBuilder(ints_b^))
+    var list_b = ListBuilder(ints_b^)
     var child_b_any = list_b.values()
     ref child_b = child_b_any.as_int64()
     child_b.append(1)
@@ -1479,14 +1477,14 @@ def test_list_array_eq_unequal() raises:
 def test_list_array_eq_nulls() raises:
     var ints_a = Int64Builder()
     ints_a.append(1)
-    var list_a = ListBuilder(AnyBuilder(ints_a^))
+    var list_a = ListBuilder(ints_a^)
     list_a.append_valid()
     list_a.append_null()
     var a = list_a.finish()
 
     var ints_b = Int64Builder()
     ints_b.append(1)
-    var list_b = ListBuilder(AnyBuilder(ints_b^))
+    var list_b = ListBuilder(ints_b^)
     list_b.append_valid()
     list_b.append_null()
     var b = list_b.finish()
@@ -1500,7 +1498,7 @@ def test_fixed_size_list_array_eq() raises:
     a_b.append(2)
     a_b.append(3)
     a_b.append(4)
-    var builder_a = FixedSizeListBuilder(AnyBuilder(a_b^), list_size=2)
+    var builder_a = FixedSizeListBuilder(a_b^, list_size=2)
     builder_a.append_valid()
     builder_a.append_valid()
 
@@ -1509,7 +1507,7 @@ def test_fixed_size_list_array_eq() raises:
     b_b.append(2)
     b_b.append(3)
     b_b.append(4)
-    var builder_b = FixedSizeListBuilder(AnyBuilder(b_b^), list_size=2)
+    var builder_b = FixedSizeListBuilder(b_b^, list_size=2)
     builder_b.append_valid()
     builder_b.append_valid()
 
@@ -1522,7 +1520,7 @@ def test_fixed_size_list_array_eq_unequal() raises:
     a_b.append(2)
     a_b.append(3)
     a_b.append(4)
-    var builder_a = FixedSizeListBuilder(AnyBuilder(a_b^), list_size=2)
+    var builder_a = FixedSizeListBuilder(a_b^, list_size=2)
     builder_a.append_valid()
     builder_a.append_valid()
 
@@ -1531,7 +1529,7 @@ def test_fixed_size_list_array_eq_unequal() raises:
     b_b.append(2)
     b_b.append(3)
     b_b.append(99)
-    var builder_b = FixedSizeListBuilder(AnyBuilder(b_b^), list_size=2)
+    var builder_b = FixedSizeListBuilder(b_b^, list_size=2)
     builder_b.append_valid()
     builder_b.append_valid()
 
@@ -1540,14 +1538,14 @@ def test_fixed_size_list_array_eq_unequal() raises:
 
 def test_struct_array_eq() raises:
     var sa = StructBuilder([field("x", int32)], capacity=2)
-    sa.field_builder(0).as_primitive[Int32Type]().append(1)
-    sa.field_builder(0).as_primitive[Int32Type]().append(2)
+    sa.field_builder(0).as_int32().append(1)
+    sa.field_builder(0).as_int32().append(2)
     sa.append_valid()
     sa.append_valid()
 
     var sb = StructBuilder([field("x", int32)], capacity=2)
-    sb.field_builder(0).as_primitive[Int32Type]().append(1)
-    sb.field_builder(0).as_primitive[Int32Type]().append(2)
+    sb.field_builder(0).as_int32().append(1)
+    sb.field_builder(0).as_int32().append(2)
     sb.append_valid()
     sb.append_valid()
 
@@ -1556,14 +1554,14 @@ def test_struct_array_eq() raises:
 
 def test_struct_array_eq_unequal() raises:
     var sa = StructBuilder([field("x", int32)], capacity=2)
-    sa.field_builder(0).as_primitive[Int32Type]().append(1)
-    sa.field_builder(0).as_primitive[Int32Type]().append(2)
+    sa.field_builder(0).as_int32().append(1)
+    sa.field_builder(0).as_int32().append(2)
     sa.append_valid()
     sa.append_valid()
 
     var sb = StructBuilder([field("x", int32)], capacity=2)
-    sb.field_builder(0).as_primitive[Int32Type]().append(1)
-    sb.field_builder(0).as_primitive[Int32Type]().append(99)
+    sb.field_builder(0).as_int32().append(1)
+    sb.field_builder(0).as_int32().append(99)
     sb.append_valid()
     sb.append_valid()
 
@@ -1572,13 +1570,13 @@ def test_struct_array_eq_unequal() raises:
 
 def test_struct_array_eq_dtype_mismatch() raises:
     var sa = StructBuilder([field("x", int32)], capacity=1)
-    sa.field_builder(0).as_primitive[Int32Type]().append(1)
+    sa.field_builder(0).as_int32().append(1)
     sa.append_valid()
 
     var sb = StructBuilder(
         [field("y", int32)], capacity=1
     )  # different field name
-    sb.field_builder(0).as_primitive[Int32Type]().append(1)
+    sb.field_builder(0).as_int32().append(1)
     sb.append_valid()
 
     assert_false(sa.finish() == sb.finish())
@@ -1586,31 +1584,35 @@ def test_struct_array_eq_dtype_mismatch() raises:
 
 def test_array_eq_dtype_mismatch() raises:
     # Type-erased AnyArray: int32 vs int64 → False
-    var a: AnyArray = array[Int32Type]([1, 2, 3])
-    var b: AnyArray = array[Int64Type]([1, 2, 3])
+    var a: AnyArray = array([1, 2, 3], int32)
+    var b: AnyArray = array([1, 2, 3], int64)
     assert_false(a == b)
 
 
 def test_array_eq_via_dispatch() raises:
     # Equal arrays accessed as type-erased AnyArray verify dispatch works.
-    var a: AnyArray = array[Int32Type]([10, 20, 30])
-    var b: AnyArray = array[Int32Type]([10, 20, 30])
+    var a: AnyArray = array([10, 20, 30], int32)
+    var b: AnyArray = array([10, 20, 30], int32)
     assert_true(a == b)
     assert_true(a == b)
 
 
 def test_primitive_array_list_literal() raises:
-    var arr: Int64Array = [1, 2, 3, 4, 5]
+    var arr = array([1, 2, 3, 4, 5], int64)
     assert_equal(len(arr), 5)
-    assert_equal(arr[0], 1)
-    assert_equal(arr[4], 5)
+    assert_equal(arr[0].value(), 1)
+    assert_equal(arr[4].value(), 5)
     assert_equal(arr.null_count(), 0)
 
 
 def test_primitive_array_list_literal_float() raises:
-    var arr: Float64Array = [1.0, 2.5, 3.14]
+    var b = Float64Builder(3)
+    b.append(1.0)
+    b.append(2.5)
+    b.append(3.14)
+    var arr = b.finish()
     assert_equal(len(arr), 3)
-    assert_equal(arr[0], 1.0)
+    assert_equal(arr[0].value(), 1.0)
 
 
 def test_string_array_list_literal() raises:
@@ -1625,6 +1627,561 @@ def test_string_array_list_literal() raises:
 def test_primitive_array_list_literal_empty() raises:
     var arr: Int32Array = []
     assert_equal(len(arr), 0)
+
+
+def test_temporal_array_date32() raises:
+    var arr = Date32Array(
+        ArrayData(
+            dtype=date32().to_any(),
+            length=3,
+            nulls=0,
+            offset=0,
+            bitmap=None,
+            buffers=[Buffer.alloc_zeroed[DType.int32](3).to_immutable()],
+            children=[],
+        )
+    )
+    assert_equal(len(arr), 3)
+    assert_equal(arr.null_count(), 0)
+    assert_true(arr.type() == date32().to_any())
+    assert_true(arr.is_valid(0))
+    assert_true(arr.is_valid(1))
+    assert_true(arr.is_valid(2))
+
+
+def test_temporal_array_timestamp_values() raises:
+    var buf = Buffer[mut=True].alloc_uninit[DType.int64](4)
+    buf.unsafe_set[DType.int64](0, 1_000_000)
+    buf.unsafe_set[DType.int64](1, 2_000_000)
+    buf.unsafe_set[DType.int64](2, 3_000_000)
+    buf.unsafe_set[DType.int64](3, 4_000_000)
+    var arr = TimestampArray(
+        ArrayData(
+            dtype=timestamp(second, "UTC").to_any(),
+            length=4,
+            nulls=0,
+            offset=0,
+            bitmap=None,
+            buffers=[buf.to_immutable()],
+            children=[],
+        )
+    )
+    assert_equal(len(arr), 4)
+    assert_true(arr.type() == timestamp(second, "UTC").to_any())
+    assert_equal(arr[0].value(), 1_000_000)
+    assert_equal(arr[1].value(), 2_000_000)
+    assert_equal(arr[2].value(), 3_000_000)
+    assert_equal(arr[3].value(), 4_000_000)
+
+
+def test_temporal_array_with_nulls() raises:
+    var buf = Buffer[mut=True].alloc_uninit[DType.int32](3)
+    buf.unsafe_set[DType.int32](0, 10)
+    buf.unsafe_set[DType.int32](1, 20)
+    buf.unsafe_set[DType.int32](2, 30)
+    var bm = Bitmap.alloc_zeroed(3)
+    bm.set(0)
+    bm.set(2)
+    var arr = Date32Array(
+        ArrayData(
+            dtype=date32().to_any(),
+            length=3,
+            nulls=1,
+            offset=0,
+            bitmap=bm.to_immutable(),
+            buffers=[buf.to_immutable()],
+            children=[],
+        )
+    )
+    assert_equal(len(arr), 3)
+    assert_equal(arr.null_count(), 1)
+    assert_true(arr.is_valid(0))
+    assert_false(arr.is_valid(1))
+    assert_true(arr.is_valid(2))
+    assert_equal(arr[0].value(), 10)
+    assert_true(arr[1].is_null())
+    assert_equal(arr[2].value(), 30)
+
+
+def test_temporal_array_slice() raises:
+    var buf = Buffer[mut=True].alloc_uninit[DType.int64](5)
+    for i in range(5):
+        buf.unsafe_set[DType.int64](i, Int64(i * 1000))
+    var arr = DurationArray(
+        ArrayData(
+            dtype=duration(millisecond).to_any(),
+            length=5,
+            nulls=0,
+            offset=0,
+            bitmap=None,
+            buffers=[buf.to_immutable()],
+            children=[],
+        )
+    )
+    var sliced = arr.slice(1, 3)
+    assert_equal(len(sliced), 3)
+    assert_equal(sliced[0].value(), 1000)
+    assert_equal(sliced[1].value(), 2000)
+    assert_equal(sliced[2].value(), 3000)
+
+
+def test_temporal_array_equality() raises:
+    var buf1 = Buffer[mut=True].alloc_zeroed[DType.int32](2)
+    buf1.unsafe_set[DType.int32](0, 100)
+    buf1.unsafe_set[DType.int32](1, 200)
+    var buf2 = Buffer[mut=True].alloc_zeroed[DType.int32](2)
+    buf2.unsafe_set[DType.int32](0, 100)
+    buf2.unsafe_set[DType.int32](1, 200)
+    var arr1 = Date32Array(
+        ArrayData(
+            dtype=date32().to_any(),
+            length=2,
+            nulls=0,
+            offset=0,
+            bitmap=None,
+            buffers=[buf1.to_immutable()],
+            children=[],
+        )
+    )
+    var arr2 = Date32Array(
+        ArrayData(
+            dtype=date32().to_any(),
+            length=2,
+            nulls=0,
+            offset=0,
+            bitmap=None,
+            buffers=[buf2.to_immutable()],
+            children=[],
+        )
+    )
+    assert_true(arr1 == arr2)
+
+
+def test_temporal_array_dtype_mismatch() raises:
+    var buf = Buffer[mut=True].alloc_uninit[DType.int32](2)
+    buf.unsafe_set[DType.int32](0, 1)
+    buf.unsafe_set[DType.int32](1, 2)
+    var arr_date32 = Date32Array(
+        ArrayData(
+            dtype=date32().to_any(),
+            length=2,
+            nulls=0,
+            offset=0,
+            bitmap=None,
+            buffers=[buf.to_immutable()],
+            children=[],
+        )
+    )
+    var buf64 = Buffer[mut=True].alloc_uninit[DType.int64](2)
+    buf64.unsafe_set[DType.int64](0, 1)
+    buf64.unsafe_set[DType.int64](1, 2)
+    var arr_date64 = Date64Array(
+        ArrayData(
+            dtype=date64().to_any(),
+            length=2,
+            nulls=0,
+            offset=0,
+            bitmap=None,
+            buffers=[buf64.to_immutable()],
+            children=[],
+        )
+    )
+    assert_false(arr_date32^.to_any() == arr_date64^.to_any())
+
+
+def test_temporal_array_to_any_roundtrip() raises:
+    var buf = Buffer[mut=True].alloc_uninit[DType.int64](2)
+    buf.unsafe_set[DType.int64](0, 999)
+    buf.unsafe_set[DType.int64](1, 1999)
+    var arr = TimestampArray(
+        ArrayData(
+            dtype=timestamp(nanosecond).to_any(),
+            length=2,
+            nulls=0,
+            offset=0,
+            bitmap=None,
+            buffers=[buf.to_immutable()],
+            children=[],
+        )
+    )
+    var any_arr = arr^.to_any()
+    assert_true(any_arr.dtype() == timestamp(nanosecond).to_any())
+    assert_equal(any_arr.length(), 2)
+    ref ta = any_arr.as_timestamp()
+    assert_equal(ta[0].value(), 999)
+    assert_equal(ta[1].value(), 1999)
+
+
+def test_temporal_array_index_out_of_bounds() raises:
+    var buf = Buffer[mut=True].alloc_uninit[DType.int32](1)
+    buf.unsafe_set[DType.int32](0, 42)
+    var arr = Date32Array(
+        ArrayData(
+            dtype=date32().to_any(),
+            length=1,
+            nulls=0,
+            offset=0,
+            bitmap=None,
+            buffers=[buf.to_immutable()],
+            children=[],
+        )
+    )
+    var raised = False
+    try:
+        _ = arr[5]
+    except:
+        raised = True
+    assert_true(raised)
+
+
+def test_year_month_interval_array() raises:
+    var buf = Buffer[mut=True].alloc_uninit[DType.int32](3)
+    buf.unsafe_set[DType.int32](0, Int32(12))
+    buf.unsafe_set[DType.int32](1, Int32(24))
+    buf.unsafe_set[DType.int32](2, Int32(36))
+    var arr = YearMonthIntervalArray(
+        ArrayData(
+            dtype=year_month_interval().to_any(),
+            length=3,
+            nulls=0,
+            offset=0,
+            bitmap=None,
+            buffers=[buf.to_immutable()],
+            children=[],
+        )
+    )
+    assert_equal(len(arr), 3)
+    assert_true(arr.type() == year_month_interval().to_any())
+    assert_equal(arr[0].value(), 12)
+    assert_equal(arr[1].value(), 24)
+    assert_equal(arr[2].value(), 36)
+
+
+def test_day_time_interval_array() raises:
+    var buf = Buffer[mut=True].alloc_uninit[DType.int64](3)
+    buf.unsafe_set[DType.int64](0, Int64(86400000))
+    buf.unsafe_set[DType.int64](1, Int64(172800000))
+    buf.unsafe_set[DType.int64](2, Int64(259200000))
+    var arr = DayTimeIntervalArray(
+        ArrayData(
+            dtype=day_time_interval().to_any(),
+            length=3,
+            nulls=0,
+            offset=0,
+            bitmap=None,
+            buffers=[buf.to_immutable()],
+            children=[],
+        )
+    )
+    assert_equal(len(arr), 3)
+    assert_true(arr.type() == day_time_interval().to_any())
+    assert_equal(arr[0].value(), 86400000)
+    assert_equal(arr[1].value(), 172800000)
+    assert_equal(arr[2].value(), 259200000)
+
+
+def test_month_day_nano_interval_array() raises:
+    var buf = Buffer[mut=True].alloc_uninit[DType.int128](2)
+    buf.unsafe_set[DType.int128](0, 1)
+    buf.unsafe_set[DType.int128](1, 2)
+    var arr = MonthDayNanoIntervalArray(
+        ArrayData(
+            dtype=month_day_nano_interval().to_any(),
+            length=2,
+            nulls=0,
+            offset=0,
+            bitmap=None,
+            buffers=[buf.to_immutable()],
+            children=[],
+        )
+    )
+    assert_equal(len(arr), 2)
+    assert_true(arr.type() == month_day_nano_interval().to_any())
+    assert_equal(arr[0].value(), 1)
+    assert_equal(arr[1].value(), 2)
+
+
+def test_interval_array_to_any_roundtrip() raises:
+    var buf = Buffer[mut=True].alloc_uninit[DType.int32](2)
+    buf.unsafe_set[DType.int32](0, Int32(6))
+    buf.unsafe_set[DType.int32](1, Int32(18))
+    var arr = YearMonthIntervalArray(
+        ArrayData(
+            dtype=year_month_interval().to_any(),
+            length=2,
+            nulls=0,
+            offset=0,
+            bitmap=None,
+            buffers=[buf.to_immutable()],
+            children=[],
+        )
+    )
+    var any_arr = arr^.to_any()
+    assert_true(any_arr.dtype() == year_month_interval().to_any())
+    assert_equal(any_arr.length(), 2)
+    ref ia = any_arr.as_year_month_interval()
+    assert_equal(ia[0].value(), 6)
+    assert_equal(ia[1].value(), 18)
+
+
+def test_dictionary_array() raises:
+    # Build values: ["cat", "dog", "fish"]
+    var vb = StringBuilder()
+    vb.append("cat")
+    vb.append("dog")
+    vb.append("fish")
+    var values: AnyArray = vb.finish()
+
+    # Build indices: [0, 1, 2, 0, 1]
+    var ib = Int8Builder()
+    ib.append(0)
+    ib.append(1)
+    ib.append(2)
+    ib.append(0)
+    ib.append(1)
+    var indices: AnyArray = ib.finish()
+
+    var arr = DictionaryArray.from_arrays(indices^, values^)
+    assert_equal(len(arr), 5)
+    assert_equal(arr.null_count(), 0)
+    assert_true(arr.type().is_dictionary())
+
+    # Decoded values match
+    assert_equal(arr[0].value().as_string().to_string(), "cat")
+    assert_equal(arr[1].value().as_string().to_string(), "dog")
+    assert_equal(arr[2].value().as_string().to_string(), "fish")
+    assert_equal(arr[3].value().as_string().to_string(), "cat")
+    assert_equal(arr[4].value().as_string().to_string(), "dog")
+
+    # All entries valid
+    assert_true(arr[0].is_valid())
+    assert_true(arr[4].is_valid())
+
+    # indices() and dictionary() accessors
+    assert_equal(arr.indices().length(), 5)
+    assert_equal(arr.dictionary().length(), 3)
+
+
+def test_dictionary_array_null() raises:
+    var vb = StringBuilder()
+    vb.append("cat")
+    vb.append("dog")
+    var values: AnyArray = vb.finish()
+
+    # indices: [0, null, 1]
+    var ib = Int32Builder()
+    ib.append(0)
+    ib.append_null()
+    ib.append(1)
+    var indices: AnyArray = ib.finish()
+
+    var arr = DictionaryArray.from_arrays(indices^, values^)
+    assert_equal(len(arr), 3)
+    assert_equal(arr.null_count(), 1)
+
+    assert_true(arr[0].is_valid())
+    assert_equal(arr[0].value().as_string().to_string(), "cat")
+    assert_false(arr[1].is_valid())
+    assert_true(arr[2].is_valid())
+    assert_equal(arr[2].value().as_string().to_string(), "dog")
+
+
+def test_dictionary_array_slice() raises:
+    var vb = StringBuilder()
+    vb.append("a")
+    vb.append("b")
+    vb.append("c")
+    var values: AnyArray = vb.finish()
+
+    var ib = Int32Builder()
+    for i in range(3):
+        ib.append(Int32(i))
+    var indices: AnyArray = ib.finish()
+    var arr = DictionaryArray.from_arrays(indices^, values^)
+
+    # Slice [1:3] -> ["b", "c"]
+    var sliced = arr.slice(1, 2)
+    assert_equal(len(sliced), 2)
+    assert_equal(sliced[0].value().as_string().to_string(), "b")
+    assert_equal(sliced[1].value().as_string().to_string(), "c")
+
+    # Slice [0:1] -> ["a"]
+    var head = arr.slice(0, 1)
+    assert_equal(len(head), 1)
+    assert_equal(head[0].value().as_string().to_string(), "a")
+
+
+def test_dictionary_array_data_roundtrip() raises:
+    var vb = StringBuilder()
+    vb.append("x")
+    vb.append("y")
+    var values: AnyArray = vb.finish()
+
+    var ib = Int32Builder()
+    ib.append(0)
+    ib.append(1)
+    ib.append(0)
+    var indices: AnyArray = ib.finish()
+    var arr = DictionaryArray.from_arrays(indices^, values^)
+
+    # to_data round-trip
+    var data = arr.to_data()
+    assert_true(data.dtype.is_dictionary())
+    assert_equal(data.length, 3)
+    assert_equal(len(data.children), 1)
+
+    # Reconstruct from ArrayData
+    var arr2 = DictionaryArray(data)
+    assert_equal(len(arr2), 3)
+    assert_equal(arr2[0].value().as_string().to_string(), "x")
+    assert_equal(arr2[1].value().as_string().to_string(), "y")
+    assert_equal(arr2[2].value().as_string().to_string(), "x")
+
+    # AnyArray.from_data dispatch
+    var any2 = AnyArray.from_data(data)
+    assert_true(any2.dtype().is_dictionary())
+    ref da = any2.as_dictionary()
+    assert_equal(da[0].value().as_string().to_string(), "x")
+
+
+def test_dictionary_builder() raises:
+    var vb = StringBuilder()
+    vb.append("red")
+    vb.append("green")
+    vb.append("blue")
+    var values: AnyArray = vb.finish()
+
+    var builder = DictionaryBuilder(Int8Builder(), values^)
+    builder.append(0)  # "red"
+    builder.append(1)  # "green"
+    builder.append(2)  # "blue"
+    builder.append_null()
+    builder.append(0)  # "red"
+
+    var arr = builder.finish()
+    assert_equal(len(arr), 5)
+    assert_equal(arr.null_count(), 1)
+    assert_equal(arr[0].value().as_string().to_string(), "red")
+    assert_equal(arr[1].value().as_string().to_string(), "green")
+    assert_equal(arr[2].value().as_string().to_string(), "blue")
+    assert_false(arr[3].is_valid())
+    assert_equal(arr[4].value().as_string().to_string(), "red")
+
+
+def test_dictionary_out_of_bounds() raises:
+    var vb = StringBuilder()
+    vb.append("only")
+    var values: AnyArray = vb.finish()
+
+    var ib = Int32Builder()
+    ib.append(0)
+    var indices: AnyArray = ib.finish()
+    var arr = DictionaryArray.from_arrays(indices^, values^)
+
+    var raised = False
+    try:
+        _ = arr[5]
+    except:
+        raised = True
+    assert_true(raised)
+
+
+def test_empty_null() raises:
+    var arr = array(null.to_any())
+    assert_equal(len(arr), 0)
+    assert_equal(arr.null_count(), 0)
+    assert_true(arr.dtype().is_null())
+
+
+def test_empty_bool() raises:
+    var arr = array(bool_.to_any())
+    assert_equal(len(arr), 0)
+    assert_equal(arr.null_count(), 0)
+    assert_true(arr.dtype().is_bool())
+
+
+def test_empty_int32() raises:
+    var arr = array(int32.to_any())
+    assert_equal(len(arr), 0)
+    assert_equal(arr.null_count(), 0)
+    assert_true(arr.dtype() == int32)
+
+
+def test_empty_float64() raises:
+    var arr = array(float64.to_any())
+    assert_equal(len(arr), 0)
+    assert_equal(arr.null_count(), 0)
+    assert_true(arr.dtype() == float64)
+
+
+def test_empty_string() raises:
+    var arr = array(string.to_any())
+    assert_equal(len(arr), 0)
+    assert_equal(arr.null_count(), 0)
+    assert_true(arr.dtype().is_string())
+
+
+def test_empty_large_string() raises:
+    var arr = array(large_string.to_any())
+    assert_equal(len(arr), 0)
+    assert_equal(arr.null_count(), 0)
+    assert_true(arr.dtype().is_large_string())
+
+
+def test_empty_binary() raises:
+    var arr = array(binary.to_any())
+    assert_equal(len(arr), 0)
+    assert_equal(arr.null_count(), 0)
+    assert_true(arr.dtype().is_binary())
+
+
+def test_empty_list() raises:
+    var arr = array(list_(int32).to_any())
+    assert_equal(len(arr), 0)
+    assert_equal(arr.null_count(), 0)
+    assert_true(arr.dtype().is_list())
+    assert_equal(len(arr.as_list().values()), 0)
+
+
+def test_empty_large_list() raises:
+    var arr = array(large_list_(float64).to_any())
+    assert_equal(len(arr), 0)
+    assert_equal(arr.null_count(), 0)
+    assert_true(arr.dtype().is_large_list())
+
+
+def test_empty_fixed_size_list() raises:
+    var arr = array(fixed_size_list_(int32, 4).to_any())
+    assert_equal(len(arr), 0)
+    assert_equal(arr.null_count(), 0)
+    assert_true(arr.dtype().is_fixed_size_list())
+    assert_equal(len(arr.as_fixed_size_list().values()), 0)
+
+
+def test_empty_struct() raises:
+    var arr = array(struct_(Field("x", int32), Field("y", float64)).to_any())
+    assert_equal(len(arr), 0)
+    assert_equal(arr.null_count(), 0)
+    assert_true(arr.dtype().is_struct())
+    ref sa = arr.as_struct()
+    assert_equal(len(sa.children), 2)
+    assert_equal(len(sa.children[0]), 0)
+    assert_equal(len(sa.children[1]), 0)
+
+
+def test_empty_dictionary() raises:
+    var arr = array(dictionary(int32, string).to_any())
+    assert_equal(len(arr), 0)
+    assert_equal(arr.null_count(), 0)
+    assert_true(arr.dtype().is_dictionary())
+
+
+def test_empty_nested_list() raises:
+    var arr = array(list_(list_(int32)).to_any())
+    assert_equal(len(arr), 0)
+    assert_true(arr.dtype().is_list())
+    assert_equal(len(arr.as_list().values()), 0)
+    assert_true(arr.as_list().values().dtype().is_list())
 
 
 def main() raises:

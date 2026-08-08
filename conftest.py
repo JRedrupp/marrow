@@ -1,4 +1,3 @@
-import hashlib
 import json
 import os
 import re
@@ -98,36 +97,39 @@ class MojoRunner:
     def build_cmd(config, fspath, test_names=None):
         """Return the command to run a Mojo source file with optional test filtering.
 
-        Normally uses `mojo run` so the Mojo compiler handles build caching.
-        Under ASAN, `mojo run` cannot resolve sanitizer symbols, so we compile to a
-        binary first with `mojo build` and return the path to that binary.
+        Always compiles to a binary with `mojo build` so that crashes produce
+        symbolicated stack traces.  Binaries are content-hash-cached under
+        .test_runners/ so repeated runs skip recompilation.
         When *test_names* is provided, appends `--only name1 name2 ...` so that
         TestSuite skips unselected tests.
         """
-        opt = "-O3" if config.getoption("--benchmark") else "-O1"
+        benchmark = config.getoption("--benchmark")
+        opt = "-O3" if benchmark else "-O1"
+        assert_flag = [] if benchmark else ["-D", "ASSERT=all"]
         asan = MojoRunner.asan_flags(config)
+        src = Path(fspath)
 
-        if asan:
-            # mojo run cannot link ASAN symbols — build a real binary first.
-            # Use a stable name derived from the source path so each test file
-            # gets its own binary; mojo's own build cache decides whether to
-            # recompile.
-            src = Path(fspath)
-            runners_dir = Path(config.rootpath) / ".test_runners"
-            runners_dir.mkdir(exist_ok=True)
-            src_hash = hashlib.sha256(str(src).encode()).hexdigest()[:16]
-            binary = runners_dir / f"test_runner_{src_hash}"
-            build_cmd = (
-                ["mojo", "build", opt, "-I", "."] + asan + [str(src), "-o", str(binary)]
-            )
-            result = subprocess.run(
-                build_cmd, cwd=config.rootpath, capture_output=True, text=True
-            )
-            if result.returncode != 0:
-                raise RuntimeError(f"mojo build failed for {src}:\n{result.stderr}")
-            cmd = [str(binary)]
-        else:
-            cmd = ["mojo", "run", opt, "-I", "."] + [str(fspath)]
+        # Always build a binary so crashes produce symbolicated stack traces.
+        # ASAN requires a binary because `mojo run` cannot resolve sanitizer
+        # symbols at runtime; for non-ASAN runs a binary is also needed because
+        # `mojo run` does not honour -g1 for crash symbolication in practice.
+        runners_dir = Path(config.rootpath) / ".test_runners"
+        runners_dir.mkdir(exist_ok=True)
+        binary = runners_dir / src.stem
+
+        # -lm: mojo build on Linux doesn't auto-link libm (needed for
+        # log10f etc.); harmless on macOS where libm is part of libSystem.
+        lm = [] if sys.platform == "darwin" else ["-Xlinker", "-lm"]
+        build_cmd = (
+            ["mojo", "build", opt, "-g1", "-I", "."] + assert_flag + asan + lm + [str(src), "-o", str(binary)]
+        )
+        result = subprocess.run(
+            build_cmd, cwd=config.rootpath, capture_output=True, text=True
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"mojo build failed for {src}:\n{result.stderr}")
+
+        cmd = [str(binary)]
 
         if test_names:
             cmd += ["--only"] + list(test_names)
@@ -508,18 +510,16 @@ def pytest_sessionstart(session):
         return
 
     print("building python/marrow.so ...", flush=True)
-    opt = "-O3" if config.getoption("--benchmark") else "-O1"
+    benchmark = config.getoption("--benchmark")
+    opt = "-O3" if benchmark else "-O1"
     cmd = (
         ["mojo", "build", opt, "-I", "."]
         + MojoRunner.asan_flags(config)
         + ["python/lib.mojo", "--emit", "shared-lib", "-o", "python/marrow.so"]
     )
-    result = subprocess.run(cmd, cwd=config.rootpath, capture_output=True, text=True)
+    result = subprocess.run(cmd, cwd=config.rootpath)
     if result.returncode != 0:
-        pytest.exit(
-            f"Failed to build python/marrow.so:\n{result.stderr}",
-            returncode=1,
-        )
+        pytest.exit("Failed to build python/marrow.so", returncode=1)
     print("python/marrow.so built successfully", flush=True)
 
 

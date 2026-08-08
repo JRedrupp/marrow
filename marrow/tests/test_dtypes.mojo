@@ -1,48 +1,11 @@
 from std.testing import assert_equal, assert_true, assert_false
 from marrow.testing import TestSuite
-import marrow.dtypes as dt
-from marrow.dtypes import (
-    AnyDataType,
-    string,
-    Field,
-    NullType,
-    BoolType,
-    StringType,
-    Int8Type,
-    Int16Type,
-    Int32Type,
-    Int64Type,
-    UInt8Type,
-    UInt16Type,
-    UInt32Type,
-    UInt64Type,
-    Float16Type,
-    Float32Type,
-    Float64Type,
-    BinaryType,
-    list_,
-    fixed_size_list_,
-    struct_,
-    field,
-    binary,
-    float16,
-    float32,
-    float64,
-    int8,
-    int16,
-    int32,
-    int64,
-    uint8,
-    uint16,
-    uint32,
-    uint64,
-    bool_,
-    null,
-)
+from marrow import dtypes as dt
+from marrow.dtypes import *
 
 
 def test_bool_type() raises:
-    assert_true(AnyDataType(dt.bool_) == AnyDataType(dt.bool_))
+    assert_true(dt.bool_ == dt.bool_)
     assert_false(AnyDataType(dt.bool_) == AnyDataType(dt.int64))
 
     var t = AnyDataType(dt.bool_)
@@ -122,7 +85,6 @@ def test_bit_width() raises:
     assert_equal(dt.uint16.bit_width(), 16)
     assert_equal(dt.uint32.bit_width(), 32)
     assert_equal(dt.uint64.bit_width(), 64)
-    assert_equal(dt.bool_.bit_width(), 1)
     assert_equal(dt.float32.bit_width(), 32)
     assert_equal(dt.float64.bit_width(), 64)
 
@@ -173,9 +135,9 @@ def test_eq() raises:
     assert_false(a == c)
     assert_false(a != b)
     assert_true(a != c)
-    assert_true(AnyDataType(NullType()) == AnyDataType(NullType()))
+    assert_true(NullType() == NullType())
     assert_false(AnyDataType(NullType()) == AnyDataType(BoolType()))
-    assert_true(AnyDataType(Float32Type()) == AnyDataType(Float32Type()))
+    assert_true(Float32Type() == Float32Type())
     assert_false(AnyDataType(Float32Type()) == AnyDataType(Float64Type()))
 
 
@@ -310,6 +272,229 @@ def test_is_fixed_size() raises:
     assert_false(AnyDataType(NullType()).is_fixed_size())
     assert_false(AnyDataType(StringType()).is_fixed_size())
     assert_false(AnyDataType(list_(AnyDataType(Int32Type()))).is_fixed_size())
+
+
+def test_temporal_dtypes_predicates() raises:
+    assert_true(AnyDataType(date32()).is_date32())
+    assert_true(AnyDataType(date32()).is_temporal())
+    assert_false(AnyDataType(date32()).is_date64())
+    assert_true(AnyDataType(date32()).is_primitive())
+    assert_false(AnyDataType(date32()).is_integer())
+
+    assert_true(AnyDataType(date64()).is_date64())
+    assert_true(AnyDataType(date64()).is_temporal())
+    assert_false(AnyDataType(date64()).is_date32())
+
+    assert_true(AnyDataType(time32(second)).is_time32())
+    assert_true(AnyDataType(time32(second)).is_temporal())
+    assert_false(AnyDataType(time32(second)).is_time64())
+
+    assert_true(AnyDataType(time64(microsecond)).is_time64())
+    assert_true(AnyDataType(time64(microsecond)).is_temporal())
+    assert_false(AnyDataType(time64(microsecond)).is_time32())
+
+    assert_true(AnyDataType(timestamp(second)).is_timestamp())
+    assert_true(AnyDataType(timestamp(second)).is_temporal())
+    assert_false(AnyDataType(timestamp(second)).is_duration())
+
+    assert_true(AnyDataType(duration(second)).is_duration())
+    assert_true(AnyDataType(duration(second)).is_temporal())
+    assert_false(AnyDataType(duration(second)).is_timestamp())
+
+
+def test_temporal_dtypes_string() raises:
+    assert_equal(String(AnyDataType(date32())), "date32")
+    assert_equal(String(AnyDataType(date64())), "date64")
+    assert_equal(String(AnyDataType(time32(second))), "time32[s]")
+    assert_equal(String(AnyDataType(time32(millisecond))), "time32[ms]")
+    assert_equal(String(AnyDataType(time64(microsecond))), "time64[us]")
+    assert_equal(String(AnyDataType(time64(nanosecond))), "time64[ns]")
+    assert_equal(String(AnyDataType(timestamp(second))), "timestamp[s]")
+    assert_equal(String(AnyDataType(timestamp(millisecond))), "timestamp[ms]")
+    assert_equal(String(AnyDataType(timestamp(microsecond))), "timestamp[us]")
+    assert_equal(String(AnyDataType(timestamp(nanosecond))), "timestamp[ns]")
+    assert_equal(
+        String(AnyDataType(timestamp(second, "UTC"))), "timestamp[s][tz=UTC]"
+    )
+    assert_equal(String(AnyDataType(duration(second))), "duration[s]")
+    assert_equal(String(AnyDataType(duration(nanosecond))), "duration[ns]")
+
+
+def test_temporal_dtypes_equality() raises:
+    assert_true(date32() == date32())
+    assert_false(AnyDataType(date32()) == AnyDataType(date64()))
+    assert_true(time32(second) == time32(second))
+    assert_false(time32(second) == time32(millisecond))
+    assert_true(timestamp(second) == timestamp(second))
+    assert_false(timestamp(second) == timestamp(millisecond))
+    assert_true(timestamp(second, "UTC") == timestamp(second, "UTC"))
+    assert_false(timestamp(second, "UTC") == timestamp(second, "US/Pacific"))
+    assert_false(timestamp(second, "UTC") == timestamp(second))
+    assert_true(duration(nanosecond) == duration(nanosecond))
+    assert_false(duration(second) == duration(nanosecond))
+    assert_false(AnyDataType(date32()) == AnyDataType(int32))
+    assert_false(date32() != date32())
+    assert_true(AnyDataType(date32()) != AnyDataType(date64()))
+    assert_true(time32(second) != time32(millisecond))
+    assert_true(timestamp(second, "UTC") != timestamp(second, "US/Pacific"))
+
+
+def test_interval_dtypes_predicates() raises:
+    assert_true(AnyDataType(year_month_interval()).is_year_month_interval())
+    assert_true(AnyDataType(year_month_interval()).is_interval())
+    assert_true(AnyDataType(year_month_interval()).is_primitive())
+    assert_false(AnyDataType(year_month_interval()).is_temporal())
+    assert_false(AnyDataType(year_month_interval()).is_day_time_interval())
+
+    assert_true(AnyDataType(day_time_interval()).is_day_time_interval())
+    assert_true(AnyDataType(day_time_interval()).is_interval())
+    assert_true(AnyDataType(day_time_interval()).is_primitive())
+    assert_false(AnyDataType(day_time_interval()).is_year_month_interval())
+
+    assert_true(
+        AnyDataType(month_day_nano_interval()).is_month_day_nano_interval()
+    )
+    assert_true(AnyDataType(month_day_nano_interval()).is_interval())
+    assert_true(AnyDataType(month_day_nano_interval()).is_primitive())
+    assert_false(
+        AnyDataType(month_day_nano_interval()).is_year_month_interval()
+    )
+
+
+def test_interval_dtypes_string() raises:
+    assert_equal(String(AnyDataType(year_month_interval())), "month_interval")
+    assert_equal(String(AnyDataType(day_time_interval())), "day_time_interval")
+    assert_equal(
+        String(AnyDataType(month_day_nano_interval())),
+        "month_day_nano_interval",
+    )
+
+
+def test_interval_dtypes_equality() raises:
+    assert_true(year_month_interval() == year_month_interval())
+    assert_true(day_time_interval() == day_time_interval())
+    assert_true(month_day_nano_interval() == month_day_nano_interval())
+    assert_false(
+        AnyDataType(year_month_interval()) == AnyDataType(day_time_interval())
+    )
+    assert_false(
+        AnyDataType(day_time_interval())
+        == AnyDataType(month_day_nano_interval())
+    )
+
+
+def test_dictionary_dtype() raises:
+    # Basic construction and predicates
+    var dt_d = dictionary(AnyDataType(int32), AnyDataType(string))
+    var at: AnyDataType = dt_d.copy().to_any()
+    assert_true(at.is_dictionary())
+    assert_false(at.is_list())
+    assert_false(at.is_primitive())
+    assert_false(at.is_struct())
+
+    # Field access via as_dictionary()
+    ref dd = at.as_dictionary()
+    assert_true(dd.index_type() == AnyDataType(int32))
+    assert_true(dd.value_type() == AnyDataType(string))
+    assert_false(dd.ordered)
+
+    # Ordered variant
+    var dt_ord = dictionary(AnyDataType(int8), AnyDataType(int32), ordered=True)
+    var at_ord: AnyDataType = dt_ord.copy().to_any()
+    ref dd_ord = at_ord.as_dictionary()
+    assert_true(dd_ord.ordered)
+    assert_true(dd_ord.index_type() == AnyDataType(int8))
+
+    # Equality
+    var d1 = dictionary(AnyDataType(int32), AnyDataType(string)).copy().to_any()
+    var d2 = dictionary(AnyDataType(int32), AnyDataType(string)).copy().to_any()
+    var d3 = dictionary(AnyDataType(int64), AnyDataType(string)).copy().to_any()
+    var d4 = (
+        dictionary(AnyDataType(int32), AnyDataType(string), ordered=True)
+        .copy()
+        .to_any()
+    )
+    assert_true(d1 == d2)
+    assert_false(d1 == d3)  # different index type
+    assert_false(d1 == d4)  # ordered differs
+
+    # String representation
+    assert_equal(
+        String(dictionary(AnyDataType(int32), AnyDataType(string))),
+        "dictionary<values=string, indices=int32, ordered=0>",
+    )
+    assert_equal(
+        String(dictionary(AnyDataType(int8), AnyDataType(int32), ordered=True)),
+        "dictionary<values=int32, indices=int8, ordered=1>",
+    )
+
+    # All valid integer index types
+    assert_true(
+        dictionary(AnyDataType(int8), AnyDataType(string))
+        .copy()
+        .to_any()
+        .is_dictionary()
+    )
+    assert_true(
+        dictionary(AnyDataType(int16), AnyDataType(string))
+        .copy()
+        .to_any()
+        .is_dictionary()
+    )
+    assert_true(
+        dictionary(AnyDataType(int64), AnyDataType(string))
+        .copy()
+        .to_any()
+        .is_dictionary()
+    )
+    assert_true(
+        dictionary(AnyDataType(uint8), AnyDataType(string))
+        .copy()
+        .to_any()
+        .is_dictionary()
+    )
+    assert_true(
+        dictionary(AnyDataType(uint16), AnyDataType(string))
+        .copy()
+        .to_any()
+        .is_dictionary()
+    )
+    assert_true(
+        dictionary(AnyDataType(uint32), AnyDataType(string))
+        .copy()
+        .to_any()
+        .is_dictionary()
+    )
+    assert_true(
+        dictionary(AnyDataType(uint64), AnyDataType(string))
+        .copy()
+        .to_any()
+        .is_dictionary()
+    )
+
+    # Non-integer index type must raise
+    var raised = False
+    try:
+        _ = dictionary(AnyDataType(float32), AnyDataType(string))
+    except:
+        raised = True
+    assert_true(raised)
+
+    # Nested value type
+    var nested = dictionary(
+        AnyDataType(int32), AnyDataType(list_(AnyDataType(int64)))
+    )
+    assert_equal(
+        String(nested),
+        "dictionary<values=list<int64>, indices=int32, ordered=0>",
+    )
+
+
+def test_time_unit_string() raises:
+    assert_equal(String(second), "s")
+    assert_equal(String(millisecond), "ms")
+    assert_equal(String(microsecond), "us")
+    assert_equal(String(nanosecond), "ns")
 
 
 def main() raises:

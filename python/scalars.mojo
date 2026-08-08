@@ -13,33 +13,7 @@ from std.python.bindings import PythonModuleBuilder
 from pontoneer import TypeProtocolBuilder, RichCompareOps, NotImplementedError
 from marrow.scalars import AnyScalar
 from marrow.arrays import AnyArray
-from marrow.dtypes import (
-    AnyDataType,
-    BoolType,
-    Int8Type,
-    Int16Type,
-    Int32Type,
-    Int64Type,
-    UInt8Type,
-    UInt16Type,
-    UInt32Type,
-    UInt64Type,
-    Float16Type,
-    Float32Type,
-    Float64Type,
-    bool_,
-    int8,
-    int16,
-    int32,
-    int64,
-    uint8,
-    uint16,
-    uint32,
-    uint64,
-    float16,
-    float32,
-    float64,
-)
+from marrow.dtypes import AnyDataType
 from helpers import pymethod
 from helpers import marrow_module
 
@@ -55,30 +29,36 @@ def _as_py(scalar: AnyScalar) raises -> PythonObject:
     if scalar.is_null():
         return PythonObject(None)
     var dtype = scalar.type()
-    if dtype == bool_:
+    if dtype.is_bool():
         return PythonObject(scalar.as_bool().value())
-    elif dtype == int8:
-        return PythonObject(scalar.as_primitive[Int8Type]().value())
-    elif dtype == int16:
-        return PythonObject(scalar.as_primitive[Int16Type]().value())
-    elif dtype == int32:
-        return PythonObject(scalar.as_primitive[Int32Type]().value())
-    elif dtype == int64:
-        return PythonObject(scalar.as_primitive[Int64Type]().value())
-    elif dtype == uint8:
-        return PythonObject(scalar.as_primitive[UInt8Type]().value())
-    elif dtype == uint16:
-        return PythonObject(scalar.as_primitive[UInt16Type]().value())
-    elif dtype == uint32:
-        return PythonObject(scalar.as_primitive[UInt32Type]().value())
-    elif dtype == uint64:
-        return PythonObject(scalar.as_primitive[UInt64Type]().value())
-    elif dtype == float16:
-        return PythonObject(scalar.as_primitive[Float16Type]().value())
-    elif dtype == float32:
-        return PythonObject(scalar.as_primitive[Float32Type]().value())
-    elif dtype == float64:
-        return PythonObject(scalar.as_primitive[Float64Type]().value())
+    elif dtype.is_int8():
+        return PythonObject(scalar.as_int8().value())
+    elif dtype.is_int16():
+        return PythonObject(scalar.as_int16().value())
+    elif dtype.is_int32():
+        return PythonObject(scalar.as_int32().value())
+    elif dtype.is_int64():
+        return PythonObject(scalar.as_int64().value())
+    elif dtype.is_uint8():
+        return PythonObject(scalar.as_uint8().value())
+    elif dtype.is_uint16():
+        return PythonObject(scalar.as_uint16().value())
+    elif dtype.is_uint32():
+        return PythonObject(scalar.as_uint32().value())
+    elif dtype.is_uint64():
+        return PythonObject(scalar.as_uint64().value())
+    elif dtype.is_float16():
+        return PythonObject(scalar.as_float16().value())
+    elif dtype.is_float32():
+        return PythonObject(scalar.as_float32().value())
+    elif dtype.is_float64():
+        return PythonObject(scalar.as_float64().value())
+    elif dtype.is_year_month_interval():
+        return PythonObject(scalar.as_year_month_interval().value())
+    elif dtype.is_day_time_interval():
+        return PythonObject(scalar.as_day_time_interval().value())
+    elif dtype.is_month_day_nano_interval():
+        return PythonObject(scalar.as_month_day_nano_interval().value())
     if dtype.is_string():
         return PythonObject(scalar.as_string().to_string())
     elif dtype.is_list():
@@ -86,11 +66,11 @@ def _as_py(scalar: AnyScalar) raises -> PythonObject:
     elif dtype.is_fixed_size_list():
         return scalar.as_fixed_size_list().value().to_python_object()
     elif dtype.is_struct():
-        var s = scalar.as_struct()
+        ref s = scalar.as_struct()
         var builtins = Python.import_module("builtins")
         var d = builtins.dict()
         for i in range(s.num_fields()):
-            d[dtype.as_struct_type().fields[i].name] = _as_py(s.field(i))
+            d[dtype.as_struct().fields[i].name] = _as_py(s.field(i))
         return d
     raise Error("as_py: unsupported dtype")
 

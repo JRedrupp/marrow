@@ -27,10 +27,10 @@ Example
 """
 
 from std.memory import ArcPointer
-from marrow.dtypes import Field
-from marrow.schema import Schema
-from marrow.tabular import RecordBatch
-from marrow.expr.values import AnyValue, col, resolve_columns
+from ..dtypes import Field
+from ..schema import Schema
+from ..tabular import RecordBatch
+from .values import AnyValue, col, resolve_columns
 
 
 # ---------------------------------------------------------------------------
@@ -116,7 +116,7 @@ comptime JOIN_ALGO_GRACE_HASH: UInt8 = 4
 # ---------------------------------------------------------------------------
 
 
-trait Relation(ImplicitlyDestructible, Movable):
+trait Relation(ImplicitlyDeletable, Movable):
     """Interface for immutable relational plan nodes."""
 
     def kind(self) -> UInt8:
@@ -284,7 +284,7 @@ struct AnyRelation(ImplicitlyCopyable, Movable, Writable):
         Returns:
             Plan node whose schema has key columns + agg result columns.
         """
-        from marrow.dtypes import float64, int64, AnyDataType
+        from ..dtypes import float64, int64, AnyDataType
 
         var input_schema = self.schema()
         var resolved_keys = List[AnyValue]()
@@ -306,8 +306,14 @@ struct AnyRelation(ImplicitlyCopyable, Movable, Writable):
         for i in range(len(funcs)):
             if funcs[i] == "count":
                 fields.append(Field(funcs[i], AnyDataType(int64)))
-            else:
+            elif funcs[i] == "mean":
                 fields.append(Field(funcs[i], AnyDataType(float64)))
+            else:
+                var maybe_dt = resolved_vals[i].dtype()
+                if maybe_dt and maybe_dt.value().is_integer():
+                    fields.append(Field(funcs[i], AnyDataType(int64)))
+                else:
+                    fields.append(Field(funcs[i], AnyDataType(float64)))
 
         var agg = Aggregate(
             input=self,
@@ -394,7 +400,7 @@ struct AnyRelation(ImplicitlyCopyable, Movable, Writable):
     def downcast[T: Relation](self) -> ArcPointer[T]:
         return rebind[ArcPointer[T]](self._data.copy())
 
-    def __del__(deinit self):
+    def __deinit__(deinit self):
         self._virt_drop(self._data^)
 
 
@@ -769,7 +775,7 @@ def parquet_scan(path: String) raises -> AnyRelation:
     Reads the schema from the Parquet footer metadata (no data I/O).
     """
     from std.python import Python
-    from marrow.c_data import CArrowSchema
+    from ..c_data import CArrowSchema
 
     var pq = Python.import_module("pyarrow.parquet")
     var pa_schema = pq.read_schema(path)

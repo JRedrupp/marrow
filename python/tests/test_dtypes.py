@@ -20,3 +20,14 @@ def test_factory_functions() -> None:
     assert isinstance(ma.float64(), ma.DataType)
     assert isinstance(ma.string(), ma.DataType)
     assert isinstance(ma.binary(), ma.DataType)
+    assert isinstance(ma.year_month_interval(), ma.DataType)
+    assert isinstance(ma.day_time_interval(), ma.DataType)
+    assert isinstance(ma.month_day_nano_interval(), ma.DataType)
+
+
+def test_field_factory() -> None:
+    """Test that field factory function works and returns Field."""
+    f = ma.field("my_field", ma.int32(), False, {})
+    assert isinstance(f, ma.Field)
+    assert f.name() == "my_field"
+    assert isinstance(f.type(), ma.DataType)

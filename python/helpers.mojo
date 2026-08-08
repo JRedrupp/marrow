@@ -2,16 +2,17 @@
 
 These reduce boilerplate when exposing Mojo methods and functions to Python
 by auto-converting arguments via ConvertibleFromPython and return values via
-ConvertibleToPython.
+implicit PythonObject construction (ConvertibleToPython or primitive types).
 """
 
+from std.builtin.type_aliases import MutAnyOrigin
+from std.memory import UnsafePointer
 from std.python import (
     PythonObject,
     Python,
     ConvertibleToPython,
     ConvertibleFromPython,
 )
-from std.python.bindings import PythonTypeBuilder
 
 # ---------------------------------------------------------------------------
 # pymethod — wrap a Mojo instance method as a Python-callable method
@@ -27,7 +28,33 @@ def pymethod[
     """Wrap a zero-arg method returning ConvertibleToPython."""
 
     def wrapper(ptr: UnsafePointer[T, MutAnyOrigin]) raises -> PythonObject:
-        return method(ptr[]).to_python_object()
+        return method(ptr[])
+
+    return wrapper
+
+
+def pymethod[
+    T: AnyType,
+    //,
+    method: def(T) raises thin -> Int,
+]() -> def(UnsafePointer[T, MutAnyOrigin]) raises thin -> PythonObject:
+    """Wrap a zero-arg method returning Int."""
+
+    def wrapper(ptr: UnsafePointer[T, MutAnyOrigin]) raises -> PythonObject:
+        return method(ptr[])
+
+    return wrapper
+
+
+def pymethod[
+    T: AnyType,
+    //,
+    method: def(T) raises thin -> Bool,
+]() -> def(UnsafePointer[T, MutAnyOrigin]) raises thin -> PythonObject:
+    """Wrap a zero-arg method returning Bool."""
+
+    def wrapper(ptr: UnsafePointer[T, MutAnyOrigin]) raises -> PythonObject:
+        return method(ptr[])
 
     return wrapper
 
@@ -46,7 +73,25 @@ def pymethod[
     def wrapper(
         ptr: UnsafePointer[T, MutAnyOrigin], arg: PythonObject
     ) raises -> PythonObject:
-        return method(ptr[], A0(py=arg)).to_python_object()
+        return method(ptr[], A0(py=arg))
+
+    return wrapper
+
+
+def pymethod[
+    T: AnyType,
+    A0: ConvertibleFromPython,
+    //,
+    method: def(T, A0) raises thin -> Bool,
+]() -> def(
+    UnsafePointer[T, MutAnyOrigin], PythonObject
+) raises thin -> PythonObject:
+    """Wrap a single-arg method returning Bool."""
+
+    def wrapper(
+        ptr: UnsafePointer[T, MutAnyOrigin], arg: PythonObject
+    ) raises -> PythonObject:
+        return method(ptr[], A0(py=arg))
 
     return wrapper
 
@@ -68,7 +113,7 @@ def pymethod[
         arg0: PythonObject,
         arg1: PythonObject,
     ) raises -> PythonObject:
-        return method(ptr[], A0(py=arg0), A1(py=arg1)).to_python_object()
+        return method(ptr[], A0(py=arg0), A1(py=arg1))
 
     return wrapper
 
@@ -92,9 +137,7 @@ def pymethod[
         arg1: PythonObject,
         arg2: PythonObject,
     ) raises -> PythonObject:
-        return method(
-            ptr[], A0(py=arg0), A1(py=arg1), A2(py=arg2)
-        ).to_python_object()
+        return method(ptr[], A0(py=arg0), A1(py=arg1), A2(py=arg2))
 
     return wrapper
 
@@ -112,7 +155,7 @@ def pymethod[
         var builtins = Python.import_module("builtins")
         var py_list = builtins.list()
         for item in method(ptr[]):
-            py_list.append(item.copy().to_python_object())
+            py_list.append(item.copy())
         return py_list
 
     return wrapper
@@ -136,7 +179,7 @@ def pymethod[
         var builtins = Python.import_module("builtins")
         var py_list = builtins.list()
         for item in method(ptr[], A0(py=arg)):
-            py_list.append(item.copy().to_python_object())
+            py_list.append(item.copy())
         return py_list
 
     return wrapper
@@ -163,7 +206,7 @@ def pymethod[
         var builtins = Python.import_module("builtins")
         var py_list = builtins.list()
         for item in method(ptr[], A0(py=arg0), A1(py=arg1)):
-            py_list.append(item.copy().to_python_object())
+            py_list.append(item.copy())
         return py_list
 
     return wrapper
@@ -188,7 +231,7 @@ def pymethod[
         var items = List[E]()
         for i in range(n):
             items.append(E(py=arg[i]))
-        return method(ptr[], items^).to_python_object()
+        return method(ptr[], items^)
 
     return wrapper
 
@@ -215,7 +258,7 @@ def pymethod[
         var items = List[E]()
         for i in range(n):
             items.append(E(py=arg1[i]))
-        return method(ptr[], A0(py=arg0), items^).to_python_object()
+        return method(ptr[], A0(py=arg0), items^)
 
     return wrapper
 
@@ -234,7 +277,20 @@ def pyfunction[
     """Wrap a one-arg function returning ConvertibleToPython."""
 
     def wrapper(arg0: PythonObject) raises -> PythonObject:
-        return func(A0(py=arg0)).to_python_object()
+        return func(A0(py=arg0))
+
+    return wrapper
+
+
+def pyfunction[
+    A0: ConvertibleFromPython,
+    //,
+    func: def(A0) raises thin -> Bool,
+]() -> def(PythonObject) raises thin -> PythonObject:
+    """Wrap a one-arg function returning Bool."""
+
+    def wrapper(arg0: PythonObject) raises -> PythonObject:
+        return func(A0(py=arg0))
 
     return wrapper
 
@@ -249,27 +305,31 @@ def pyfunction[
     """Wrap a two-arg function returning ConvertibleToPython."""
 
     def wrapper(arg0: PythonObject, arg1: PythonObject) raises -> PythonObject:
-        return func(A0(py=arg0), A1(py=arg1)).to_python_object()
+        return func(A0(py=arg0), A1(py=arg1))
+
+    return wrapper
+
+
+def pyfunction[
+    A0: ConvertibleFromPython,
+    A1: ConvertibleFromPython,
+    A2: ConvertibleFromPython,
+    R: ConvertibleToPython,
+    //,
+    func: def(A0, A1, A2) raises thin -> R,
+]() -> def(
+    PythonObject, PythonObject, PythonObject
+) raises thin -> PythonObject:
+    """Wrap a three-arg function returning ConvertibleToPython."""
+
+    def wrapper(
+        arg0: PythonObject, arg1: PythonObject, arg2: PythonObject
+    ) raises -> PythonObject:
+        return func(A0(py=arg0), A1(py=arg1), A2(py=arg2))
 
     return wrapper
 
 
 def marrow_module(obj: PythonObject) raises -> PythonObject:
     """Return the name of the module to implement the __module__ method."""
-    return "marrow".to_python_object()
-
-
-def def_display[
-    T: Writable
-](mut type_builder: PythonTypeBuilder) -> ref[type_builder] PythonTypeBuilder:
-    """Define Python methods that are used to display instances of the type or the type itself.
-    """
-
-    def __str__(t: T) -> String:
-        return String.write(t)
-
-    return (
-        type_builder.def_method[pymethod[__str__]()]("__str__")
-        .def_method[pymethod[__str__]()]("__repr__")
-        .def_method[marrow_module]("__module__")
-    )
+    return PythonObject("marrow")

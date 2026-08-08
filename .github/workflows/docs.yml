@@ -25,12 +25,6 @@ jobs:
         cache: true
         cache-write: ${{ github.event_name == 'push' && github.ref_name == 'main' }}
         environments: docs
-    - uses: actions/cache@v5
-      with:
-        path: .pixi/envs/docs/**/.mojo_cache
-        key: mojo-cache-docs-${{ runner.os }}-${{ hashFiles('pixi.lock', '**/*.mojo') }}
-        restore-keys: mojo-cache-docs-${{ runner.os }}-
-
     - name: Build docs
       run: pixi run -e docs docs
 

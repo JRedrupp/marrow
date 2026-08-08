@@ -114,21 +114,23 @@ def test_buffer_cpu_kind() raises:
 def test_buffer_foreign_kind() raises:
     """Foreign CPU buffers are CPU-accessible; release fires on last drop."""
     var n_released: Int = 0
-    var raw = alloc[UInt8](size_of[UnsafePointer[Int, MutAnyOrigin]]())
-    raw.bitcast[UnsafePointer[Int, MutAnyOrigin]]()[0] = rebind[
+    # Allocate 64 bytes with 64-byte alignment to satisfy Arrow alignment invariant.
+    # Only the first sizeof(pointer) bytes are used to store the address of n_released.
+    var raw = alloc[UInt8](64, alignment=64)
+    raw.unsafe_bitcast[UnsafePointer[Int, MutAnyOrigin]]()[0] = rebind[
         UnsafePointer[Int, MutAnyOrigin]
     ](UnsafePointer(to=n_released))
 
     def count_and_free(ptr: UnsafePointer[UInt8, MutAnyOrigin]) -> None:
-        var counter = ptr.bitcast[UnsafePointer[Int, MutAnyOrigin]]()[0]
+        var counter = ptr.unsafe_bitcast[UnsafePointer[Int, MutAnyOrigin]]()[0]
         counter[0] += 1
-        ptr.free()
+        ptr.unsafe_free()
 
     var mut_ptr = rebind[UnsafePointer[UInt8, MutAnyOrigin]](raw)
     var keeper = ArcPointer(Allocation.foreign(mut_ptr, count_and_free))
     var buf = Buffer.from_foreign(
-        raw.bitcast[NoneType](),
-        size_of[UnsafePointer[Int, MutAnyOrigin]](),
+        raw.unsafe_bitcast[NoneType](),
+        64,
         keeper,
     )
     assert_true(buf.is_cpu())
@@ -342,6 +344,29 @@ def test_bitmap_resize_truncates_length() raises:
     bm.set_range(0, 20, True)
     bm.resize(15)
     assert_equal(len(bm), 15)
+
+
+def test_bitmap_resize_from_zero_updates_length() raises:
+    # Regression: resize() was not updating _length when growing, so set()
+    # on any index would fail the bounds check even after resize.
+    var bm = Bitmap.alloc_zeroed(0)
+    assert_equal(len(bm), 0)
+    bm.resize(16)
+    assert_equal(len(bm), 16)
+    bm.set(0)
+    bm.set(15)
+    assert_true(bm.test(0))
+    assert_true(bm.test(15))
+
+
+def test_bitmap_resize_grow_updates_length() raises:
+    var bm = Bitmap.alloc_zeroed(4)
+    bm.set(0)
+    bm.resize(16)
+    assert_equal(len(bm), 16)
+    assert_true(bm.test(0))
+    bm.set(15)
+    assert_true(bm.test(15))
 
 
 # ---------------------------------------------------------------------------

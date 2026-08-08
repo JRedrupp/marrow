@@ -17,17 +17,20 @@ Method names follow Mojo's ``std.collections.bitset.BitSet`` conventions.
 
 from std.sys.info import simd_byte_width, simd_width_of
 from std.sys import size_of, has_accelerator
-from marrow.utils import has_accelerator_support
+from .utils import has_accelerator_support
 from std.bit import count_trailing_zeros, pop_count
 from std.sys import compressed_store as _compressed_store
 import std.math as math
 from std.math import iota
-from std.memory import bitcast, memcpy, memset
-from std.builtin.device_passable import DevicePassable
+from std.memory import bitcast, unsafe_memcpy
+from std.builtin.device_passable import DevicePassable, DeviceTypeEncoder
 from std.sys.intrinsics import prefetch
-from std.algorithm.functional import elementwise
+from std.algorithm import vectorize
+from max.algorithm.functional import elementwise
+from max.algorithm.reduction import _reduce_generator_wrapper
 from std.utils.index import IndexList
-from std.gpu.host import DeviceContext, get_gpu_target
+from std.utils.coord import Coord, coord_to_index_list
+from max.gpu.host import DeviceContext, get_gpu_target
 
 from .buffers import Buffer, Bitmap
 from .kernels.execution import ExecutionContext
@@ -102,8 +105,10 @@ struct BufferView[
 
     comptime device_type: AnyType = Self
 
-    def _to_device_type(self, target: MutOpaquePointer[_]):
-        target.bitcast[Self.device_type]()[] = self
+    def _to_device_type(
+        self, mut encoder: Some[DeviceTypeEncoder], target: MutOpaquePointer[_]
+    ):
+        encoder.encode(self, target)
 
     @staticmethod
     def get_type_name() -> String:
@@ -150,7 +155,7 @@ struct BufferView[
     @always_inline
     def __getitem__(self, index: Int) -> Scalar[Self.T]:
         self._check_bounds(index)
-        return self._data[index]
+        return self._data[unsafe_offset=index]
 
     @always_inline
     def __getitem__(self, slc: Slice) -> Self:
@@ -159,49 +164,49 @@ struct BufferView[
         var step: Int
         start, end, step = slc.indices(self._length)
         debug_assert(step == 1, "BufferView slice step must be 1")
-        return Self(ptr=self._data + start, length=end - start)
+        return Self(ptr=self._data.unsafe_offset(start), length=end - start)
 
     @always_inline
     def __contains__(self, value: Scalar[Self.T]) -> Bool:
         for i in range(self._length):
-            if self._data[i] == value:
+            if self._data[unsafe_offset=i] == value:
                 return True
         return False
 
     @always_inline
     def unsafe_get(self, index: Int) -> Scalar[Self.T]:
-        return self._data[index]
+        return self._data[unsafe_offset=index]
 
     @always_inline
     def unsafe_set(
-        self: BufferView[mut=True, T=Self.T, origin=_],
+        self,
         index: Int,
         value: Scalar[Self.T],
-    ):
-        self._data.store(index, value)
+    ) where Self.mut:
+        self._data.unsafe_mut_cast[True]().unsafe_store(index, value)
 
     # --- SIMD ---
 
     # TODO: could be good idea to use std.sys.intrinsics.masked_load
     @always_inline
     def load[W: Int](self, index: Int) -> SIMD[Self.T, W]:
-        return self._data.load[width=W](index)
+        return self._data.unsafe_load[width=W](index)
 
     # TODO: could be good idea to use std.sys.intrinsics.masked_store
     @always_inline
     def store[
         W: Int
     ](
-        self: BufferView[mut=True, T=Self.T, origin=_],
+        self,
         index: Int,
         value: SIMD[Self.T, W],
-    ):
-        self._data.store(index, value)
+    ) where Self.mut:
+        self._data.unsafe_mut_cast[True]().unsafe_store(index, value)
 
     @always_inline
     def gather[W: Int](self, offsets: SIMD[DType.int64, W]) -> SIMD[Self.T, W]:
         """SIMD gather: load W elements at positions given by `offsets`."""
-        return self._data.gather[width=W, alignment=1](offsets)
+        return self._data.unsafe_gather[width=W, alignment=1](offsets)
 
     # --- Compressed store ---
 
@@ -209,20 +214,20 @@ struct BufferView[
     def compressed_store[
         W: Int
     ](
-        self: BufferView[mut=True, T=Self.T, origin=_],
+        self,
         value: SIMD[Self.T, W],
         mask: SIMD[DType.bool, W],
-    ):
+    ) where Self.mut:
         """Compress-store via LLVM intrinsic: write only mask=True lanes,
         packed sequentially from the start of this view."""
-        _compressed_store(value, self._data, mask)
+        _compressed_store(value, self._data.unsafe_mut_cast[True](), mask)
 
     @always_inline
     def compressed_store_sparse(
-        self: BufferView[mut=True, T=Self.T, origin=_],
+        self,
         src: BufferView[Self.T, _],
         sel_bits: UInt64,
-    ):
+    ) where Self.mut:
         """CTZ scatter: write only set-bit positions. O(popcount).
 
         Best when few bits are set (low popcount).
@@ -236,10 +241,10 @@ struct BufferView[
 
     @always_inline
     def compressed_store_dense(
-        self: BufferView[mut=True, T=Self.T, origin=_],
+        self,
         src: BufferView[Self.T, _],
         sel_bits: UInt64,
-    ):
+    ) where Self.mut:
         """Byte-chunked branchless scatter. O(64).
 
         Processes the 64-bit mask one byte at a time, breaking the serial
@@ -261,10 +266,10 @@ struct BufferView[
     def compressed_store[
         sparse_threshold: Int = 24
     ](
-        self: BufferView[mut=True, T=Self.T, origin=_],
+        self,
         src: BufferView[Self.T, _],
         sel_bits: UInt64,
-    ) -> Int:
+    ) -> Int where Self.mut:
         """Adaptive compressed store: dispatches to sparse or dense based on
         popcount vs threshold. Returns number of elements written."""
         var cnt = Int(pop_count(sel_bits))
@@ -279,7 +284,7 @@ struct BufferView[
     @always_inline
     def slice(self, offset: Int, length: Int = -1) -> Self:
         var actual = length if length >= 0 else self._length - offset
-        return Self(ptr=self._data + offset, length=actual)
+        return Self(ptr=self._data.unsafe_offset(offset), length=actual)
 
     # --- Raw pointer access ---
 
@@ -292,31 +297,36 @@ struct BufferView[
     @always_inline
     def prefetch_at(self, offset: Int):
         """Prefetch the cache line at `offset` elements into L1 cache."""
-        prefetch(self._data + offset)
+        prefetch(self._data.unsafe_offset(offset))
 
     def copy_from(
-        self: BufferView[mut=True, T=Self.T, origin=_],
+        self,
         src: BufferView[Self.T, _],
         count: Int,
-    ):
+    ) where Self.mut:
         """Copy `count` elements from `src` into `self`."""
-        memcpy(
-            dest=self._data.bitcast[UInt8](),
-            src=src._data.bitcast[UInt8](),
+        unsafe_memcpy(
+            dest=self._data.unsafe_mut_cast[True]().unsafe_bitcast[UInt8](),
+            src=src._data.unsafe_bitcast[UInt8](),
             count=count * size_of[Scalar[Self.T]](),
         )
 
     def to_string_slice(self) -> StringSlice[Self.origin]:
         """Convert this byte view to a StringSlice with origin `self_o`."""
-        return StringSlice(ptr=self._data.bitcast[Byte](), length=self._length)
+        return StringSlice(
+            unsafe_from_utf8=Span[Byte, Self.origin](
+                unsafe_ptr=self._data.unsafe_bitcast[Byte](),
+                length=self._length,
+            )
+        )
 
     def copy_from(
-        self: BufferView[mut=True, T=DType.uint8, origin=_],
+        self,
         src: StringSlice[_],
-    ):
+    ) where Self.mut and Self.T == DType.uint8:
         """Copy bytes from a StringSlice into this view."""
-        memcpy(
-            dest=self._data.bitcast[Byte](),
+        unsafe_memcpy(
+            dest=self._data.unsafe_mut_cast[True]().unsafe_bitcast[Byte](),
             src=src.unsafe_ptr(),
             count=src.byte_length(),
         )
@@ -326,15 +336,16 @@ struct BufferView[
     # TODO: remove this in favor of the free-function apply with explicit SIMD function parameters
     def apply[
         func: def[W: Int](SIMD[Self.T, W]) thin -> SIMD[Self.T, W]
-    ](self: BufferView[mut=True, T=Self.T, origin=_]):
+    ](self) where Self.mut:
         """Apply a SIMD function in-place over all elements."""
         comptime width = simd_byte_width() // size_of[Scalar[Self.T]]()
+        var p = self._data.unsafe_mut_cast[True]()
         var i = 0
         while i + width <= self._length:
-            self._data.store(i, func[width](self._data.load[width=width](i)))
+            p.unsafe_store(i, func[width](p.unsafe_load[width=width](i)))
             i += width
         while i < self._length:
-            self._data[i] = func[1](self._data[i])
+            p[unsafe_offset=i] = func[1](p[unsafe_offset=i])
             i += 1
 
     def count[
@@ -346,13 +357,13 @@ struct BufferView[
         var i = 0
         while i + width <= self._length:
             total += Int(
-                func[width](self._data.load[width=width](i))
+                func[width](self._data.unsafe_load[width=width](i))
                 .cast[DType.uint8]()
                 .reduce_add()
             )
             i += width
         while i < self._length:
-            if func[1](self._data[i]):
+            if func[1](self._data[unsafe_offset=i]):
                 total += 1
             i += 1
         return total
@@ -399,8 +410,10 @@ struct BitmapView[
 
     comptime device_type: AnyType = Self
 
-    def _to_device_type(self, target: MutOpaquePointer[_]):
-        target.bitcast[Self.device_type]()[] = self
+    def _to_device_type(
+        self, mut encoder: Some[DeviceTypeEncoder], target: MutOpaquePointer[_]
+    ):
+        encoder.encode(self, target)
 
     @staticmethod
     def get_type_name() -> String:
@@ -447,21 +460,26 @@ struct BitmapView[
         ) if bit_end & 7 != 0 else UInt8(0xFF)
 
         if nbytes == 1:
-            return (ptr[byte_start] & first_mask & last_mask) != 0
+            return (
+                ptr[unsafe_offset=byte_start] & first_mask & last_mask
+            ) != 0
 
-        if (ptr[byte_start] & first_mask) != 0:
+        if (ptr[unsafe_offset=byte_start] & first_mask) != 0:
             return True
-        if (ptr[byte_end - 1] & last_mask) != 0:
+        if (ptr[unsafe_offset=byte_end - 1] & last_mask) != 0:
             return True
 
         var i = byte_start + 1
         var end = byte_end - 1
         while i + width <= end:
-            if (ptr + i).load[width=width]().reduce_or() != 0:
+            if (
+                ptr.unsafe_offset(i).unsafe_load[width=width]().reduce_or()
+                != 0
+            ):
                 return True
             i += width
         while i < end:
-            if ptr[i] != 0:
+            if ptr[unsafe_offset=i] != 0:
                 return True
             i += 1
 
@@ -527,11 +545,11 @@ struct BitmapView[
 
     @always_inline
     def compressed_store(
-        self: BitmapView[mut=True, origin=_],
+        self,
         bit_offset: Int,
         bits: UInt64,
         count: Int,
-    ):
+    ) where Self.mut:
         """Deposit ``count`` LSBs from ``bits`` at ``bit_offset``.
 
         Uses OR — bitmap must be zero-initialized. Handles arbitrary bit
@@ -562,7 +580,13 @@ struct BitmapView[
         """Test if the bit at ``index`` is set."""
         self._check_bounds(index)
         var bit_index = self._offset + index
-        return Bool((self._data[bit_index >> 3] >> UInt8(bit_index & 7)) & 1)
+        return Bool(
+            (
+                self._data[unsafe_offset=bit_index >> 3]
+                >> UInt8(bit_index & 7)
+            )
+            & 1
+        )
 
     @always_inline
     def mask[W: Int](self, index: Int) -> SIMD[DType.bool, W]:
@@ -576,7 +600,11 @@ struct BitmapView[
         var byte_idx = abs_pos >> 3
         var bit_off = abs_pos & 7
 
-        var bits = (self._data + byte_idx).bitcast[UInt32]().load[alignment=1]()
+        var bits = (
+            self._data.unsafe_offset(byte_idx)
+            .unsafe_bitcast[UInt32]()
+            .unsafe_load[alignment=1]()
+        )
         bits >>= UInt32(bit_off)
 
         return (
@@ -594,7 +622,9 @@ struct BitmapView[
         var byte_idx = abs_pos >> 3
         var bit_off = abs_pos & 7
         var raw = (
-            (self._data + byte_idx).bitcast[Scalar[T]]().load[alignment=1]()
+            self._data.unsafe_offset(byte_idx)
+            .unsafe_bitcast[Scalar[T]]()
+            .unsafe_load[alignment=1]()
         )
         return raw >> Scalar[T](bit_off)
 
@@ -607,30 +637,34 @@ struct BitmapView[
         No ``_offset`` adjustment — the caller is responsible for computing
         the correct element address. Safe because Arrow buffers are 64-byte padded.
         """
-        return self._data.bitcast[Scalar[T]]().load[width=W, alignment=1](index)
+        return self._data.unsafe_bitcast[Scalar[T]]().unsafe_load[
+            width=W, alignment=1
+        ](index)
 
     # TODO: probably should be removed
     # TODO: could be good idea to use std.sys.intrinsics.masked_store
     @always_inline
     def store[
         T: DType, W: Int = 1
-    ](self: BitmapView[mut=True, origin=_], index: Int, val: SIMD[T, W]):
+    ](self, index: Int, val: SIMD[T, W]) where Self.mut:
         """Store W elements of type T into bitmap data at element ``index``.
 
         ``index`` is in units of T (e.g. index=2 with T=uint32 writes bytes 8–11).
         No ``_offset`` adjustment — the caller is responsible for computing
         the correct element address.
         """
-        self._data.bitcast[Scalar[T]]().store[width=W](index, val)
+        self._data.unsafe_mut_cast[True]().unsafe_bitcast[Scalar[T]]().unsafe_store[
+            width=W
+        ](index, val)
 
     @always_inline
     def store[
         W: Int
     ](
-        self: BitmapView[mut=True, origin=_],
+        self,
         bit_index: Int,
         val: SIMD[DType.bool, W],
-    ):
+    ) where Self.mut:
         """Bit-pack W bools and store into the bitmap at ``bit_index``.
 
         - W divisible by 8: single _pack_bools + bitcast store.
@@ -640,10 +674,11 @@ struct BitmapView[
             W % 8 == 0 or W < 8
         ), "W must be divisible by 8 or less than 8"
 
+        var mut_data = self._data.unsafe_mut_cast[True]()
         comptime if W % 8 == 0:
             var packed = _pack_bools(val).reduce_or()
-            var dst = self._data + (bit_index >> 3)
-            dst.store(bitcast[DType.uint8, W // 8](packed))
+            var dst = mut_data.unsafe_offset(bit_index >> 3)
+            dst.unsafe_store(bitcast[DType.uint8, W // 8](packed))
         else:
             var abs_pos = self._offset + bit_index
             comptime for i in range(W):
@@ -651,13 +686,13 @@ struct BitmapView[
                 var byte_idx = p >> 3
                 var bit_off = UInt8(p & 7)
                 if val[i]:
-                    self._data[byte_idx] = self._data[byte_idx] | (
-                        UInt8(1) << bit_off
-                    )
+                    mut_data[unsafe_offset=byte_idx] = mut_data[
+                        unsafe_offset=byte_idx
+                    ] | (UInt8(1) << bit_off)
                 else:
-                    self._data[byte_idx] = self._data[byte_idx] & ~(
-                        UInt8(1) << bit_off
-                    )
+                    mut_data[unsafe_offset=byte_idx] = mut_data[
+                        unsafe_offset=byte_idx
+                    ] & ~(UInt8(1) << bit_off)
 
     # --- Slicing ---
 
@@ -689,21 +724,26 @@ struct BitmapView[
         ) if bit_end & 7 != 0 else UInt8(0)
 
         if nbytes == 1:
-            return (ptr[byte_start] | first_fill | last_fill) == 0xFF
+            return (
+                ptr[unsafe_offset=byte_start] | first_fill | last_fill
+            ) == 0xFF
 
-        if (ptr[byte_start] | first_fill) != 0xFF:
+        if (ptr[unsafe_offset=byte_start] | first_fill) != 0xFF:
             return False
-        if (ptr[byte_end - 1] | last_fill) != 0xFF:
+        if (ptr[unsafe_offset=byte_end - 1] | last_fill) != 0xFF:
             return False
 
         var i = byte_start + 1
         var end = byte_end - 1
         while i + width <= end:
-            if (ptr + i).load[width=width]().reduce_and() != 0xFF:
+            if (
+                ptr.unsafe_offset(i).unsafe_load[width=width]().reduce_and()
+                != 0xFF
+            ):
                 return False
             i += width
         while i < end:
-            if ptr[i] != 0xFF:
+            if ptr[unsafe_offset=i] != 0xFF:
                 return False
             i += 1
 
@@ -726,7 +766,7 @@ struct BitmapView[
         var lead_bits = self._offset - (aligned_start << 3)
         var trail_bits = (aligned_end - byte_end) * 8 + (bit_end & 7)
         return Tuple(
-            self._data + aligned_start,
+            self._data.unsafe_offset(aligned_start),
             aligned_end - aligned_start,
             lead_bits,
             trail_bits,
@@ -762,10 +802,14 @@ struct BitmapView[
             var acc1 = SIMD[DType.uint8, width](0)
             comptime for j in range(t1_iters):
                 acc0 += pop_count(
-                    (ptr + i + (j * 2) * width).load[width=width]()
+                    ptr.unsafe_offset(i + (j * 2) * width).unsafe_load[
+                        width=width
+                    ]()
                 )
                 acc1 += pop_count(
-                    (ptr + i + (j * 2 + 1) * width).load[width=width]()
+                    ptr.unsafe_offset(i + (j * 2 + 1) * width).unsafe_load[
+                        width=width
+                    ]()
                 )
             var block_count = Int(
                 (
@@ -782,7 +826,9 @@ struct BitmapView[
         for i in range(t1_end, total_bytes, 64):
             var acc = SIMD[DType.uint8, width](0)
             comptime for j in range(t2_iters):
-                acc += pop_count((ptr + i + j * width).load[width=width]())
+                acc += pop_count(
+                    ptr.unsafe_offset(i + j * width).unsafe_load[width=width]()
+                )
             var block_count = Int(acc.cast[DType.uint16]().reduce_add())
             if block_count > 0:
                 if first_byte == total_bytes:
@@ -795,10 +841,13 @@ struct BitmapView[
             var lead_bytes = lead_bits >> 3
             var lead_sub_byte = lead_bits & 7
             for i in range(lead_bytes):
-                count -= Int(pop_count(ptr[i]))
+                count -= Int(pop_count(ptr[unsafe_offset=i]))
             if lead_sub_byte:
                 count -= Int(
-                    pop_count(ptr[lead_bytes] & UInt8((1 << lead_sub_byte) - 1))
+                    pop_count(
+                        ptr[unsafe_offset=lead_bytes]
+                        & UInt8((1 << lead_sub_byte) - 1)
+                    )
                 )
         if trail_bits:
             var trail_bytes = trail_bits >> 3
@@ -806,10 +855,13 @@ struct BitmapView[
             var first_trail = total_bytes - trail_bytes
             if trail_sub_byte:
                 count -= Int(
-                    pop_count(ptr[first_trail - 1] >> UInt8(trail_sub_byte))
+                    pop_count(
+                        ptr[unsafe_offset=first_trail - 1]
+                        >> UInt8(trail_sub_byte)
+                    )
                 )
             for i in range(first_trail, total_bytes):
-                count -= Int(pop_count(ptr[i]))
+                count -= Int(pop_count(ptr[unsafe_offset=i]))
 
         if count == 0:
             return (0, 0, 0)
@@ -854,31 +906,34 @@ struct BitmapView[
     # --- Write operations (mut=True only, BitSet-style) ---
 
     @always_inline
-    def set(self: BitmapView[mut=True, origin=_], index: Int):
+    def set(self, index: Int) where Self.mut:
         """Set the bit at ``index`` to 1."""
         self._check_bounds(index)
         var abs_index = self._offset + index
         var byte_index = abs_index >> 3
         var bit_mask = UInt8(1 << (abs_index & 7))
-        self._data[byte_index] = self._data[byte_index] | bit_mask
+        var p = self._data.unsafe_mut_cast[True]()
+        p[unsafe_offset=byte_index] = p[unsafe_offset=byte_index] | bit_mask
 
     @always_inline
-    def clear(self: BitmapView[mut=True, origin=_], index: Int):
+    def clear(self, index: Int) where Self.mut:
         """Set the bit at ``index`` to 0."""
         self._check_bounds(index)
         var abs_index = self._offset + index
         var byte_index = abs_index >> 3
         var bit_mask = UInt8(1 << (abs_index & 7))
-        self._data[byte_index] = self._data[byte_index] & ~bit_mask
+        var p = self._data.unsafe_mut_cast[True]()
+        p[unsafe_offset=byte_index] = p[unsafe_offset=byte_index] & ~bit_mask
 
     @always_inline
-    def toggle(self: BitmapView[mut=True, origin=_], index: Int):
+    def toggle(self, index: Int) where Self.mut:
         """Invert the bit at ``index``."""
         self._check_bounds(index)
         var abs_index = self._offset + index
         var byte_index = abs_index >> 3
         var bit_mask = UInt8(1 << (abs_index & 7))
-        self._data[byte_index] = self._data[byte_index] ^ bit_mask
+        var p = self._data.unsafe_mut_cast[True]()
+        p[unsafe_offset=byte_index] = p[unsafe_offset=byte_index] ^ bit_mask
 
     # --- Set operations (return Buffer with offset=0) ---
 
@@ -996,19 +1051,46 @@ comptime MaskedFn[In: DType, Out: DType] = def[W: Int](
 """A parameterized SIMD function that takes a value vector and a validity mask."""
 
 
+def _cpu_device_context() raises -> DeviceContext:
+    """Construct a throwaway CPU-only ``DeviceContext``.
+
+    ``elementwise`` now requires a real ``DeviceContext`` argument on every
+    call, including CPU-targeted ones — the ``Optional[DeviceContext]``
+    overloads were removed upstream (the CPU backend always wants a real
+    context to determine worker counts). Requesting the ``"cpu"`` API
+    explicitly bypasses the default-accelerator probe (which fails to even
+    compile on a machine with no GPU), so this succeeds everywhere. Mirrors
+    the fallback MAX's own CPU elementwise backend uses internally
+    (``max.algorithm.backend.cpu.parallelize``:
+    ``ctx.or_else(DeviceContext(api="cpu"))``).
+    """
+    return DeviceContext(api="cpu")
+
+
 def _apply_dispatch[
     Out: DType,
     gpu_ok: Bool,
-    process: def[W: Int, rank: Int, alignment: Int = 1](
-        IndexList[rank]
-    ) capturing -> None,
+    process: def[W: Int, alignment: Int = 1](Coord) capturing -> None,
 ](length: Int, ctx: ExecutionContext) raises:
-    """Dispatch `process` to GPU or CPU (serial/parallel) based on `ctx`.
+    """Dispatch `process` to GPU or CPU based on `ctx`.
 
     `gpu_ok` is the caller's has_accelerator_support[...] check — passed as a
     comptime Bool so the GPU branch is dead-code-eliminated when unsupported.
-    When ``ctx`` wants parallel execution, defers to elementwise's built-in
-    parallel executor; otherwise runs in-thread via ``use_blocking_impl=True``.
+
+    ``elementwise``'s ``use_blocking_impl`` parameter (previously used here
+    to force in-thread execution below the parallel threshold) was removed
+    upstream, and ``ctx.num_threads`` / ``ctx.wants_parallel`` are no longer
+    consulted on this path at all: MAX's CPU backend now always picks its
+    own worker count from problem size alone (``elementwise``'s internal
+    ``grain_size`` threshold), regardless of what ``ctx`` requested. This is
+    a real behavior change, not a no-op — ``ExecutionContext.serial()`` no
+    longer guarantees single-threaded execution here once ``length`` crosses
+    that internal threshold (~32768 elements as of this writing). Writes
+    into ``BufferView`` are element-strided and disjoint across workers
+    regardless of chunk boundaries, so this is not a correctness issue for
+    any caller of ``_apply_dispatch`` — but a caller invoking ``apply`` from
+    inside its own already-parallel region should be aware this can now
+    nest with MAX's own parallelism.
     """
     if ctx.is_gpu():
         comptime if gpu_ok:
@@ -1020,17 +1102,14 @@ def _apply_dispatch[
             raise Error("apply: no GPU accelerator available")
         return
 
+    # TODO: elementwise does not expose a thread-count parameter, so
+    # ctx.num_threads / ctx.resolved_num_threads() are ignored here. We need
+    # to either switch back to sync_parallelize striping or wait for
+    # elementwise to gain a num_threads knob.
     comptime cpu_width = simd_byte_width() // size_of[Scalar[Out]]()
-    if ctx.wants_parallel(length):
-        # TODO: elementwise does not expose a thread-count parameter, so
-        # ctx.num_threads / ctx.resolved_num_threads() are ignored here.
-        # We need to either switch back to sync_parallelize striping or wait
-        # for elementwise to gain a num_threads knob.
-        elementwise[process, cpu_width, target="cpu"](length)
-    else:
-        elementwise[process, cpu_width, target="cpu", use_blocking_impl=True](
-            length
-        )
+    elementwise[process, cpu_width, target="cpu"](
+        length, _cpu_device_context()
+    )
 
 
 def apply[
@@ -1051,10 +1130,8 @@ def apply[
 
     @parameter
     @always_inline
-    def process[
-        W: Int, rank: Int, alignment: Int = 1
-    ](idx: IndexList[rank]) -> None:
-        var i = idx[0]
+    def process[W: Int, alignment: Int = 1](coords: Coord) -> None:
+        var i = coord_to_index_list(coords)[0]
         dst.store[W](i, op[W](src.load[W](i)))
 
     _apply_dispatch[Out, has_accelerator_support[In, Out](), process](
@@ -1078,10 +1155,8 @@ def apply[
 
     @parameter
     @always_inline
-    def process[
-        W: Int, rank: Int, alignment: Int = 1
-    ](idx: IndexList[rank]) -> None:
-        var i = idx[0]
+    def process[W: Int, alignment: Int = 1](coords: Coord) -> None:
+        var i = coord_to_index_list(coords)[0]
         dst.store[W](i, op[W](lhs.load[W](i), rhs.load[W](i)))
 
     _apply_dispatch[Out, has_accelerator_support[In, Out](), process](
@@ -1109,14 +1184,6 @@ def apply[
     """
     var length = len(dst)
 
-    @parameter
-    @always_inline
-    def process[
-        W: Int, rank: Int, alignment: Int = 1
-    ](idx: IndexList[rank]) -> None:
-        var i = idx[0]
-        dst.store[W](i, op[W](lhs.load[W](i), rhs.load[W](i)))
-
     if ctx.is_gpu():
         comptime if has_accelerator_support[In]():
             comptime gpu_width = max(
@@ -1131,16 +1198,39 @@ def apply[
                 math.align_up(length, gpu_width),
                 length + max_pad,
             )
+
+            @parameter
+            @always_inline
+            def process[W: Int, alignment: Int = 1](coords: Coord) -> None:
+                var i = coord_to_index_list(coords)[0]
+                dst.store[W](i, op[W](lhs.load[W](i), rhs.load[W](i)))
+
             elementwise[process, gpu_width, target="gpu"](
                 padded, ctx.device.value()
             )
         else:
             raise Error("apply: no GPU accelerator available")
     else:
+        # Bit-packed stores need whole-byte-aligned stride to avoid a
+        # scalar read-modify-write race between workers. elementwise's own
+        # CPU parallel dispatch (`_elementwise_impl_cpu_1d`) stripes work by
+        # `ceildiv(length, num_workers)`, which is not guaranteed to be a
+        # multiple of 8 — so routing through `elementwise`'s auto-parallel
+        # CPU path here would reintroduce exactly the race this function's
+        # docstring says is avoided. (The `use_blocking_impl=True` escape
+        # hatch that used to force single-worker execution for this call
+        # site was removed upstream.) Run single-threaded via `vectorize`
+        # instead, matching the previous ``use_blocking_impl=True``
+        # single-worker guarantee (execution ordering/unrolling internals
+        # differ from `elementwise`'s own blocking path, but the safety
+        # property — no concurrent writers — is identical).
         comptime cpu_width = max(8, simd_byte_width() // size_of[Scalar[In]]())
-        elementwise[process, cpu_width, target="cpu", use_blocking_impl=True](
-            length
-        )
+
+        @always_inline
+        def process_serial[W: Int](i: Int) {imm} -> None:
+            dst.store[W](i, op[W](lhs.load[W](i), rhs.load[W](i)))
+
+        vectorize[cpu_width, unroll_factor=8](length, process_serial)
 
 
 def apply[
@@ -1156,10 +1246,8 @@ def apply[
 
     @parameter
     @always_inline
-    def process[
-        W: Int, rank: Int, alignment: Int = 1
-    ](idx: IndexList[rank]) -> None:
-        var i = idx[0]
+    def process[W: Int, alignment: Int = 1](coords: Coord) -> None:
+        var i = coord_to_index_list(coords)[0]
         dst.store[W](i, op[W](src.mask[W](i)))
 
     _apply_dispatch[Out, has_accelerator_support[Out](), process](length, ctx)
@@ -1180,10 +1268,8 @@ def apply[
 
     @parameter
     @always_inline
-    def process[
-        W: Int, rank: Int, alignment: Int = 1
-    ](idx: IndexList[rank]) -> None:
-        var i = idx[0]
+    def process[W: Int, alignment: Int = 1](coords: Coord) -> None:
+        var i = coord_to_index_list(coords)[0]
         dst.store[W](i, op[W](src.load[W](i), validity.mask[W](i)))
 
     _apply_dispatch[Out, has_accelerator_support[In, Out](), process](
@@ -1205,10 +1291,8 @@ def apply[
 
     @parameter
     @always_inline
-    def process[
-        W: Int, rank: Int, alignment: Int = 1
-    ](idx: IndexList[rank]) -> None:
-        var i = idx[0]
+    def process[W: Int, alignment: Int = 1](coords: Coord) -> None:
+        var i = coord_to_index_list(coords)[0]
         dst.store[W](i, op[W](src.mask[W](i), validity.mask[W](i)))
 
     _apply_dispatch[Out, has_accelerator_support[Out](), process](length, ctx)
@@ -1243,17 +1327,18 @@ def apply[
 
         @parameter
         @always_inline
-        def process_zero[
-            W: Int, rank: Int, alignment: Int = 1
-        ](idx: IndexList[rank]) -> None:
-            var i = idx[0]
+        def process_zero[W: Int, alignment: Int = 1](coords: Coord) -> None:
+            var i = coord_to_index_list(coords)[0]
             dst.store[DType.uint8, W](
-                i, op[W]((data + byte_start + i).load[width=W]())
+                i,
+                op[W](
+                    data.unsafe_offset(byte_start + i).unsafe_load[width=W]()
+                ),
             )
 
-        elementwise[
-            process_zero, cpu_width, target="cpu", use_blocking_impl=True
-        ](out_bytes)
+        elementwise[process_zero, cpu_width, target="cpu"](
+            out_bytes, _cpu_device_context()
+        )
         return
 
     # Non-zero bit_shift: shift-combine (lo >> rshift | hi << lshift).
@@ -1264,25 +1349,28 @@ def apply[
         @parameter
         @always_inline
         def process_shifted[
-            W: Int, rank: Int, alignment: Int = 1
-        ](idx: IndexList[rank]) -> None:
-            var i = idx[0]
-            var lo = (data + byte_start + i).load[width=W]()
-            var hi = (data + byte_start + i + 1).load[width=W]()
+            W: Int, alignment: Int = 1
+        ](coords: Coord) -> None:
+            var i = coord_to_index_list(coords)[0]
+            var lo = data.unsafe_offset(byte_start + i).unsafe_load[width=W]()
+            var hi = data.unsafe_offset(byte_start + i + 1).unsafe_load[
+                width=W
+            ]()
             dst.store[DType.uint8, W](i, op[W]((lo >> rshift) | (hi << lshift)))
 
-        elementwise[
-            process_shifted, cpu_width, target="cpu", use_blocking_impl=True
-        ](bulk)
+        elementwise[process_shifted, cpu_width, target="cpu"](
+            bulk, _cpu_device_context()
+        )
 
     # Last output byte: read hi only when the view's bits span into the next
     # source byte, avoiding a read past the end of source data.
-    var last_lo = (data + byte_start + bulk).load[width=1]()
+    var last_lo = data.unsafe_offset(byte_start + bulk).unsafe_load[width=1]()
     var last_result = last_lo >> rshift
     var remaining_bits = src._length - bulk * 8
     if remaining_bits > 8 - bit_shift:
         last_result = last_result | (
-            (data + byte_start + bulk + 1).load[width=1]() << lshift
+            data.unsafe_offset(byte_start + bulk + 1).unsafe_load[width=1]()
+            << lshift
         )
     dst.store[DType.uint8, 1](bulk, op[1](last_result))
 
@@ -1325,21 +1413,23 @@ def apply[
 
         @parameter
         @always_inline
-        def process_zero[
-            W: Int, rank: Int, alignment: Int = 1
-        ](idx: IndexList[rank]) -> None:
-            var i = idx[0]
+        def process_zero[W: Int, alignment: Int = 1](coords: Coord) -> None:
+            var i = coord_to_index_list(coords)[0]
             dst.store[DType.uint8, W](
                 i,
                 op[W](
-                    (src_a + byte_start_a + i).load[width=W](),
-                    (src_b + byte_start_b + i).load[width=W](),
+                    src_a.unsafe_offset(byte_start_a + i).unsafe_load[
+                        width=W
+                    ](),
+                    src_b.unsafe_offset(byte_start_b + i).unsafe_load[
+                        width=W
+                    ](),
                 ),
             )
 
-        elementwise[
-            process_zero, cpu_width, target="cpu", use_blocking_impl=True
-        ](out_bytes)
+        elementwise[process_zero, cpu_width, target="cpu"](
+            out_bytes, _cpu_device_context()
+        )
         return
 
     # At least one non-zero shift: shift-combine both operands.
@@ -1351,13 +1441,21 @@ def apply[
         @parameter
         @always_inline
         def process_shifted[
-            W: Int, rank: Int, alignment: Int = 1
-        ](idx: IndexList[rank]) -> None:
-            var i = idx[0]
-            var lo_a = (src_a + byte_start_a + i).load[width=W]()
-            var hi_a = (src_a + byte_start_a + i + 1).load[width=W]()
-            var lo_b = (src_b + byte_start_b + i).load[width=W]()
-            var hi_b = (src_b + byte_start_b + i + 1).load[width=W]()
+            W: Int, alignment: Int = 1
+        ](coords: Coord) -> None:
+            var i = coord_to_index_list(coords)[0]
+            var lo_a = src_a.unsafe_offset(byte_start_a + i).unsafe_load[
+                width=W
+            ]()
+            var hi_a = src_a.unsafe_offset(byte_start_a + i + 1).unsafe_load[
+                width=W
+            ]()
+            var lo_b = src_b.unsafe_offset(byte_start_b + i).unsafe_load[
+                width=W
+            ]()
+            var hi_b = src_b.unsafe_offset(byte_start_b + i + 1).unsafe_load[
+                width=W
+            ]()
             dst.store[DType.uint8, W](
                 i,
                 op[W](
@@ -1366,22 +1464,154 @@ def apply[
                 ),
             )
 
-        elementwise[
-            process_shifted, cpu_width, target="cpu", use_blocking_impl=True
-        ](bulk)
+        elementwise[process_shifted, cpu_width, target="cpu"](
+            bulk, _cpu_device_context()
+        )
 
     # Last output byte: read hi only when bits span into the next source byte.
     var remaining_bits = lhs._length - bulk * 8
-    var last_lo_a = (src_a + byte_start_a + bulk).load[width=1]()
-    var last_lo_b = (src_b + byte_start_b + bulk).load[width=1]()
+    var last_lo_a = src_a.unsafe_offset(byte_start_a + bulk).unsafe_load[
+        width=1
+    ]()
+    var last_lo_b = src_b.unsafe_offset(byte_start_b + bulk).unsafe_load[
+        width=1
+    ]()
     var result_a = last_lo_a >> rs_a
     var result_b = last_lo_b >> rs_b
     if remaining_bits > 8 - bit_shift_a:
         result_a = result_a | (
-            (src_a + byte_start_a + bulk + 1).load[width=1]() << ls_a
+            src_a.unsafe_offset(byte_start_a + bulk + 1).unsafe_load[width=1]()
+            << ls_a
         )
     if remaining_bits > 8 - bit_shift_b:
         result_b = result_b | (
-            (src_b + byte_start_b + bulk + 1).load[width=1]() << ls_b
+            src_b.unsafe_offset(byte_start_b + bulk + 1).unsafe_load[width=1]()
+            << ls_b
         )
     dst.store[DType.uint8, 1](bulk, op[1](result_a, result_b))
+
+
+# ---------------------------------------------------------------------------
+# reduce — vectorized scalar reduction over a BufferView
+# ---------------------------------------------------------------------------
+
+
+def _reduce_dispatch[
+    T: DType,
+    input_fn: def[W: Int, rank: Int](IndexList[rank]) capturing[_] -> SIMD[
+        T, W
+    ],
+    combine: def[W: Int](SIMD[T, W], SIMD[T, W]) thin -> SIMD[T, W],
+](length: Int, identity: Scalar[T], ctx: ExecutionContext) raises -> Scalar[T]:
+    """Dispatch a scalar reduction to CPU or GPU using ``_reduce_generator_wrapper``.
+
+    ``combine`` is wrapped in a capturing closure so the thin (no-capture)
+    function satisfies ``_reduce_generator_wrapper``'s ``capturing[_]`` requirement.
+    GPU path allocates a 1-element device buffer and reads back via ``Buffer.to_cpu``
+    (which enqueues a DMA copy and synchronizes).  CPU path writes directly to a
+    local ``Scalar``.
+    """
+
+    @always_inline
+    @parameter
+    def combine_capturing[
+        W: SIMDLength
+    ](a: SIMD[T, W], b: SIMD[T, W]) -> SIMD[T, W]:
+        return combine[Int(W)](a, b)
+
+    if length == 0:
+        return identity
+
+    if ctx.is_gpu():
+        # float16 triggers an internal f32→f16 rebind failure in the GPU
+        # reduction backend (_reduce_generator_wrapper uses f32 accumulators
+        # for f16 and cannot rebind back); exclude it until the stdlib fixes it.
+        comptime if has_accelerator_support[T]() and T != DType.float16:
+            var dev_buf = Buffer.alloc_device[T](ctx.device.value(), 1)
+            var dev_view = dev_buf.device_view[T]()
+
+            @always_inline
+            @__copy_capture(dev_view)
+            @parameter
+            def output_fn_gpu[
+                W: SIMDLength, rank: Int
+            ](idx: IndexList[rank], val: SIMD[T, W]):
+                dev_view.store[1](0, val[0])
+
+            _reduce_generator_wrapper[
+                T,
+                input_fn,
+                output_fn_gpu,
+                combine_capturing,
+                target="gpu",
+                reduce_dim=0,
+            ](Coord(length), identity, ctx.device)
+            return (
+                dev_buf.to_immutable()
+                .to_cpu(ctx.device.value())
+                .view[T]()
+                .load[1](0)
+            )
+        else:
+            raise Error("reduce: no GPU accelerator available")
+    else:
+        var out_buf = Buffer.alloc_zeroed[T](1)
+        var out_view = out_buf.view[T]()
+
+        @always_inline
+        @parameter
+        def output_fn_cpu[
+            W: SIMDLength, rank: Int
+        ](idx: IndexList[rank], val: SIMD[T, W]):
+            out_view.store[1](0, val[0])
+
+        _reduce_generator_wrapper[
+            T,
+            input_fn,
+            output_fn_cpu,
+            combine_capturing,
+            reduce_dim=0,
+        ](Coord(length), identity)
+        return out_view.load[1](0)
+
+
+def reduce[
+    T: DType,
+    combine: def[W: Int](SIMD[T, W], SIMD[T, W]) thin -> SIMD[T, W],
+](
+    src: BufferView[T, _],
+    bitmap: BitmapView[_],
+    identity: Scalar[T],
+    ctx: ExecutionContext = ExecutionContext.serial(),
+) raises -> Scalar[T]:
+    """Reduce ``src`` to a scalar, replacing null positions with ``identity``.
+
+    Null positions are indicated by False bits in ``bitmap``; they contribute
+    ``identity`` to the result so they have no effect on the outcome.
+    """
+
+    @always_inline
+    @parameter
+    def input_fn[W: Int, rank: Int](idx: IndexList[rank]) -> SIMD[T, W]:
+        var i = idx[0]
+        return bitmap.mask[W](i).select(src.load[W](i), SIMD[T, W](identity))
+
+    return _reduce_dispatch[T, input_fn, combine](len(src), identity, ctx)
+
+
+def reduce[
+    T: DType,
+    combine: def[W: Int](SIMD[T, W], SIMD[T, W]) thin -> SIMD[T, W],
+](
+    src: BufferView[T, _],
+    identity: Scalar[T],
+    ctx: ExecutionContext = ExecutionContext.serial(),
+) raises -> Scalar[T]:
+    """Reduce ``src`` to a scalar using a SIMD combine function."""
+
+    @always_inline
+    @parameter
+    def input_fn[W: Int, rank: Int](idx: IndexList[rank]) -> SIMD[T, W]:
+        return src.load[W](idx[0])
+
+    return _reduce_dispatch[T, input_fn, combine](len(src), identity, ctx)

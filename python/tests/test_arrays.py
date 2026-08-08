@@ -176,10 +176,15 @@ def test_array_mixed_types_error():
         ma.array([1, "foo"])
 
 
-def test_array_bytes_raises():
-    # binary array construction not yet supported
-    with pytest.raises(Exception):
-        ma.array([b"foo", b"bar"])
+def test_array_bytes():
+    arr = ma.array([b"foo", b"bar"], type=ma.binary())
+    assert type(arr).__name__ == "Array"
+    assert len(arr) == 2
+    assert arr.null_count() == 0
+
+    arr = ma.array([b"foo", None, b""], type=ma.binary())
+    assert len(arr) == 3
+    assert arr.null_count() == 1
 
 
 def test_array_nested_list_int():
@@ -226,7 +231,9 @@ def test_array_struct_missing_key():
 
 
 def test_array_struct_explicit_type():
-    ty = ma.struct([ma.field("x", ma.int32()), ma.field("y", ma.float64())])
+    ty = ma.struct(
+        [ma.field("x", ma.int32(), True, {}), ma.field("y", ma.float64(), True, {})]
+    )
     arr = ma.array([{"x": 1, "y": 2.5}, {"x": 3, "y": 4.5}], type=ty)
     assert type(arr).__name__ == "Array"
     assert len(arr) == 2
@@ -319,7 +326,7 @@ def test_array_nested_list_null_inner():
 
 
 def test_array_struct_wrong_field_type():
-    ty = ma.struct([ma.field("x", ma.int64())])
+    ty = ma.struct([ma.field("x", ma.int64(), True, {})])
     with pytest.raises(Exception):
         ma.array([{"x": "not_an_int"}], type=ty)
 

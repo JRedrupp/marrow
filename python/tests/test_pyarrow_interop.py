@@ -42,6 +42,24 @@ def test_datatype_from_pyarrow():
         assert roundtripped.field("x").type == pa_type
 
 
+def test_datatype_dictionary_roundtrip():
+    """dictionary(index, value) type round-trips through PyArrow schema."""
+    for index_pa_type in [
+        pa.int8(),
+        pa.int16(),
+        pa.int32(),
+        pa.int64(),
+        pa.uint8(),
+        pa.uint16(),
+        pa.uint32(),
+        pa.uint64(),
+    ]:
+        pa_type = pa.dictionary(index_pa_type, pa.string())
+        ma_schema = ma.schema(pa.schema([pa.field("d", pa_type)]))
+        roundtripped = pa.schema(ma_schema)
+        assert roundtripped.field("d").type == pa_type
+
+
 def test_datatype_nested_roundtrip():
     """Nested types (list, struct) roundtrip through PyArrow."""
     pa_schema = pa.schema(
@@ -72,9 +90,9 @@ def test_datatype_nested_roundtrip():
 def test_schema_to_pyarrow():
     schema = ma.schema(
         [
-            ma.field("x", ma.int32()),
-            ma.field("y", ma.float64()),
-            ma.field("s", ma.string()),
+            ma.field("x", ma.int32(), True, {}),
+            ma.field("y", ma.float64(), True, {}),
+            ma.field("s", ma.string(), True, {}),
         ]
     )
     pa_schema = pa.schema(schema)
@@ -87,15 +105,17 @@ def test_schema_to_pyarrow():
 def test_schema_to_pyarrow_nested():
     schema = ma.schema(
         [
-            ma.field("lst", ma.list_(ma.int32())),
+            ma.field("lst", ma.list_(ma.int32()), True, {}),
             ma.field(
                 "st",
                 ma.struct(
                     [
-                        ma.field("a", ma.int32()),
-                        ma.field("b", ma.float64()),
+                        ma.field("a", ma.int32(), True, {}),
+                        ma.field("b", ma.float64(), True, {}),
                     ]
                 ),
+                True,
+                {},
             ),
         ]
     )
@@ -120,8 +140,8 @@ def test_schema_from_marrow_schema():
     """Passing a marrow Schema to ma.schema() should return an equal copy."""
     original = ma.schema(
         [
-            ma.field("a", ma.int64()),
-            ma.field("b", ma.string()),
+            ma.field("a", ma.int64(), True, {}),
+            ma.field("b", ma.string(), True, {}),
         ]
     )
     copy = ma.schema(original)
@@ -228,6 +248,55 @@ def test_array_from_pyarrow_struct():
     assert roundtripped.equals(pa_arr)
 
 
+def test_array_from_pyarrow_dictionary():
+    """Import PyArrow dictionary array → Marrow → back to PyArrow."""
+    pa_arr = pa.array(["cat", "dog", "cat", "fish", "dog"]).dictionary_encode()
+    ma_arr = ma.array(pa_arr)
+    assert len(ma_arr) == 5
+    assert pa.array(ma_arr).equals(pa_arr)
+
+
+def test_array_roundtrip_dictionary_with_nulls():
+    pa_arr = pa.array(["cat", None, "cat", "fish", None]).dictionary_encode()
+    ma_arr = ma.array(pa_arr)
+    assert len(ma_arr) == 5
+    assert ma_arr.null_count() == 2
+    assert pa.array(ma_arr).equals(pa_arr)
+
+
+def test_array_roundtrip_dictionary_ordered():
+    pa_arr = pa.DictionaryArray.from_arrays(
+        pa.array([0, 1, 0, 2], type=pa.int8()),
+        pa.array(["a", "b", "c"]),
+        ordered=True,
+    )
+    ma_arr = ma.array(pa_arr)
+    roundtripped = pa.array(ma_arr)
+    assert roundtripped.equals(pa_arr)
+    assert roundtripped.type.ordered
+
+
+@pytest.mark.parametrize(
+    "index_pa_type",
+    [
+        pa.int8(),
+        pa.int16(),
+        pa.int32(),
+        pa.int64(),
+        pa.uint8(),
+        pa.uint16(),
+        pa.uint32(),
+        pa.uint64(),
+    ],
+)
+def test_array_roundtrip_dictionary_index_types(index_pa_type):
+    pa_arr = pa.DictionaryArray.from_arrays(
+        pa.array([0, 1, 2, 0], type=index_pa_type),
+        pa.array(["x", "y", "z"]),
+    )
+    assert pa.array(ma.array(pa_arr)).equals(pa_arr)
+
+
 # ===========================================================================
 # RecordBatch roundtrips
 # ===========================================================================
@@ -293,6 +362,13 @@ def test_record_batch_with_list_column():
     assert ma_rb.num_rows() == 2
     pa_rb2 = pa.record_batch(ma_rb)
     assert pa_rb2.column("vals").equals(pa_rb.column("vals"))
+
+
+def test_record_batch_with_dictionary_column():
+    pa_rb = pa.record_batch({"cat": pa.array(["x", "y", "x", "z"]).dictionary_encode()})
+    ma_rb = ma.record_batch(pa_rb)
+    assert ma_rb.num_rows() == 4
+    assert pa.record_batch(ma_rb).column("cat").equals(pa_rb.column("cat"))
 
 
 def test_record_batch_arrow_c_schema():
@@ -413,7 +489,7 @@ def test_mojo_add_pyarrow_arrays(pa_type: pa.DType) -> None:
     pa_b = pa.array([10, 20, 30], type=pa_type())
     a = ma.array(pa_a)
     b = ma.array(pa_b)
-    result = ma.add(a, b)
+    result = ma.add(a, b, None)
     assert len(result) == 3
     assert result.null_count() == 0
     out = pa.array(result)
@@ -428,7 +504,7 @@ def test_mojo_add_pyarrow_float(pa_type: pa.DType) -> None:
     pa_b = pa.array([0.5, 1.5, 2.5], type=pa_type())
     a = ma.array(pa_a)
     b = ma.array(pa_b)
-    result = ma.add(a, b)
+    result = ma.add(a, b, None)
     assert len(result) == 3
     out = pa.array(result)
     assert out[0].as_py() == pytest.approx(1.5)
@@ -440,7 +516,7 @@ def test_mojo_add_pyarrow_float(pa_type: pa.DType) -> None:
 def test_mojo_add_pyarrow_nulls_propagate(pa_type: pa.DType) -> None:
     pa_a = pa.array([1, None, 3], type=pa_type())
     pa_b = pa.array([10, 20, 30], type=pa_type())
-    result = ma.add(ma.array(pa_a), ma.array(pa_b))
+    result = ma.add(ma.array(pa_a), ma.array(pa_b), None)
     assert len(result) == 3
     assert result.null_count() == 1
     out = pa.array(result)
@@ -456,7 +532,7 @@ def test_mojo_add_pyarrow_nulls_propagate(pa_type: pa.DType) -> None:
 def test_mojo_sub_pyarrow_arrays(pa_type: pa.DType) -> None:
     pa_a = pa.array([10, 20, 30], type=pa_type())
     pa_b = pa.array([1, 2, 3], type=pa_type())
-    result = ma.sub(ma.array(pa_a), ma.array(pa_b))
+    result = ma.sub(ma.array(pa_a), ma.array(pa_b), None)
     assert len(result) == 3
     out = pa.array(result)
     assert out[0].as_py() == 9
@@ -468,7 +544,7 @@ def test_mojo_sub_pyarrow_arrays(pa_type: pa.DType) -> None:
 def test_mojo_sub_pyarrow_nulls_propagate(pa_type: pa.DType) -> None:
     pa_a = pa.array([10, None, 30], type=pa_type())
     pa_b = pa.array([1, 2, None], type=pa_type())
-    result = ma.sub(ma.array(pa_a), ma.array(pa_b))
+    result = ma.sub(ma.array(pa_a), ma.array(pa_b), None)
     assert len(result) == 3
     assert result.null_count() == 2
 
@@ -480,7 +556,7 @@ def test_mojo_sub_pyarrow_nulls_propagate(pa_type: pa.DType) -> None:
 def test_mojo_mul_pyarrow_arrays(pa_type: pa.DType) -> None:
     pa_a = pa.array([2, 3, 4], type=pa_type())
     pa_b = pa.array([5, 6, 7], type=pa_type())
-    result = ma.mul(ma.array(pa_a), ma.array(pa_b))
+    result = ma.mul(ma.array(pa_a), ma.array(pa_b), None)
     assert len(result) == 3
     out = pa.array(result)
     assert out[0].as_py() == 10
@@ -495,7 +571,7 @@ def test_mojo_mul_pyarrow_arrays(pa_type: pa.DType) -> None:
 def test_mojo_div_pyarrow_arrays(pa_type: pa.DType) -> None:
     pa_a = pa.array([10, 20, 30], type=pa_type())
     pa_b = pa.array([2, 4, 5], type=pa_type())
-    result = ma.div(ma.array(pa_a), ma.array(pa_b))
+    result = ma.div(ma.array(pa_a), ma.array(pa_b), None)
     assert len(result) == 3
     out = pa.array(result)
     assert out[0].as_py() == 5
@@ -509,49 +585,49 @@ def test_mojo_div_pyarrow_arrays(pa_type: pa.DType) -> None:
 @pytest.mark.parametrize("pa_type", INT_TYPES)
 def test_mojo_sum_pyarrow_int(pa_type: pa.DType) -> None:
     pa_a = pa.array([1, 2, 3, 4], type=pa_type())
-    assert ma.sum_(ma.array(pa_a)) == 10.0
+    assert ma.sum_(ma.array(pa_a), None) == 10.0
 
 
 @pytest.mark.parametrize("pa_type", FLOAT_TYPES)
 def test_mojo_sum_pyarrow_float(pa_type: pa.DType) -> None:
     pa_a = pa.array([1.5, 2.5, 3.0], type=pa_type())
-    assert ma.sum_(ma.array(pa_a)) == pytest.approx(7.0)
+    assert ma.sum_(ma.array(pa_a), None) == pytest.approx(7.0)
 
 
 @pytest.mark.parametrize("pa_type", INT_TYPES)
 def test_mojo_sum_pyarrow_skips_nulls(pa_type: pa.DType) -> None:
     pa_a = pa.array([1, None, 3, None], type=pa_type())
-    assert ma.sum_(ma.array(pa_a)) == 4.0
+    assert ma.sum_(ma.array(pa_a), None) == 4.0
 
 
 @pytest.mark.parametrize("pa_type", INT_TYPES)
 def test_mojo_min_pyarrow(pa_type: pa.DType) -> None:
     pa_a = pa.array([3, 1, 4, 1, 5], type=pa_type())
-    assert ma.min_(ma.array(pa_a)) == 1.0
+    assert ma.min_(ma.array(pa_a), None) == 1.0
 
 
 @pytest.mark.parametrize("pa_type", INT_TYPES)
 def test_mojo_max_pyarrow(pa_type: pa.DType) -> None:
     pa_a = pa.array([3, 1, 4, 1, 5], type=pa_type())
-    assert ma.max_(ma.array(pa_a)) == 5.0
+    assert ma.max_(ma.array(pa_a), None) == 5.0
 
 
 @pytest.mark.parametrize("pa_type", INT_TYPES)
 def test_mojo_min_pyarrow_skips_nulls(pa_type: pa.DType) -> None:
     pa_a = pa.array([3, None, 1, None], type=pa_type())
-    assert ma.min_(ma.array(pa_a)) == 1.0
+    assert ma.min_(ma.array(pa_a), None) == 1.0
 
 
 @pytest.mark.parametrize("pa_type", INT_TYPES)
 def test_mojo_max_pyarrow_skips_nulls(pa_type: pa.DType) -> None:
     pa_a = pa.array([3, None, 5, None], type=pa_type())
-    assert ma.max_(ma.array(pa_a)) == 5.0
+    assert ma.max_(ma.array(pa_a), None) == 5.0
 
 
 @pytest.mark.parametrize("pa_type", INT_TYPES)
 def test_mojo_product_pyarrow(pa_type: pa.DType) -> None:
     pa_a = pa.array([2, 3, 4], type=pa_type())
-    assert ma.product(ma.array(pa_a)) == 24.0
+    assert ma.product(ma.array(pa_a), None) == 24.0
 
 
 # ── filter ───────────────────────────────────────────────────────────────────
@@ -593,7 +669,7 @@ def test_mojo_filter_pyarrow_all_false(pa_type: pa.DType) -> None:
 def test_pyarrow_to_mojo_compute_to_pyarrow(pa_type: pa.DType) -> None:
     pa_a = pa.array([7, 42, -1], type=pa_type())
     pa_b = pa.array([3, 8, 1], type=pa_type())
-    result = ma.add(ma.array(pa_a), ma.array(pa_b))
+    result = ma.add(ma.array(pa_a), ma.array(pa_b), None)
     out = pa.array(result)
     assert out.type == pa_type()
     assert out[0].as_py() == 10
@@ -605,7 +681,7 @@ def test_pyarrow_to_mojo_compute_to_pyarrow(pa_type: pa.DType) -> None:
 def test_pyarrow_to_mojo_compute_to_pyarrow_with_nulls(pa_type: pa.DType) -> None:
     pa_a = pa.array([1, None, 3, None], type=pa_type())
     pa_b = pa.array([10, 20, None, 40], type=pa_type())
-    result = ma.add(ma.array(pa_a), ma.array(pa_b))
+    result = ma.add(ma.array(pa_a), ma.array(pa_b), None)
     out = pa.array(result)
     assert out.type == pa_type()
     assert out[0].as_py() == 11

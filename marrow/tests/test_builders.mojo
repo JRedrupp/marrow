@@ -113,8 +113,8 @@ def test_primitive_builder_int16() raises:
     b.append(32767)
     b.append(-32768)
     var frozen = b.finish()
-    assert_equal(frozen[0], 32767)
-    assert_equal(frozen[1], -32768)
+    assert_equal(frozen[0].value(), 32767)
+    assert_equal(frozen[1].value(), -32768)
 
 
 def test_primitive_builder_uint32() raises:
@@ -122,8 +122,8 @@ def test_primitive_builder_uint32() raises:
     b.append(0)
     b.append(42)
     var frozen = b.finish()
-    assert_equal(frozen[0], 0)
-    assert_equal(frozen[1], 42)
+    assert_equal(frozen[0].value(), 0)
+    assert_equal(frozen[1].value(), 42)
 
 
 def test_primitive_builder_float32() raises:
@@ -163,9 +163,9 @@ def test_primitive_builder_capacity_doubling() raises:
     b.append(9)
     assert_equal(len(b), 10)
     var frozen = b.finish()
-    assert_equal(frozen[0], 0)
-    assert_equal(frozen[4], 4)
-    assert_equal(frozen[9], 9)
+    assert_equal(frozen[0].value(), 0)
+    assert_equal(frozen[4].value(), 4)
+    assert_equal(frozen[9].value(), 9)
 
 
 def test_primitive_builder_as_any_builder() raises:
@@ -402,8 +402,8 @@ def test_list_builder_multiple_nulls_offsets() raises:
     var first_val = frozen[0].value()
     ref first = first_val.as_int32()
     assert_equal(first.length, 2)
-    assert_equal(first[0], 1)
-    assert_equal(first[1], 2)
+    assert_equal(first[0].value(), 1)
+    assert_equal(first[1].value(), 2)
 
 
 def test_list_builder_string_child() raises:
@@ -431,7 +431,7 @@ def test_fixed_size_list_builder_zero_length() raises:
     var frozen = b.finish()
     assert_equal(frozen.length, 0)
     assert_true(frozen.dtype.is_fixed_size_list())
-    assert_equal(frozen.dtype.as_fixed_size_list_type().size, 4)
+    assert_equal(frozen.dtype.as_fixed_size_list().size, 4)
 
 
 def test_fixed_size_list_builder_float32() raises:
@@ -499,9 +499,9 @@ def test_fixed_size_list_builder_size1() raises:
     assert_equal(frozen.length, 3)
     ref first = frozen[0].value().as_int32()
     assert_equal(first.length, 1)
-    assert_equal(first[0], 7)
+    assert_equal(first[0].value(), 7)
     ref third = frozen[2].value().as_int32()
-    assert_equal(third[0], 9)
+    assert_equal(third[0].value(), 9)
 
 
 # ---------------------------------------------------------------------------
@@ -521,21 +521,21 @@ def test_struct_builder_append_valid() raises:
     var sb = StructBuilder(
         [field("id", int64), field("score", float64)], capacity=3
     )
-    sb.field_builder(0).as_primitive[Int64Type]().append(1)
-    sb.field_builder(0).as_primitive[Int64Type]().append(2)
-    sb.field_builder(0).as_primitive[Int64Type]().append(3)
-    sb.field_builder(1).as_primitive[Float64Type]().append(0.1)
-    sb.field_builder(1).as_primitive[Float64Type]().append(0.2)
-    sb.field_builder(1).as_primitive[Float64Type]().append(0.3)
+    sb.field_builder(0).as_int64().append(1)
+    sb.field_builder(0).as_int64().append(2)
+    sb.field_builder(0).as_int64().append(3)
+    sb.field_builder(1).as_float64().append(0.1)
+    sb.field_builder(1).as_float64().append(0.2)
+    sb.field_builder(1).as_float64().append(0.3)
     sb.append_valid()
     sb.append_valid()
     sb.append_valid()
     assert_equal(len(sb), 3)
     var frozen = sb.finish()
     assert_equal(frozen.length, 3)
-    assert_equal(len(frozen.dtype.as_struct_type().fields), 2)
-    assert_equal(frozen.dtype.as_struct_type().fields[0].name, "id")
-    assert_equal(frozen.dtype.as_struct_type().fields[1].name, "score")
+    assert_equal(len(frozen.dtype.as_struct().fields), 2)
+    assert_equal(frozen.dtype.as_struct().fields[0].name, "id")
+    assert_equal(frozen.dtype.as_struct().fields[1].name, "score")
     # All entries valid — bitmap is omitted when null_count == 0
     assert_equal(frozen.nulls, 0)
 
@@ -543,8 +543,8 @@ def test_struct_builder_append_valid() raises:
 def test_struct_builder_append_null() raises:
     """Null struct entries — validity bitmap reflects nulls."""
     var sb = StructBuilder([field("id", int32)], capacity=2)
-    sb.field_builder(0).as_primitive[Int32Type]().append(10)
-    sb.field_builder(0).as_primitive[Int32Type]().append(20)
+    sb.field_builder(0).as_int32().append(10)
+    sb.field_builder(0).as_int32().append(20)
     sb.append_valid()
     sb.append_null()
     var frozen = sb.finish()
@@ -556,16 +556,16 @@ def test_struct_builder_append_null() raises:
 def test_struct_builder_field_values_accessible() raises:
     """Child field values are accessible after finish."""
     var sb = StructBuilder([field("x", int32)], capacity=2)
-    sb.field_builder(0).as_primitive[Int32Type]().append(42)
-    sb.field_builder(0).as_primitive[Int32Type]().append(99)
+    sb.field_builder(0).as_int32().append(42)
+    sb.field_builder(0).as_int32().append(99)
     sb.append_valid()
     sb.append_valid()
     var frozen = sb.finish()
 
     ref field_data = frozen.unsafe_get("x")
     ref x_arr = field_data.as_int32()
-    assert_equal(x_arr[0], 42)
-    assert_equal(x_arr[1], 99)
+    assert_equal(x_arr[0].value(), 42)
+    assert_equal(x_arr[1].value(), 99)
 
 
 def test_struct_builder_multi_type_fields() raises:
@@ -574,8 +574,8 @@ def test_struct_builder_multi_type_fields() raises:
         [field("id", int64), field("name", string), field("active", bool_)],
         capacity=2,
     )
-    sb.field_builder(0).as_primitive[Int64Type]().append(1)
-    sb.field_builder(0).as_primitive[Int64Type]().append(2)
+    sb.field_builder(0).as_int64().append(1)
+    sb.field_builder(0).as_int64().append(2)
     sb.field_builder(1).as_string().append("alice")
     sb.field_builder(1).as_string().append("bob")
     sb.field_builder(2).as_bool().append(True)
@@ -585,17 +585,17 @@ def test_struct_builder_multi_type_fields() raises:
 
     var frozen = sb.finish()
     assert_equal(frozen.length, 2)
-    assert_equal(len(frozen.dtype.as_struct_type().fields), 3)
-    assert_equal(frozen.dtype.as_struct_type().fields[0].name, "id")
-    assert_equal(frozen.dtype.as_struct_type().fields[1].name, "name")
-    assert_equal(frozen.dtype.as_struct_type().fields[2].name, "active")
+    assert_equal(len(frozen.dtype.as_struct().fields), 3)
+    assert_equal(frozen.dtype.as_struct().fields[0].name, "id")
+    assert_equal(frozen.dtype.as_struct().fields[1].name, "name")
+    assert_equal(frozen.dtype.as_struct().fields[2].name, "active")
 
 
 def test_struct_builder_field_builder() raises:
     var sb = StructBuilder([field("x", int32), field("y", int32)])
 
-    sb.field_builder(0).as_primitive[Int32Type]().append(7)
-    sb.field_builder(1).as_primitive[Int32Type]().append(8)
+    sb.field_builder(0).as_int32().append(7)
+    sb.field_builder(1).as_int32().append(8)
     sb.append_valid()
 
     assert_equal(sb.field_builder(0).length(), 1)
@@ -605,7 +605,7 @@ def test_struct_builder_field_builder() raises:
 def test_struct_builder_capacity_growth() raises:
     var sb = StructBuilder([field("id", int32)])
     for _ in range(5):
-        sb.field_builder(0).as_primitive[Int32Type]().append(0)
+        sb.field_builder(0).as_int32().append(0)
         sb.append_valid()
     var frozen = sb.finish()
     assert_equal(frozen.length, 5)
@@ -614,12 +614,12 @@ def test_struct_builder_capacity_growth() raises:
 def test_struct_builder_field_names_preserved() raises:
     """Field names survive builder → finish cycle."""
     var sb = StructBuilder([field("alpha", int8), field("beta", int8)])
-    sb.field_builder(0).as_primitive[Int8Type]().append(1)
-    sb.field_builder(1).as_primitive[Int8Type]().append(2)
+    sb.field_builder(0).as_int8().append(1)
+    sb.field_builder(1).as_int8().append(2)
     sb.append_valid()
     var frozen = sb.finish()
-    assert_equal(frozen.dtype.as_struct_type().fields[0].name, "alpha")
-    assert_equal(frozen.dtype.as_struct_type().fields[1].name, "beta")
+    assert_equal(frozen.dtype.as_struct().fields[0].name, "alpha")
+    assert_equal(frozen.dtype.as_struct().fields[1].name, "beta")
 
 
 # ---------------------------------------------------------------------------
@@ -628,7 +628,7 @@ def test_struct_builder_field_names_preserved() raises:
 
 
 def test_factory_array_empty() raises:
-    var a = array[Int32Type]()
+    var a = array(List[Optional[Int]](), int32)
     assert_equal(len(a), 0)
     assert_equal(a.null_count(), 0)
 
@@ -654,28 +654,28 @@ def test_factory_array_bool_all_nulls() raises:
 
 
 def test_factory_array_int_with_nulls() raises:
-    var a = array[Int32Type]([1, None, 3, None, 5])
+    var a = array([1, None, 3, None, 5], int32)
     assert_equal(len(a), 5)
     assert_equal(a.null_count(), 2)
-    assert_equal(a[0], 1)
-    assert_equal(a[2], 3)
-    assert_equal(a[4], 5)
+    assert_equal(a[0].value(), 1)
+    assert_equal(a[2].value(), 3)
+    assert_equal(a[4].value(), 5)
     assert_true(a.is_valid(0))
     assert_false(a.is_valid(1))
     assert_false(a.is_valid(3))
 
 
 def test_factory_array_int_all_valid() raises:
-    var a = array[Int64Type]([10, 20, 30])
+    var a = array([10, 20, 30], int64)
     assert_equal(len(a), 3)
     assert_equal(a.null_count(), 0)
-    assert_equal(a[0], 10)
-    assert_equal(a[1], 20)
-    assert_equal(a[2], 30)
+    assert_equal(a[0].value(), 10)
+    assert_equal(a[1].value(), 20)
+    assert_equal(a[2].value(), 30)
 
 
 def test_factory_nulls_all_invalid() raises:
-    var a = nulls[Int64Type](5)
+    var a = nulls(5, int64)
     assert_equal(len(a), 5)
     assert_equal(a.null_count(), 5)
     for i in range(5):
@@ -683,12 +683,12 @@ def test_factory_nulls_all_invalid() raises:
 
 
 def test_factory_nulls_zero() raises:
-    var a = nulls[Int32Type](0)
+    var a = nulls(0, int32)
     assert_equal(len(a), 0)
 
 
 def test_factory_nulls_one() raises:
-    var a = nulls[Int8Type](1)
+    var a = nulls(1, int8)
     assert_equal(len(a), 1)
     assert_false(a.is_valid(0))
 
@@ -699,21 +699,21 @@ def test_factory_arange_validity() raises:
     assert_equal(a.null_count(), 0)
     for i in range(5):
         assert_true(a.is_valid(i))
-    assert_equal(a[0], 0)
-    assert_equal(a[4], 4)
+    assert_equal(a[0].value(), 0)
+    assert_equal(a[4].value(), 4)
 
 
 def test_factory_arange_non_zero_start() raises:
     var a = arange[Int64Type](10, 15)
     assert_equal(len(a), 5)
-    assert_equal(a[0], 10)
-    assert_equal(a[4], 14)
+    assert_equal(a[0].value(), 10)
+    assert_equal(a[4].value(), 14)
 
 
 def test_factory_arange_single() raises:
     var a = arange[Int32Type](7, 8)
     assert_equal(len(a), 1)
-    assert_equal(a[0], 7)
+    assert_equal(a[0].value(), 7)
 
 
 def test_factory_arange_empty() raises:
@@ -794,8 +794,8 @@ def test_any_builder_finish_dispatch_primitive() raises:
     var builder: AnyBuilder = b^
     var arr = builder.finish()
     assert_equal(arr.length(), 2)
-    assert_equal(arr.as_int32()[0], 42)
-    assert_equal(arr.as_int32()[1], 99)
+    assert_equal(arr.as_int32()[0].value(), 42)
+    assert_equal(arr.as_int32()[1].value(), 99)
     # data buffer is shrunk: 2 int32s = 8 bytes → 64 bytes
     assert_equal(len(arr.to_data().buffers[0]), 64)
 

@@ -21,10 +21,14 @@ call sites working without source changes.
 """
 
 from std.gpu.host import DeviceContext
+from std.python import PythonObject
+from std.python.conversions import ConvertibleFromPython, ConvertibleToPython
 from std.sys.info import num_physical_cores
 
 
-struct ExecutionContext(Copyable, Movable):
+struct ExecutionContext(
+    ConvertibleFromPython, ConvertibleToPython, Copyable, Movable, Writable
+):
     """How a kernel should dispatch its work.
 
     See the module docstring for the full contract. Construct via one of
@@ -50,6 +54,12 @@ struct ExecutionContext(Copyable, Movable):
     ):
         self.num_threads = num_threads
         self.device = device.copy() if device else None
+
+    @implicit
+    def __init__(out self, device: DeviceContext):
+        """Implicit conversion from ``DeviceContext``."""
+        self.num_threads = 1
+        self.device = Optional[DeviceContext](device)
 
     @implicit
     def __init__(out self, device: Optional[DeviceContext]):
@@ -109,3 +119,22 @@ struct ExecutionContext(Copyable, Movable):
         if self.is_gpu():
             return False
         return self.resolved_num_threads() > 1 and n >= min_parallel_size
+
+    # --- Writable ---------------------------------------------------------
+
+    def write_to[W: Writer](self, mut writer: W):
+        if self.is_gpu():
+            writer.write("ExecutionContext(gpu)")
+        else:
+            writer.write("ExecutionContext(cpu)")
+
+    def write_repr_to[W: Writer](self, mut writer: W):
+        self.write_to(writer)
+
+    # --- ConvertibleFromPython / ConvertibleToPython --------------------------
+
+    def __init__(out self, *, py: PythonObject) raises:
+        self = py.downcast_value_ptr[ExecutionContext]()[].copy()
+
+    def to_python_object(var self) raises -> PythonObject:
+        return PythonObject(alloc=self^)

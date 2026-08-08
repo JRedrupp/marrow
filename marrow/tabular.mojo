@@ -11,6 +11,7 @@ from std.memory import ArcPointer
 from std.python import Python, PythonObject
 from std.python.conversions import ConvertibleFromPython, ConvertibleToPython
 from .arrays import AnyArray, ChunkedArray, StructArray
+from .builders import array
 from .schema import Schema
 from .dtypes import struct_, Field
 
@@ -78,11 +79,21 @@ struct RecordBatch(
         """Returns the number of columns."""
         return len(self.columns)
 
-    def column(self, index: Int) -> ref[self.columns] AnyArray:
+    @staticmethod
+    def empty(schema: Schema) raises -> RecordBatch:
+        """Create a 0-row RecordBatch for the given schema."""
+        var cols = List[AnyArray]()
+        for f in schema.fields:
+            cols.append(array(f.dtype))
+        return RecordBatch(schema=schema, columns=cols^)
+
+    def column(self, index: Int) -> ref[self.columns[index]] AnyArray:
         """Returns the column at the given index."""
         return self.columns[index]
 
-    def column(self, name: String) raises -> ref[self.columns] AnyArray:
+    def column(
+        self, name: String
+    ) raises -> ref[self.columns[self.schema.get_field_index(name)]] AnyArray:
         """Returns the column with the given name."""
         var idx = self.schema.get_field_index(name)
         if idx == -1:
@@ -218,7 +229,7 @@ struct RecordBatch(
         )
 
     def __str__(self) -> String:
-        return String.write(self)
+        return String(self)
 
     def write_to[W: Writer](self, mut writer: W):
         writer.write(
@@ -311,11 +322,15 @@ struct Table(ConvertibleFromPython, ConvertibleToPython, Copyable, Writable):
         """Returns the number of columns."""
         return len(self.columns)
 
-    def column(self, index: Int) -> ref[self.columns] ChunkedArray:
+    def column(self, index: Int) -> ref[self.columns[index]] ChunkedArray:
         """Returns the column at the given index."""
         return self.columns[index]
 
-    def column(self, name: String) raises -> ref[self.columns] ChunkedArray:
+    def column(
+        self, name: String
+    ) raises -> ref[
+        self.columns[self.schema.get_field_index(name)]
+    ] ChunkedArray:
         """Returns the column with the given name."""
         var idx = self.schema.get_field_index(name)
         if idx == -1:
@@ -418,7 +433,7 @@ struct Table(ConvertibleFromPython, ConvertibleToPython, Copyable, Writable):
         return True
 
     def __str__(self) -> String:
-        return String.write(self)
+        return String(self)
 
     def write_to[W: Writer](self, mut writer: W):
         writer.write(

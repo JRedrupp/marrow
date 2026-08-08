@@ -4,7 +4,7 @@ channels = [
   "https://prefix.dev/mojo-community",
   "https://conda.modular.com/max-nightly/",
   "conda-forge",
-  "https://prefix.dev/pixi-build-backends"
+  "https://prefix.dev/pixi-build-backends",
 ]
 platforms = ["osx-arm64", "linux-64"]
 preview = ["pixi-build"]
@@ -17,14 +17,11 @@ version = "0.1.0"
 backend = { name = "pixi-build-mojo", version = "0.1.*" }
 
 [package.build-dependencies]
-mojo-compiler = "==0.26.3.0.dev2026041805"
-
-[package.host-dependencies]
-mojo = "==0.26.3.0.dev2026041805"
+mojo-compiler = "==1.0.0b2.dev2026051106"
+mojo = "==1.0.0b2.dev2026051106"
+pontoneer = { git = "https://github.com/winding-lines/pontoneer", rev = "4001fdc44dc78424803d952395fcae0fb8562a3b" }
 
 [package.run-dependencies]
-mojo = "==0.26.3.0.dev2026041805"
-pontoneer = "==0.6.6.dev2026041805"
 # Mojo nightly builds are compiled against a specific CPython minor version;
 # update the minor bound together with mojo/pontoneer when upgrading.
 python = ">=3.14,<3.15"
@@ -48,6 +45,8 @@ pytest-xdist = ">=3,<4"
 # same binary to be reported as failed.  The PyPI wheel ships a
 # self-contained libarrow built without the OpenTelemetry SDK.
 pyarrow = ">=23.0.1,<24"
+numpy = ">=2.4.4, <3"
+cffi = "*"
 
 [feature.dev.tasks]
 test_mojo = { cmd = "pytest --mojo -v" }
@@ -56,6 +55,51 @@ test_python = { cmd = "pytest --python -v" }
 test_gpu = { cmd = "pytest --gpu -v" }
 test = { cmd = "pytest -v" }
 test_parallel = { cmd = "pytest -v -n auto --dist=loadfile" }
+
+# Integration — Arrow protocol conformance tests via archery.
+# All reference Arrow implementations are cloned into ./integration/arrow/ and
+# built locally so the integration suite is self-contained inside the pixi env.
+[feature.integration.dependencies]
+git = "*"
+rust = ">=1.80"
+go = ">=1.22"
+cmake = ">=3.20"
+ninja = "*"
+cxx-compiler = "*"
+# C++ Arrow build deps (used via ARROW_DEPENDENCY_SOURCE=AUTO)
+libboost-devel = "*"
+gflags = "*"
+flatbuffers = "*"
+xsimd = "*"
+rapidjson = "*"
+
+[feature.integration.tasks]
+# Clone reference implementations directly into the apache/arrow tree layout
+# the orchestrator scripts (rust_build.sh, integration_arrow_build.sh) expect.
+clone_arrow = { cmd = "test -d integration/arrow || git clone --depth 1 --branch apache-arrow-24.0.0 https://github.com/apache/arrow.git integration/arrow" }
+clone_arrow_rs = { cmd = "test -d integration/arrow/rust || git clone --depth 1 --branch 58.2.0 https://github.com/apache/arrow-rs.git integration/arrow/rust", depends-on = ["clone_arrow"] }
+clone_arrow_go = { cmd = "test -d integration/arrow/go || git clone --depth 1 --branch v18.6.0 https://github.com/apache/arrow-go.git integration/arrow/go", depends-on = ["clone_arrow"] }
+# archery is not on PyPI; install from the cloned apache/arrow tree into the
+# active pixi env.  Must run after clone_arrow so the source tree exists.
+install_archery = { cmd = "test -d integration/arrow/dev/archery", depends-on = ["clone_arrow"] }
+
+# Build all reference implementations via apache/arrow's official orchestrator.
+# Env mirrors ci/docker/conda-integration.dockerfile, minus features we don't need.
+# `CONDA_PREFIX=` clears pixi's auto-set value: arrow's cpp_build.sh treats a
+# non-empty CONDA_PREFIX as a signal to invoke `conda list` for diagnostics, and
+# pixi does not ship a `conda` binary.  Pixi's task schema rejects empty-string
+# env values, so the unset is done inline at the start of the cmd.
+build_arrow = { cmd = "CONDA_PREFIX= integration/arrow/ci/scripts/integration_arrow_build.sh $PIXI_PROJECT_ROOT/integration/arrow $PIXI_PROJECT_ROOT/integration/arrow/build", depends-on = [
+  "clone_arrow_rs",
+  "clone_arrow_go",
+], env = { ARCHERY_INTEGRATION_WITH_RUST = "1", ARCHERY_INTEGRATION_WITH_GO = "1", ARCHERY_INTEGRATION_WITH_NANOARROW = "0", ARCHERY_INTEGRATION_WITH_DOTNET = "0", ARCHERY_INTEGRATION_WITH_JAVA = "0", ARCHERY_INTEGRATION_WITH_JS = "0", ARCHERY_INTEGRATION_WITH_RUBY = "0", ARROW_INTEGRATION_CPP = "ON", ARROW_BUILD_INTEGRATION = "ON", ARROW_BUILD_STATIC = "OFF", ARROW_BUILD_TESTS = "OFF", ARROW_BUILD_TYPE = "release", ARROW_USE_CCACHE = "OFF", ARROW_DEPENDENCY_SOURCE = "AUTO", ARROW_HDFS = "OFF", ARROW_MIMALLOC = "OFF", ARROW_WITH_UTF8PROC = "OFF", CMAKE_UNITY_BUILD = "ON", ARROW_ACERO = "OFF", ARROW_AZURE = "OFF", ARROW_COMPUTE = "OFF", ARROW_CSV = "OFF", ARROW_DATASET = "OFF", ARROW_FILESYSTEM = "OFF", ARROW_FLIGHT = "OFF", ARROW_FLIGHT_SQL = "OFF", ARROW_GANDIVA = "OFF", ARROW_GCS = "OFF", ARROW_JEMALLOC = "OFF", ARROW_JSON = "OFF", ARROW_ORC = "OFF", ARROW_PARQUET = "OFF", ARROW_S3 = "OFF", ARROW_SUBSTRAIT = "OFF", ARROW_USE_GLOG = "OFF", ARROW_WITH_BROTLI = "OFF", ARROW_WITH_BZ2 = "OFF", ARROW_WITH_LZ4 = "OFF", ARROW_WITH_SNAPPY = "OFF", ARROW_WITH_ZLIB = "OFF", ARROW_WITH_ZSTD = "OFF", GOBIN = "$PIXI_PROJECT_ROOT/integration/arrow/go/bin", ARROW_HOME = "$PIXI_PROJECT_ROOT/integration/arrow/install" } }
+
+# --- run all integration tests ---
+integration = { cmd = "python -m integration.run --run-ipc --run-c-data --with-rust --with-go --with-cpp", depends-on = [
+  "build_python",
+  "install_archery",
+  "build_arrow",
+], env = { PYTHONPATH = "python:integration/arrow/dev/archery", ARROW_ROOT = "$PIXI_PROJECT_ROOT/integration/arrow", ARROW_RUST_EXE_PATH = "$PIXI_PROJECT_ROOT/integration/arrow/build/rust/debug", ARROW_CPP_EXE_PATH = "$PIXI_PROJECT_ROOT/integration/arrow/build/cpp/release", GOBIN = "$PIXI_PROJECT_ROOT/integration/arrow/go/bin", DYLD_LIBRARY_PATH = "$PIXI_PROJECT_ROOT/integration/arrow/build/cpp/release", LD_LIBRARY_PATH = "$PIXI_PROJECT_ROOT/integration/arrow/build/cpp/release" } }
 
 # Asan — ASAN runtime needed for --asan test runs.
 [feature.asan.dependencies]
@@ -94,8 +138,12 @@ jupyter-cache = ">=1.0,<2"
 quarto = ">=1.6,<2"
 
 [feature.docs.tasks]
-docs = { cmd = "quarto render docs/", depends-on = ["build_python"], env = { PYTHONPATH = "python" } }
-docs_preview = { cmd = "quarto preview docs/", depends-on = ["build_python"], env = { PYTHONPATH = "python" } }
+docs = { cmd = "quarto render docs/", depends-on = [
+  "build_python",
+], env = { PYTHONPATH = "python" } }
+docs_preview = { cmd = "quarto preview docs/", depends-on = [
+  "build_python",
+], env = { PYTHONPATH = "python" } }
 
 # Examples — optional runnable examples.
 # Run with: pixi run -e examples datafusion_udf
@@ -103,7 +151,14 @@ docs_preview = { cmd = "quarto preview docs/", depends-on = ["build_python"], en
 datafusion = ">=44.0.0"
 
 [feature.examples.tasks]
-datafusion_udf = { cmd = "python examples/datafusion/main.py", depends-on = ["build_python"], env = { PYTHONPATH = "python" } }
+datafusion_udf = { cmd = "python examples/datafusion/main.py", depends-on = [
+  "build_python",
+], env = { PYTHONPATH = "python" } }
+
+# Docker — x86_64 Linux container for reproducing CI failures locally.
+[feature.docker.tasks]
+build = { cmd = "docker compose build x86" }
+test = { cmd = "docker compose run --rm x86 pixi run -e dev pytest", depends-on = ["build"] }
 
 [environments]
 default = { features = ["dev", "format"], solve-group = "default" }
@@ -113,10 +168,12 @@ bench = { features = ["dev", "bench"], solve-group = "default" }
 format = { features = ["format"], solve-group = "default" }
 docs = { features = ["docs"], solve-group = "default" }
 examples = { features = ["examples"], solve-group = "default" }
+integration = { features = ["dev", "integration"], solve-group = "integration" }
+docker = { features = ["docker"], no-default-feature = true }
 
 [dependencies]
-mojo = ">=0.26.3.0.dev2026041805,<0.27"
-pontoneer = ">=0.6.6.dev2026041805,<0.7"
+mojo = ">=1.0.0b2.dev2026051106,<2"
+pontoneer = { git = "https://github.com/winding-lines/pontoneer", rev = "4001fdc44dc78424803d952395fcae0fb8562a3b" }
 # Mojo nightly builds are compiled against a specific CPython minor version;
 # update the minor bound together with mojo/pontoneer when upgrading.
 python = ">=3.14,<3.15"
@@ -124,4 +181,3 @@ python = ">=3.14,<3.15"
 # version constraint; pin to the real conda-forge zlib so that pyarrow's
 # libopentelemetry-cpp → prometheus-cpp → zlib chain can resolve on linux-64.
 zlib = ">=1.3.1"
-

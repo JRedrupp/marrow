@@ -8,8 +8,8 @@ compile-time loop; the value is then reinterpreted as *Trait* through
 Three overloads are provided — distinguished by whether *func* raises and
 whether it takes its argument by value or by mutable reference:
 
-  variant_dispatch            — *func* is non-raising, argument by value
-  variant_dispatch_raises     — *func* raises,         argument by value
+  variant_dispatch            — *func* is non-raising, argument by ref
+  variant_dispatch_raises     — *func* raises,         argument by ref
   variant_dispatch_raises     — *func* raises,         argument by mut-ref
 
 Note: a single `ref[_] v` overload would unify all three, but the Mojo
@@ -17,11 +17,39 @@ compiler currently crashes when `ref[_]` is used here (tracked as a TODO).
 """
 
 from std.utils import Variant
-from std.builtin.variadics import _TypePredicateGenerator
-from std.builtin.rebind import trait_downcast
+from std.builtin.rebind import downcast, rebind
 from std.os import abort
 from std.sys import has_accelerator, CompilationTarget
 from std.sys.info import _accelerator_arch
+
+
+@always_inline
+def _trait_downcast[
+    T: AnyType, //, Trait: type_of(AnyType)
+](ref src: T) -> ref[src] downcast[T, Trait]:
+    """Non-deprecated reimplementation of `std.builtin.rebind.trait_downcast`.
+
+    `trait_downcast` itself is `@deprecated` in favor of spelling the
+    conformance check as `conforms_to(type_of(src), Trait)` directly in a
+    `where` clause or `comptime assert`, but its behavior (downcast + rebind
+    to the trait-conforming view) is still exactly what `variant_dispatch`
+    needs at each dispatch site, so we inline the pre-deprecation body here.
+    """
+    comptime assert conforms_to(T, Trait), "Invalid downcast"
+    return rebind[downcast[T, Trait]](src)
+
+
+# `_TypePredicateGenerator` was moved from a top-level alias in
+# `std.builtin.variadics` to a member of `TypeList` in Mojo 1.0.0b1; redeclare
+# the underlying MLIR generator type here so our variant-dispatch helpers keep
+# accepting an arbitrary type predicate.
+comptime _TypePredicateGenerator[T: type_of(AnyType)] = __mlir_type[
+    `!lit.generator<<"Type": `,
+    T,
+    `>`,
+    Bool,
+    `>`,
+]
 
 
 def has_accelerator_support[*dtypes: DType]() -> Bool:
@@ -76,7 +104,7 @@ def variant_dispatch[
         comptime T = Ts[i]
         comptime if predicate[T]:
             if v.isa[T]():
-                return func(trait_downcast[Trait](v[T]))
+                return func(_trait_downcast[Trait](v[T]))
     abort("unreachable: variant_dispatch")
 
 
@@ -87,13 +115,13 @@ def variant_dispatch_raises[
     *Ts: Movable,
     predicate: _TypePredicateGenerator[Movable] = _always_true,
     func: def[T: Trait](T) raises capturing[_] -> R,
-](v: Variant[*Ts]) raises -> R:
+](ref v: Variant[*Ts]) raises -> R:
     """Like *variant_dispatch* but *func* may raise."""
     comptime for i in range(len(Ts)):
         comptime T = Ts[i]
         comptime if predicate[T]:
             if v.isa[T]():
-                return func(trait_downcast[Trait](v[T]))
+                return func(_trait_downcast[Trait](v[T]))
     abort("unreachable: variant_dispatch_raises")
 
 
@@ -111,5 +139,5 @@ def variant_dispatch_raises[
         comptime T = Ts[i]
         comptime if predicate[T]:
             if v.isa[T]():
-                return func(trait_downcast[Trait](v[T]))
+                return func(_trait_downcast[Trait](v[T]))
     abort("unreachable: variant_dispatch_raises")

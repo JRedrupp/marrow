@@ -30,7 +30,7 @@ Rewriting
 ``Rewriter``   — bottom-up fixed-point rewrite driver
 """
 
-from marrow.expr.values import (
+from .values import (
     # Traits
     Value,
     # Type-erased container
@@ -79,7 +79,7 @@ from marrow.expr.values import (
     DISPATCH_CPU,
     DISPATCH_GPU,
 )
-from marrow.expr.relations import (
+from .relations import (
     Relation,
     AnyRelation,
     Scan,
@@ -120,12 +120,12 @@ from marrow.expr.relations import (
     JOIN_ALGO_PIECEWISE,
     JOIN_ALGO_GRACE_HASH,
 )
-from marrow.expr.rewrite import (
+from .rewrite import (
     Rewrite,
     AnyRewrite,
     Rewriter,
 )
-from marrow.expr.executor import (
+from .executor import (
     ExecutionContext,
     # Value processors
     ValueProcessor,
