@@ -26,8 +26,8 @@ from std.memory import ArcPointer
 from std.gpu.host import DeviceContext
 import std.math as math
 
-from marrow.arrays import PrimitiveArray, AnyArray
-from marrow.builders import (
+from ..arrays import PrimitiveArray, AnyArray
+from ..builders import (
     PrimitiveBuilder,
     Int8Builder,
     Int16Builder,
@@ -41,7 +41,7 @@ from marrow.builders import (
     Float32Builder,
     Float64Builder,
 )
-from marrow.dtypes import (
+from ..dtypes import (
     Int8Type,
     Int16Type,
     Int32Type,
@@ -53,6 +53,7 @@ from marrow.dtypes import (
     Float16Type,
     Float32Type,
     Float64Type,
+    AnyDataType,
     int8,
     int16,
     int32,
@@ -66,9 +67,9 @@ from marrow.dtypes import (
     float64,
     bool_ as bool_dt,
 )
-from marrow.kernels.arithmetic import add, sub, mul, div, neg, abs_
-from marrow.kernels.boolean import and_, or_, not_, is_null, select
-from marrow.kernels.compare import (
+from ..kernels.arithmetic import add, sub, mul, div, neg, abs_
+from ..kernels.boolean import and_, or_, not_, is_null, select
+from ..kernels.compare import (
     equal,
     not_equal,
     less,
@@ -76,11 +77,11 @@ from marrow.kernels.compare import (
     greater,
     greater_equal,
 )
-from marrow.kernels.concat import concat
-from marrow.schema import Schema
-from marrow.tabular import RecordBatch
-from marrow.kernels.filter import filter_
-from marrow.expr.values import (
+from ..kernels.concat import concat
+from ..schema import Schema
+from ..tabular import RecordBatch
+from ..kernels.filter import filter_
+from .values import (
     AnyValue,
     Column,
     Literal,
@@ -112,12 +113,12 @@ from marrow.expr.values import (
     DISPATCH_CPU,
     DISPATCH_GPU,
 )
-from marrow.arrays import StructArray
-from marrow.dtypes import Field, struct_
-from marrow.kernels.groupby import HashGrouper
-from marrow.kernels.join import HashJoin
-from marrow.kernels.hashing import rapidhash
-from marrow.expr.relations import (
+from ..arrays import StructArray
+from ..dtypes import Field, struct_
+from ..kernels.groupby import HashGrouper
+from ..kernels.join import HashJoin
+from ..kernels.hashing import rapidhash
+from .relations import (
     AnyRelation,
     Scan,
     Filter as PlanFilter,
@@ -142,7 +143,7 @@ from marrow.expr.relations import (
     JOIN_ALL,
     JOIN_ANY,
 )
-from marrow.parquet import read_table
+from ..parquet import read_table
 
 
 # ---------------------------------------------------------------------------
@@ -210,7 +211,7 @@ struct ExecutionContext(Copyable, ImplicitlyCopyable, Movable):
 # ---------------------------------------------------------------------------
 
 
-trait ValueProcessor(ImplicitlyDestructible, Movable):
+trait ValueProcessor(ImplicitlyDeletable, Movable):
     """Evaluates a scalar expression against a morsel batch.
 
     Leaf processors (``ColumnProcessor``, ``LiteralProcessor``) hold data.
@@ -275,7 +276,7 @@ struct AnyValueProcessor(ImplicitlyCopyable, Movable):
         """Evaluate the expression against the given batch."""
         return self._virt_eval(self._data, batch)
 
-    def __del__(deinit self):
+    def __deinit__(deinit self):
         self._virt_drop(self._data^)
 
 
@@ -429,7 +430,7 @@ struct IfElseProcessor(ValueProcessor):
 # ---------------------------------------------------------------------------
 
 
-trait RelationProcessor(ImplicitlyDestructible, Movable):
+trait RelationProcessor(ImplicitlyDeletable, Movable):
     """Pull-based relation processor.
 
     Concrete processors implement ``pull()`` to yield morsel-sized
@@ -539,7 +540,7 @@ struct AnyRelationProcessor(ImplicitlyCopyable, Movable):
                 break
         return result^
 
-    def __del__(deinit self):
+    def __deinit__(deinit self):
         self._virt_drop(self._data^)
 
 
@@ -1003,11 +1004,19 @@ struct Planner:
             for i in range(len(arc[].keys)):
                 key_fields.append(arc[].schema().fields[i].copy())
 
+            var value_dtypes = List[AnyDataType]()
+            for i in range(len(arc[].agg_exprs)):
+                var dt = arc[].agg_exprs[i].dtype()
+                if dt:
+                    value_dtypes.append(dt.value().copy())
+                else:
+                    value_dtypes.append(AnyDataType(float64))
+
             return AggregateProcessor(
                 child=child^,
                 key_exprs=key_exprs^,
                 value_exprs=value_exprs^,
-                grouper=HashGrouper(arc[].agg_funcs),
+                grouper=HashGrouper(arc[].agg_funcs, value_dtypes^),
                 schema_=arc[].schema(),
                 key_fields=key_fields^,
             )

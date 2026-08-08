@@ -4,16 +4,13 @@ from marrow.testing import TestSuite
 from marrow.arrays import (
     AnyArray,
     BoolArray,
-    PrimitiveArray,
     StringArray,
     FixedSizeListArray,
     StructArray,
 )
 from marrow.builders import (
     array,
-    AnyBuilder,
     BoolBuilder,
-    PrimitiveBuilder,
     StringBuilder,
     FixedSizeListBuilder,
     StructBuilder,
@@ -26,17 +23,32 @@ from marrow.dtypes import (
     string,
     bool_,
     field,
-    Int32Type,
-    Int64Type,
-    Float64Type,
+    date32,
+    date64,
+    time32,
+    time64,
+    timestamp,
+    duration,
+    year_month_interval,
+    day_time_interval,
+    month_day_nano_interval,
+    second,
+    millisecond,
+    microsecond,
+    nanosecond,
 )
 from marrow.scalars import (
     AnyScalar,
     BoolScalar,
-    PrimitiveScalar,
+    Int32Scalar,
+    Int64Scalar,
+    Float64Scalar,
     StringScalar,
     ListScalar,
     StructScalar,
+    YearMonthIntervalScalar,
+    DayTimeIntervalScalar,
+    MonthDayNanoIntervalScalar,
 )
 
 
@@ -46,47 +58,48 @@ from marrow.scalars import (
 
 
 def test_primitive_scalar_int32() raises:
-    var s = PrimitiveScalar[Int32Type](Scalar[int32.native](42))
+    var s = Int32Scalar(42)
     assert_true(s.is_valid())
     assert_false(s.is_null())
     assert_equal(s.value(), 42)
 
 
 def test_primitive_scalar_float64() raises:
-    var s = PrimitiveScalar[Float64Type](Scalar[float64.native](3.14))
+    var s = Float64Scalar(3.14)
     assert_true(s.is_valid())
     assert_equal(s.value(), 3.14)
 
 
 def test_primitive_scalar_null() raises:
-    var s = PrimitiveScalar[Int32Type].null()
+    var s = Int32Scalar(None)
     assert_false(s.is_valid())
     assert_true(s.is_null())
 
 
 def test_primitive_scalar_from_array() raises:
     """Construct via array __getitem__."""
-    var arr = array[Int32Type]([10, 20, 30])
+    var arr = array([10, 20, 30], int32)
     var s = arr[1]
     assert_true(s.is_valid())
     assert_equal(s.value(), 20)
 
 
-def test_primitive_scalar_to_array() raises:
-    var s = PrimitiveScalar[Int32Type](Scalar[int32.native](7))
-    var arr = s.to_array()
-    assert_equal(len(arr), 1)
-    assert_equal(arr[0], 7)
-
-
 def test_primitive_scalar_write_to() raises:
-    var s = PrimitiveScalar[Int32Type](Scalar[int32.native](42))
+    var s = Int32Scalar(42)
     assert_equal(String(s), "42")
 
 
 def test_primitive_scalar_write_to_null() raises:
-    var s = PrimitiveScalar[Int32Type].null()
+    var s = Int32Scalar(None)
     assert_equal(String(s), "null")
+
+
+def test_primitive_scalar_eq() raises:
+    assert_true(Int32Scalar(42) == Int32Scalar(42))
+    assert_false(Int32Scalar(42) == Int32Scalar(99))
+    assert_true(Int32Scalar(None) == Int32Scalar(None))
+    assert_false(Int32Scalar(42) == Int32Scalar(None))
+    assert_false(Int32Scalar(None) == Int32Scalar(42))
 
 
 # ---------------------------------------------------------------------------
@@ -122,32 +135,50 @@ def test_string_scalar_write_to() raises:
     assert_equal(String(s), "hi")
 
 
+def test_string_scalar_eq() raises:
+    assert_true(StringScalar("hello") == StringScalar("hello"))
+    assert_false(StringScalar("hello") == StringScalar("world"))
+    assert_true(StringScalar.null() == StringScalar.null())
+    assert_false(StringScalar("hello") == StringScalar.null())
+    assert_false(StringScalar.null() == StringScalar("hello"))
+
+
 # ---------------------------------------------------------------------------
 # Scalar (type-erased)
 # ---------------------------------------------------------------------------
 
 
 def test_scalar_from_primitive() raises:
-    var typed = PrimitiveScalar[Int32Type](Scalar[int32.native](99))
-    var erased = AnyScalar(typed^)
+    var typed = Int32Scalar(99)
+    var erased: AnyScalar = typed^
     assert_true(erased.is_valid())
     assert_equal(erased.type(), int32)
-    var back = erased.as_primitive[Int32Type]()
+    ref back = erased.as_int32()
     assert_equal(back.value(), 99)
 
 
 def test_scalar_from_string() raises:
     var typed = StringScalar("world")
-    var erased = AnyScalar(typed^)
+    var erased: AnyScalar = typed^
     assert_true(erased.is_valid())
     assert_true(erased.type().is_string())
-    var back = erased.as_string()
+    ref back = erased.as_string()
     assert_equal(back.to_string(), "world")
 
 
+def test_scalar_eq() raises:
+    var a: AnyScalar = Int32Scalar(42)
+    var b: AnyScalar = Int32Scalar(42)
+    var c: AnyScalar = Int32Scalar(99)
+    var d: AnyScalar = StringScalar("hello")
+    assert_true(a == b)
+    assert_false(a == c)
+    assert_false(a == d)
+
+
 def test_scalar_null() raises:
-    var typed = PrimitiveScalar[Int32Type].null()
-    var erased = AnyScalar(typed^)
+    var typed = Int32Scalar(None)
+    var erased: AnyScalar = typed^
     assert_true(erased.is_null())
 
 
@@ -179,19 +210,19 @@ def test_bool_scalar_from_array() raises:
 
 def test_list_scalar_from_fixed_size_list_array() raises:
     var inner = Int32Builder()
-    var fsl = FixedSizeListBuilder(AnyBuilder(inner^), 2)
-    fsl.values().as_primitive[Int32Type]().append(10)
-    fsl.values().as_primitive[Int32Type]().append(20)
+    var fsl = FixedSizeListBuilder(inner^, 2)
+    fsl.values().as_int32().append(10)
+    fsl.values().as_int32().append(20)
     fsl.append_valid()
-    fsl.values().as_primitive[Int32Type]().append(0)
-    fsl.values().as_primitive[Int32Type]().append(0)
+    fsl.values().as_int32().append(0)
+    fsl.values().as_int32().append(0)
     fsl.append_null()
     var arr = fsl.finish()
     var s0 = arr[0]
     assert_true(s0.is_valid())
     assert_equal(len(s0.value()), 2)
-    assert_equal(s0.value().as_primitive[Int32Type]()[0].value(), 10)
-    assert_equal(s0.value().as_primitive[Int32Type]()[1].value(), 20)
+    assert_equal(s0.value().as_int32()[0].value(), 10)
+    assert_equal(s0.value().as_int32()[1].value(), 20)
     var s1 = arr[1]
     assert_false(s1.is_valid())
 
@@ -203,29 +234,46 @@ def test_list_scalar_from_fixed_size_list_array() raises:
 
 def test_struct_scalar_from_array() raises:
     var sb = StructBuilder([field("x", int32), field("y", int64)], capacity=2)
-    sb.field_builder(0).as_primitive[Int32Type]().append(1)
-    sb.field_builder(0).as_primitive[Int32Type]().append(2)
-    sb.field_builder(1).as_primitive[Int64Type]().append(10)
-    sb.field_builder(1).as_primitive[Int64Type]().append(20)
+    # append first struct with x=1, y=10
+    sb.field_builder(0).as_int32().append(1)
+    sb.field_builder(1).as_int64().append(10)
     sb.append_valid()
+    # append second struct with x=2, y=20
+    sb.field_builder(0).as_int32().append(2)
+    sb.field_builder(1).as_int64().append(20)
     sb.append_valid()
     var arr = sb.finish()
+
+    # verify raw children
+    assert_equal(len(arr.children), 2)
+    assert_equal(arr.children[0].as_int32()[0].value(), 1)
+    assert_equal(arr.children[0].as_int32()[1].value(), 2)
+    assert_equal(arr.children[1].as_int64()[0].value(), 10)
+    assert_equal(arr.children[1].as_int64()[1].value(), 20)
+
     var s0 = arr[0]
     assert_true(s0.is_valid())
     assert_equal(s0.num_fields(), 2)
-    assert_equal(s0.field(0).as_primitive[Int32Type]().value(), 1)
-    assert_equal(s0.field(1).as_primitive[Int64Type]().value(), 10)
+    assert_equal(s0.field(0).as_int32().value(), 1)
+    assert_equal(s0.field(1).as_int64().value(), 10)
+
+    var s1 = arr[1]
+    assert_true(s1.is_valid())
+    assert_equal(s1.field(0).as_int32().value(), 2)
+    assert_equal(s1.field(1).as_int64().value(), 20)
 
 
 def test_struct_scalar_null_from_array() raises:
     var sb = StructBuilder([field("x", int32)], capacity=2)
-    sb.field_builder(0).as_primitive[Int32Type]().append(5)
-    sb.field_builder(0).as_primitive[Int32Type]().append(0)
+    sb.field_builder(0).as_int32().append(5)
+    sb.field_builder(0).as_int32().append(0)
     sb.append_valid()
     sb.append_null()
     var arr = sb.finish()
-    assert_true(arr[0].is_valid())
-    assert_false(arr[1].is_valid())
+    var s0 = arr[0]
+    assert_true(s0.is_valid())
+    var s1 = arr[1]
+    assert_false(s1.is_valid())
 
 
 # ---------------------------------------------------------------------------
@@ -234,11 +282,11 @@ def test_struct_scalar_null_from_array() raises:
 
 
 def test_any_array_getitem_primitive() raises:
-    var arr: AnyArray = array[Int64Type]([10, 20, 30])
+    var arr: AnyArray = array([10, 20, 30], int64)
     var s = arr[1]
     assert_true(s.is_valid())
     assert_equal(s.type(), int64)
-    assert_equal(s.as_primitive[Int64Type]().value(), 20)
+    assert_equal(s.as_int64().value(), 20)
 
 
 def test_any_array_getitem_primitive_null() raises:
@@ -275,35 +323,116 @@ def test_any_array_getitem_string() raises:
 
 def test_any_array_getitem_fixed_size_list() raises:
     var inner = Int32Builder()
-    var fsl = FixedSizeListBuilder(AnyBuilder(inner^), 2)
-    fsl.values().as_primitive[Int32Type]().append(7)
-    fsl.values().as_primitive[Int32Type]().append(8)
+    var fsl = FixedSizeListBuilder(inner^, 2)
+    fsl.values().as_int32().append(7)
+    fsl.values().as_int32().append(8)
     fsl.append_valid()
     var arr: AnyArray = fsl.finish()
     var s = arr[0]
     assert_true(s.is_valid())
-    assert_equal(len(s.as_list().value()), 2)
+    var list_val = s.as_list().value()
+    assert_equal(len(list_val), 2)
 
 
-def test_any_array_getitem_struct() raises:
+def test_array_getitem_struct() raises:
     var sb = StructBuilder([field("n", int32)], capacity=1)
-    sb.field_builder(0).as_primitive[Int32Type]().append(42)
+    sb.field_builder(0).as_int32().append(42)
     sb.append_valid()
-    var arr: AnyArray = sb.finish()
+    var arr = sb.finish()
+
     var s = arr[0]
     assert_true(s.is_valid())
-    assert_equal(s.as_struct().num_fields(), 1)
-    assert_equal(s.as_struct().field(0).as_primitive[Int32Type]().value(), 42)
+    assert_equal(s.num_fields(), 1)
+    assert_equal(s.field(0).as_int32().value(), 42)
 
 
 def test_any_array_getitem_out_of_bounds() raises:
-    var arr: AnyArray = array[Int64Type]([1, 2, 3])
+    var arr: AnyArray = array([1, 2, 3], int64)
     var raised = False
     try:
         _ = arr[5]
     except:
         raised = True
     assert_true(raised)
+
+
+def test_interval_scalar_year_month() raises:
+    var s = YearMonthIntervalScalar(Int32(12))
+    assert_true(s.is_valid())
+    assert_false(s.is_null())
+    assert_equal(s.value(), 12)
+    assert_true(s.type() == year_month_interval().to_any())
+    var erased: AnyScalar = s^
+    assert_true(erased.type().is_year_month_interval())
+    assert_equal(erased.as_year_month_interval().value(), 12)
+
+
+def test_interval_scalar_day_time() raises:
+    var s = DayTimeIntervalScalar(Int64(86400000))
+    assert_true(s.is_valid())
+    assert_equal(s.value(), 86400000)
+    assert_true(s.type() == day_time_interval().to_any())
+    var erased: AnyScalar = s^
+    assert_true(erased.type().is_day_time_interval())
+    assert_equal(erased.as_day_time_interval().value(), 86400000)
+
+
+def test_interval_scalar_month_day_nano() raises:
+    var s = MonthDayNanoIntervalScalar(SIMD[DType.int128, 1](42))
+    assert_true(s.is_valid())
+    assert_equal(s.value(), 42)
+    assert_true(s.type() == month_day_nano_interval().to_any())
+    var erased: AnyScalar = s^
+    assert_true(erased.type().is_month_day_nano_interval())
+    assert_equal(erased.as_month_day_nano_interval().value(), 42)
+
+
+# def test_temporal_scalar_valid() raises:
+#     var s = TemporalScalar(Int64(100), date32().to_any())
+#     assert_true(s.is_valid())
+#     assert_false(s.is_null())
+#     assert_equal(s.value(), 100)
+#     assert_true(s.type() == date32().to_any())
+
+
+# def test_temporal_scalar_null() raises:
+#     var s = TemporalScalar.null(date32().to_any())
+#     assert_false(s.is_valid())
+#     assert_true(s.is_null())
+#     assert_true(s.type() == date32().to_any())
+
+
+# def test_temporal_scalar_equality() raises:
+#     var a = TemporalScalar(Int64(42), date32().to_any())
+#     var b = TemporalScalar(Int64(42), date32().to_any())
+#     var c = TemporalScalar(Int64(99), date32().to_any())
+#     assert_true(a == b)
+#     assert_false(a == c)
+#     assert_false(a != b)
+#     assert_true(a != c)
+
+
+# def test_temporal_scalar_null_equality() raises:
+#     var n1 = TemporalScalar.null(date32().to_any())
+#     var n2 = TemporalScalar.null(date32().to_any())
+#     var v = TemporalScalar(Int64(1), date32().to_any())
+#     assert_true(n1 == n2)
+#     assert_false(n1 == v)
+#     assert_false(v == n1)
+
+
+# def test_temporal_scalar_timestamp() raises:
+#     var ts_dtype = timestamp(second, "UTC").to_any()
+#     var s = TemporalScalar(Int64(1_000_000), ts_dtype)
+#     assert_true(s.is_valid())
+#     assert_equal(s.value(), 1_000_000)
+#     assert_true(s.type() == ts_dtype)
+
+
+# def test_temporal_scalar_to_any() raises:
+#     var s = TemporalScalar(Int64(7), duration(nanosecond).to_any())
+#     var any_s = s^.to_any()
+#     assert_true(any_s.as_temporal() == TemporalScalar(Int64(7), duration(nanosecond).to_any()))
 
 
 def main() raises:

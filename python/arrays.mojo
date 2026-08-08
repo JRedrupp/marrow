@@ -8,19 +8,38 @@ from std.python.bindings import PythonModuleBuilder
 from std.collections import OwnedKwargsDict
 from std.python._cpython import (
     CPython,
+    ExternalFunction,
     PyObjectPtr,
     PyTypeObject,
     PyTypeObjectPtr,
 )
-from std.memory import ArcPointer, alloc
+from std.ffi import c_char, c_int, c_ssize_t, _CPointer
+from std.memory import ArcPointer, alloc, UnsafePointer
+from std.builtin.type_aliases import MutAnyOrigin
 from std.utils import Variant
 from std.builtin.variadics import Variadic
 from std.os import abort
 from marrow.c_data import CArrowSchema, CArrowArray
-from marrow.arrays import AnyArray, ChunkedArray
+from marrow.kernels.execution import ExecutionContext
+from marrow.kernels.sort import argsort as _argsort_kernel
+from marrow.kernels.filter import take as _take_kernel
+from marrow.arrays import (
+    AnyArray,
+    ArrayData,
+    ChunkedArray,
+    ListArray,
+    FixedSizeListArray,
+    StructArray,
+    Int32Array,
+    BoolArray,
+    NullArray,
+)
+from marrow.buffers import Buffer, Bitmap
 from marrow.builders import (
     AnyBuilder,
     BoolBuilder,
+    BinaryBuilder,
+    Int32Builder,
     PrimitiveBuilder,
     StringBuilder,
     ListBuilder,
@@ -30,7 +49,18 @@ from marrow.scalars import AnyScalar
 import marrow.dtypes as dt
 
 from pontoneer import SequenceProtocolBuilder
-from helpers import pymethod, def_display
+from helpers import pymethod, marrow_module
+
+
+# int PyBytes_AsStringAndSize(PyObject *obj, char **buffer, Py_ssize_t *length)
+comptime _PyBytesAsStringAndSizeFn = ExternalFunction[
+    "PyBytes_AsStringAndSize",
+    def(
+        PyObjectPtr,
+        UnsafePointer[_CPointer[c_char, ImmutAnyOrigin], MutAnyOrigin],
+        UnsafePointer[c_ssize_t, MutAnyOrigin],
+    ) thin -> c_int,
+]
 
 
 # ---------------------------------------------------------------------------
@@ -53,6 +83,7 @@ struct PyHelpers(Copyable, Movable):
     var _list_type: PyTypeObjectPtr
     var _tuple_type: PyTypeObjectPtr
     var _dict_type: PyTypeObjectPtr
+    var _bytes_as_string_and_size_fn: _PyBytesAsStringAndSizeFn.type
 
     def __init__(out self):
         self.py = Python()
@@ -71,6 +102,9 @@ struct PyHelpers(Copyable, Movable):
             "PyTuple_Type"
         ).value()
         self._dict_type = cpy.PyDict_Type()
+        self._bytes_as_string_and_size_fn = _PyBytesAsStringAndSizeFn.load(
+            cpy.lib.borrow()
+        )
 
     def __init__(out self, var other: Self):
         # Python is not Movable/Copyable; re-create it. Cached pointers are process-wide constants.
@@ -152,6 +186,23 @@ struct PyHelpers(Copyable, Movable):
         var s = self.cpy().PyUnicode_AsUTF8AndSize(ptr)
         self.raise_on_error()
         return s.value()
+
+    @always_inline
+    def to_bytes_slice(
+        mut self, ptr: PyObjectPtr
+    ) raises -> StringSlice[ImmutAnyOrigin]:
+        """Return the raw bytes buffer of a Python bytes object as a StringSlice.
+        """
+        var data_ptr = _CPointer[c_char, ImmutAnyOrigin]()
+        var size = c_ssize_t(0)
+        var rc = self._bytes_as_string_and_size_fn(
+            ptr, UnsafePointer(to=data_ptr), UnsafePointer(to=size)
+        )
+        if rc != 0:
+            self.raise_on_error()
+        return StringSlice[ImmutAnyOrigin](
+            ptr=data_ptr.value().bitcast[UInt8](), length=Int(size)
+        )
 
     @always_inline
     def length(mut self, ptr: PyObjectPtr) -> Int:
@@ -447,7 +498,9 @@ struct PyAnyConverter(ImplicitlyCopyable, Movable):
         PyPrimitiveConverter[dt.Float32Type],
         PyPrimitiveConverter[dt.Float64Type],
         PyStringConverter,
+        PyBinaryConverter,
         PyListConverter,
+        PyFixedSizeListConverter,
         PyStructConverter,
     ]
 
@@ -460,8 +513,12 @@ struct PyAnyConverter(ImplicitlyCopyable, Movable):
     def __init__(out self, *, copy: Self):
         self._v = copy._v.copy()
 
-    def __init__(out self, builder: AnyBuilder, has_nulls: Bool = True) raises:
-        var dtype = builder.dtype()
+    def __init__(
+        out self,
+        builder: AnyBuilder,
+        dtype: dt.AnyDataType,
+        has_nulls: Bool = True,
+    ) raises:
         if dtype == dt.bool_:
             self = Self(PyBoolConverter(builder, has_nulls))
         elif dtype == dt.int8:
@@ -494,8 +551,12 @@ struct PyAnyConverter(ImplicitlyCopyable, Movable):
             )
         elif dtype.is_string():
             self = Self(PyStringConverter(builder, has_nulls))
+        elif dtype.is_binary():
+            self = Self(PyBinaryConverter(builder, has_nulls))
         elif dtype.is_list():
             self = Self(PyListConverter(builder, has_nulls))
+        elif dtype.is_fixed_size_list():
+            self = Self(PyFixedSizeListConverter(builder, has_nulls))
         elif dtype.is_struct():
             self = Self(PyStructConverter(builder))
         else:
@@ -623,7 +684,9 @@ struct PyStringConverter(PyConverter):
         self._has_nulls = has_nulls
         self.py = PyHelpers()
 
-    def builder(ref self) -> ref[self._builder._ptr[]] StringBuilder:
+    def builder(
+        ref self,
+    ) -> ref[self._builder._ptr[]] StringBuilder:
         return self._builder.as_string()
 
     @always_inline
@@ -664,6 +727,61 @@ struct PyStringConverter(PyConverter):
 
 
 # ---------------------------------------------------------------------------
+# PyBinaryConverter — hot path for binary (bytes) types
+# ---------------------------------------------------------------------------
+
+
+struct PyBinaryConverter(PyConverter):
+    var _builder: AnyBuilder
+    var _has_nulls: Bool
+    var py: PyHelpers
+
+    def __init__(out self, builder: AnyBuilder, has_nulls: Bool = True):
+        self._builder = builder
+        self._has_nulls = has_nulls
+        self.py = PyHelpers()
+
+    def builder(
+        ref self,
+    ) -> ref[self._builder._ptr[]] BinaryBuilder:
+        return self._builder.as_binary()
+
+    @always_inline
+    def _count_bytes(mut self, values: PyObjectPtr, n: Int) raises -> Int:
+        var total = 0
+        for i in range(n):
+            var item = self.py.list_getitem(values, i)
+            if not self.py.is_none(item):
+                total += self.py.to_bytes_slice(item).byte_length()
+        return total
+
+    def extend(mut self, values: PyObjectPtr) raises:
+        ref b = self.builder()
+        var n = self.py.length(values)
+        b.reserve(n)
+        b.reserve_bytes(self._count_bytes(values, n))
+        if self._has_nulls:
+            for i in range(n):
+                var item = self.py.list_getitem(values, i)
+                if self.py.is_none(item):
+                    b.unsafe_append_null()
+                else:
+                    b.unsafe_append(self.py.to_bytes_slice(item))
+        else:
+            for i in range(n):
+                b.unsafe_append(
+                    self.py.to_bytes_slice(self.py.list_getitem(values, i))
+                )
+
+    def append(mut self, value: PyObjectPtr) raises:
+        ref b = self.builder()
+        if self.py.is_none(value):
+            b.append_null()
+        else:
+            b.append(self.py.to_bytes_slice(value))
+
+
+# ---------------------------------------------------------------------------
 # PyListConverter — variable-length list conversion
 # ---------------------------------------------------------------------------
 
@@ -677,11 +795,16 @@ struct PyListConverter(PyConverter):
     def __init__(out self, builder: AnyBuilder, has_nulls: Bool = True) raises:
         self._builder = builder
         var child_builder = builder.as_list().values()
-        self._child = PyAnyConverter(child_builder, True)
+        var child_dtype = (
+            builder.as_list().dtype().as_list().value_type().copy()
+        )
+        self._child = PyAnyConverter(child_builder, child_dtype, True)
         self._has_nulls = has_nulls
         self.py = PyHelpers()
 
-    def builder(ref self) -> ref[self._builder._ptr[]] ListBuilder:
+    def builder(
+        ref self,
+    ) -> ref[self._builder._ptr[]] ListBuilder:
         return self._builder.as_list()
 
     def extend(mut self, values: PyObjectPtr) raises:
@@ -711,6 +834,58 @@ struct PyListConverter(PyConverter):
 
 
 # ---------------------------------------------------------------------------
+# PyFixedSizeListConverter — fixed-size list conversion
+# ---------------------------------------------------------------------------
+
+
+struct PyFixedSizeListConverter(PyConverter):
+    var _builder: AnyBuilder
+    var _child: PyAnyConverter
+    var _has_nulls: Bool
+    var _list_size: Int
+    var py: PyHelpers
+
+    def __init__(out self, builder: AnyBuilder, has_nulls: Bool = True) raises:
+        self._builder = builder
+        ref fsl = builder.as_fixed_size_list().dtype().as_fixed_size_list()
+        var child_builder = builder.as_fixed_size_list().values()
+        var child_dtype = fsl.value_type()
+        self._child = PyAnyConverter(child_builder, child_dtype, True)
+        self._has_nulls = has_nulls
+        self._list_size = fsl.size
+        self.py = PyHelpers()
+
+    def extend(mut self, values: PyObjectPtr) raises:
+        ref b = self._builder.as_fixed_size_list()
+        var n = self.py.length(values)
+        b.reserve(n)
+        if self._has_nulls:
+            for i in range(n):
+                var item = self.py.list_getitem(values, i)
+                if self.py.is_none(item):
+                    for _ in range(self._list_size):
+                        self._child.append(self.py.none_ptr)
+                    b.unsafe_append_null()
+                else:
+                    self._child.extend(item)
+                    b.unsafe_append_valid()
+        else:
+            for i in range(n):
+                self._child.extend(self.py.list_getitem(values, i))
+                b.unsafe_append_valid()
+
+    def append(mut self, value: PyObjectPtr) raises:
+        ref b = self._builder.as_fixed_size_list()
+        if self._has_nulls and self.py.is_none(value):
+            for _ in range(self._list_size):
+                self._child.append(self.py.none_ptr)
+            b.append_null()
+        else:
+            self._child.extend(value)
+            b.append_valid()
+
+
+# ---------------------------------------------------------------------------
 # PyStructConverter — struct/dict conversion
 # ---------------------------------------------------------------------------
 
@@ -724,13 +899,14 @@ struct PyStructConverter(PyConverter):
     def __init__(out self, builder: AnyBuilder) raises:
         self._builder = builder
         var dtype = builder.as_struct().dtype()
-        var st = dtype.as_struct_type()
+        ref st = dtype.as_struct()
         var n = len(st.fields)
         var children = List[PyAnyConverter](capacity=n)
         var field_keys = List[PythonObject](capacity=n)
         for i in range(n):
             var child_builder = builder.as_struct().field_builder(i)
-            children.append(PyAnyConverter(child_builder))
+            var child_dtype = st.fields[i].dtype.copy()
+            children.append(PyAnyConverter(child_builder, child_dtype^))
             field_keys.append(PythonObject(st.fields[i].name))
         self._children = children^
         self._field_keys = field_keys^
@@ -780,7 +956,7 @@ struct PyStructConverter(PyConverter):
 
 
 def arrow_c_array[
-    T: AnyType, //, to_array_fn: def(T) thin -> AnyArray
+    T: ImplicitlyDestructible, //, to_array_fn: def(T) thin -> AnyArray
 ](
     ptr: UnsafePointer[T, MutAnyOrigin], requested_schema: PythonObject
 ) raises -> PythonObject:
@@ -791,7 +967,7 @@ def arrow_c_array[
 
 
 def arrow_c_schema[
-    T: AnyType, //, type_fn: def(T) thin -> dt.AnyDataType
+    T: ImplicitlyDestructible, //, type_fn: def(T) thin -> dt.AnyDataType
 ](ptr: UnsafePointer[T, MutAnyOrigin]) raises -> PythonObject:
     return CArrowSchema.from_dtype(type_fn(ptr[])).to_pycapsule()
 
@@ -828,15 +1004,185 @@ def array(
         has_nulls = inferrer.none_count > 0
 
     if dtype.is_null():
+        # Explicit `type=ma.null()` builds a NullArray of the given length
+        # regardless of the input values (every element is null by definition).
+        if kwargs.find("type"):
+            return NullArray(length=len(obj)).to_any().to_python_object()
         raise Error(
             "cannot build array: sequence is empty or all-None"
             " (provide type= explicitly)"
         )
 
     var builder = AnyBuilder(dtype, len(obj))
-    var converter = PyAnyConverter(builder, has_nulls)
+    var converter = PyAnyConverter(builder, dtype, has_nulls)
     converter.extend(obj._obj_ptr)
     return builder.finish().to_python_object()
+
+
+def _build_mask_array(
+    mask_obj: PythonObject, n: Int
+) raises -> Optional[BoolArray]:
+    """Build a BoolArray from a Python mask list (True/1=null) or None.
+
+    PyArrow mask convention: True means null, False means valid.
+    """
+    var builtins = Python.import_module("builtins")
+    if mask_obj is builtins.None:
+        return None
+    var builder = BoolBuilder(n)
+    for i in range(n):
+        builder.append(Bool(Int(py=mask_obj[i]) != 0))
+    return builder.finish()
+
+
+def _build_offsets_array(offsets_obj: PythonObject) raises -> Int32Array:
+    """Build an Int32Array of offsets from a Python list of integers."""
+    var n = Int(py=offsets_obj.__len__())
+    var builder = Int32Builder(n)
+    for i in range(n):
+        builder.unsafe_append(Int32(Int(py=offsets_obj[i])))
+    return builder.finish()
+
+
+def _list_array_from_arrays(
+    data: PythonObject, kwargs: OwnedKwargsDict[PythonObject]
+) raises -> PythonObject:
+    """Build a ListArray from offsets, values, and optional mask.
+
+    Python API: list_array_from_arrays(offsets, *, values, mask=None)
+    """
+    var builtins = Python.import_module("builtins")
+    var mask_obj = builtins.None
+    if opt := kwargs.find("mask"):
+        mask_obj = opt.value()
+    var offsets_arr = _build_offsets_array(data)
+    var child = AnyArray(py=kwargs.find("values").value())
+    var n = offsets_arr.length - 1
+    var mask = _build_mask_array(mask_obj, n)
+    return (
+        ListArray.from_arrays(offsets_arr, child^, mask^)
+        .to_any()
+        .to_python_object()
+    )
+
+
+def _fixed_size_list_array_from_arrays(
+    data: PythonObject, kwargs: OwnedKwargsDict[PythonObject]
+) raises -> PythonObject:
+    """Build a FixedSizeListArray from values, type, and optional mask.
+
+    Python API: fixed_size_list_array_from_arrays(values, *, type, mask=None)
+    """
+    var builtins = Python.import_module("builtins")
+    var mask_obj = builtins.None
+    if opt := kwargs.find("mask"):
+        mask_obj = opt.value()
+    var child = AnyArray(py=data)
+    var dtype = (
+        kwargs.find("type")
+        .value()
+        .downcast_value_ptr[dt.AnyDataType]()[]
+        .copy()
+    )
+    var list_size = dtype.as_fixed_size_list().size
+    var n = child.length() // list_size if list_size > 0 else 0
+    var mask = _build_mask_array(mask_obj, n)
+    return (
+        FixedSizeListArray.from_arrays(child^, list_size, mask^)
+        .to_any()
+        .to_python_object()
+    )
+
+
+def _struct_array_from_arrays(
+    data: PythonObject, kwargs: OwnedKwargsDict[PythonObject]
+) raises -> PythonObject:
+    """Build a StructArray from child arrays, fields, and optional mask.
+
+    Python API: struct_array_from_arrays(arrays, *, fields, mask=None)
+    """
+    var builtins = Python.import_module("builtins")
+    var mask_obj = builtins.None
+    if opt := kwargs.find("mask"):
+        mask_obj = opt.value()
+    var arrays_obj = data
+    var fields_obj = kwargs.find("fields").value()
+    var n_fields = Int(py=arrays_obj.__len__())
+    var children = List[AnyArray]()
+    var fields = List[dt.Field]()
+    var n = 0
+    for i in range(n_fields):
+        var arr = AnyArray(py=arrays_obj[i])
+        if i == 0:
+            n = arr.length()
+        children.append(arr^)
+        fields.append(fields_obj[i].downcast_value_ptr[dt.Field]()[].copy())
+    var mask = _build_mask_array(mask_obj, n)
+    return (
+        StructArray.from_arrays(children^, fields^, mask^)
+        .to_any()
+        .to_python_object()
+    )
+
+
+def _any_array_str(
+    ptr: UnsafePointer[AnyArray, MutAnyOrigin]
+) raises -> PythonObject:
+    return PythonObject(String.write(ptr[]))
+
+
+def _array_to_device(self: AnyArray, ctx: ExecutionContext) raises -> AnyArray:
+    return self.to_device(ctx.device.value())
+
+
+def _array_to_cpu(self: AnyArray, ctx: ExecutionContext) raises -> AnyArray:
+    return self.to_cpu(ctx.device.value())
+
+
+def _null_placement_to_bool(py: PythonObject) raises -> Bool:
+    """Convert null_placement kwarg ('at_start'/'at_end' or None) to nulls_first.
+    """
+    if py.__is__(PythonObject(None)):
+        return True
+    return String(py=py) != "at_end"
+
+
+def _any_array_argsort(
+    ptr: UnsafePointer[AnyArray, MutAnyOrigin],
+    ascending: PythonObject,
+    null_placement: PythonObject,
+) raises -> PythonObject:
+    var asc = True if ascending.__is__(PythonObject(None)) else Bool(
+        py=ascending
+    )
+    var nulls_first = _null_placement_to_bool(null_placement)
+    var idx: AnyArray = _argsort_kernel(
+        ptr[], asc, nulls_first, ctx=ExecutionContext.parallel()
+    )
+    return idx^.to_python_object()
+
+
+def _any_array_sort(
+    ptr: UnsafePointer[AnyArray, MutAnyOrigin],
+    ascending: PythonObject,
+    null_placement: PythonObject,
+) raises -> PythonObject:
+    var asc = True if ascending.__is__(PythonObject(None)) else Bool(
+        py=ascending
+    )
+    var nulls_first = _null_placement_to_bool(null_placement)
+    var ctx = ExecutionContext.parallel()
+    var indices = _argsort_kernel(ptr[], asc, nulls_first, ctx=ctx)
+    return _take_kernel(ptr[], indices, ctx).to_python_object()
+
+
+def _any_array_take(
+    ptr: UnsafePointer[AnyArray, MutAnyOrigin],
+    indices: PythonObject,
+) raises -> PythonObject:
+    return _take_kernel(
+        ptr[], AnyArray(py=indices).as_int32().copy()
+    ).to_python_object()
 
 
 def add_to_module(mut mb: PythonModuleBuilder) raises -> None:
@@ -849,10 +1195,19 @@ def add_to_module(mut mb: PythonModuleBuilder) raises -> None:
         .def_method[pymethod[AnyArray.dtype]()]("type")
         .def_method[pymethod[AnyArray.is_valid]()]("is_valid")
         .def_method[pymethod[AnyArray.slice]()]("slice")
+        .def_method[pymethod[_array_to_device]()]("to_device")
+        .def_method[pymethod[_array_to_cpu]()]("to_cpu")
+        .def_method[_any_array_argsort]("argsort")
+        .def_method[_any_array_sort]("sort")
+        .def_method[_any_array_take]("take")
         .def_method[arrow_c_array[_any_to_array]]("__arrow_c_array__")
         .def_method[arrow_c_schema[_any_dtype]]("__arrow_c_schema__")
     )
-    _ = def_display[AnyArray](array_py)
+    _ = (
+        array_py.def_method[_any_array_str]("__str__")
+        .def_method[_any_array_str]("__repr__")
+        .def_method[marrow_module]("__module__")
+    )
     var array_sp = SequenceProtocolBuilder[AnyArray](array_py)
     _ = array_sp.def_len[AnyArray.__len__]().def_getitem[_any_array_getitem]()
 
@@ -868,5 +1223,28 @@ def add_to_module(mut mb: PythonModuleBuilder) raises -> None:
         docstring=(
             "array(obj, /, *, type=None) -> Array\n--\n\nCreate a marrow array"
             " from a Python sequence."
+        ),
+    )
+    mb.def_function[_list_array_from_arrays](
+        "list_array_from_arrays",
+        docstring=(
+            "list_array_from_arrays(offsets, /, *, values, type, mask=None) ->"
+            " Array\n--\n\nBuild a list array from offsets, values array, type,"
+            " and optional validity mask."
+        ),
+    )
+    mb.def_function[_fixed_size_list_array_from_arrays](
+        "fixed_size_list_array_from_arrays",
+        docstring=(
+            "fixed_size_list_array_from_arrays(values, /, *, type, mask=None)"
+            " -> Array\n--\n\nBuild a fixed-size list array from a flat values"
+            " array and type."
+        ),
+    )
+    mb.def_function[_struct_array_from_arrays](
+        "struct_array_from_arrays",
+        docstring=(
+            "struct_array_from_arrays(arrays, /, *, fields, mask=None) ->"
+            " Array\n--\n\nBuild a struct array from child arrays and fields."
         ),
     )

@@ -31,7 +31,7 @@ Example
 """
 
 from std.memory import ArcPointer
-from marrow.expr.values import (
+from .values import (
     AnyValue,
     rebuild,
     LOAD,
@@ -45,7 +45,7 @@ from marrow.expr.values import (
 # ---------------------------------------------------------------------------
 
 
-trait Rewrite(ImplicitlyDestructible, Movable):
+trait Rewrite(ImplicitlyDeletable, Movable):
     """A single, non-destructive expression rewrite rule.
 
     ``apply`` must NOT mutate its argument.  Return ``None`` when the rule
@@ -121,7 +121,7 @@ struct AnyRewrite(ImplicitlyCopyable, Movable):
     def apply(self, expr: AnyValue) -> Optional[AnyValue]:
         return self._virt_apply(self._data, expr)
 
-    def __del__(deinit self):
+    def __deinit__(deinit self):
         self._virt_drop(self._data^)
 
 

@@ -32,9 +32,9 @@ struct Schema(
         self.fields = List[Field](copy=copy.fields)
         self.metadata = Dict[String, String](copy=copy.metadata)
 
-    def __init__(out self, *, deinit take: Self):
-        self.fields = take.fields^
-        self.metadata = take.metadata^
+    def __init__(out self, *, deinit move: Self):
+        self.fields = move.fields^
+        self.metadata = move.metadata^
 
     def __init__(out self, *, py: PythonObject) raises:
         from .c_data import CArrowSchema
@@ -70,7 +70,7 @@ struct Schema(
         """Returns the names of the fields in the schema."""
         return [field.name for field in self.fields]
 
-    def field(self, *, index: Int) raises -> ref[self.fields] Field:
+    def field(self, *, index: Int) raises -> ref[self.fields[index]] Field:
         """Returns the field at the given index."""
         return self.fields[index]
 

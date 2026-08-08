@@ -1,159 +1,80 @@
-"""Aggregate (reduction) kernels using std.algorithm reductions.
+"""Aggregate (reduction) kernels.
 
 Each reduction has:
-  - A typed overload: ``def[T](PrimitiveArray[T]) -> PrimitiveScalar[T]``
-  - A runtime-typed overload: ``def(AnyArray) -> AnyScalar``
+  - A typed overload: ``def[T](PrimitiveArray[T], Optional[DeviceContext]) -> PrimitiveScalar[T]``
+  - A runtime-typed overload: ``def(AnyArray, Optional[DeviceContext]) -> AnyScalar``
 
-Bitmap-aware loading is fused into the stdlib's `input_fn` callback:
-null elements are replaced with the reduction's identity value so they
-contribute nothing to the result (0 for sum, 1 for product, MAX for min, etc.).
+The typed overloads delegate to ``_reduce[T, combine]``, which extracts the
+array's ``BufferView`` and optional validity ``BitmapView`` and forwards to
+``reduce[T, combine]`` in ``views.mojo`` — the same infrastructure used by
+``apply``.  GPU dispatch is handled there via ``_reduce_dispatch``.
+
+To add a new aggregate kernel:
+  1. Define a thin SIMD combine:
+     ``def _op[T: DType, W: Int](a: SIMD[T, W], b: SIMD[T, W]) -> SIMD[T, W]``
+  2. Add a typed overload calling ``_reduce[T, _op[T.native, _]](array, identity, ctx)``
+  3. Add an AnyArray overload using ``unary_scalar_dispatch``
 """
 
-from std.algorithm.reduction import (
-    sum as algo_sum,
-    product as algo_product,
-    min as algo_min,
-    max as algo_max,
-)
-from std.utils.index import Index, IndexList
+import std.math as math
 
 from ..arrays import BoolArray, PrimitiveArray, AnyArray
-from ..dtypes import (
-    PrimitiveType,
-    Int8Type,
-    Int16Type,
-    Int32Type,
-    Int64Type,
-    UInt8Type,
-    UInt16Type,
-    UInt32Type,
-    UInt64Type,
-    Float16Type,
-    Float32Type,
-    Float64Type,
-    int8,
-    int16,
-    int32,
-    int64,
-    uint8,
-    uint16,
-    uint32,
-    uint64,
-    float16,
-    float32,
-    float64,
-    bool_ as bool_dt,
-)
+from ..dtypes import *
 from ..scalars import PrimitiveScalar, AnyScalar
+from ..views import reduce
+from . import unary_scalar_dispatch
+from .execution import ExecutionContext
 
 
 # ---------------------------------------------------------------------------
-# Generic reduction helper (internal — returns Mojo Scalar for SIMD compat)
+# SIMD combine functions — thin helpers passed as parameters to _reduce
+# ---------------------------------------------------------------------------
+
+
+def _add[T: DType, W: Int](a: SIMD[T, W], b: SIMD[T, W]) -> SIMD[T, W]:
+    return a + b
+
+
+def _mul[T: DType, W: Int](a: SIMD[T, W], b: SIMD[T, W]) -> SIMD[T, W]:
+    return a * b
+
+
+def _min[T: DType, W: Int](a: SIMD[T, W], b: SIMD[T, W]) -> SIMD[T, W]:
+    return math.min(a, b)
+
+
+def _max[T: DType, W: Int](a: SIMD[T, W], b: SIMD[T, W]) -> SIMD[T, W]:
+    return math.max(a, b)
+
+
+# ---------------------------------------------------------------------------
+# Generic reduction helper
 # ---------------------------------------------------------------------------
 
 
 def _reduce[
-    T: PrimitiveType, op: StringLiteral
-](array: PrimitiveArray[T], identity: Scalar[T.native]) raises -> Scalar[
-    T.native
-]:
-    """Reduce a primitive array using one of sum/product/min/max.
+    T: PrimitiveType,
+    combine: def[W: Int](SIMD[T.native, W], SIMD[T.native, W]) thin -> SIMD[
+        T.native, W
+    ],
+](
+    array: PrimitiveArray[T],
+    identity: Scalar[T.native],
+    ctx: ExecutionContext = ExecutionContext.serial(),
+) raises -> Scalar[T.native]:
+    """Reduce a PrimitiveArray to a scalar using a SIMD combine function.
 
-    Bitmap-aware: null elements are replaced with `identity` so they
-    contribute nothing. The `op` parameter selects the stdlib reduction
-    at compile time.
+    Delegates to ``views.reduce``, which handles CPU/GPU dispatch via
+    ``_reduce_dispatch``. Null elements are replaced with ``identity`` so
+    they contribute nothing to the result.
     """
     comptime native = T.native
-    var length = len(array)
-    var vals = array.values()
-    var out = identity
-
-    @always_inline
-    @parameter
-    def output_fn[
-        width: Int, rank: Int
-    ](idx: IndexList[rank], val: SIMD[native, width]):
-        out = val[0]
-
     if array.bitmap:
-        var bm = array.validity().value()
-
-        @always_inline
-        @parameter
-        def input_fn_nulls[
-            width: Int, rank: Int
-        ](idx: IndexList[rank]) -> SIMD[native, width]:
-            var i = idx[0]
-            var data = vals.load[width](i)
-            return bm.mask[width](i).select(data, SIMD[native, width](identity))
-
-        comptime if op == "sum":
-            algo_sum[
-                native,
-                input_fn_nulls,
-                output_fn,
-                single_thread_blocking_override=True,
-            ](Index(length), reduce_dim=0)
-        elif op == "product":
-            algo_product[
-                native,
-                input_fn_nulls,
-                output_fn,
-                single_thread_blocking_override=True,
-            ](Index(length), reduce_dim=0)
-        elif op == "min":
-            algo_min[
-                native,
-                input_fn_nulls,
-                output_fn,
-                single_thread_blocking_override=True,
-            ](Index(length), reduce_dim=0)
-        elif op == "max":
-            algo_max[
-                native,
-                input_fn_nulls,
-                output_fn,
-                single_thread_blocking_override=True,
-            ](Index(length), reduce_dim=0)
+        return reduce[native, combine](
+            array.values(), array.validity().value(), identity, ctx
+        )
     else:
-
-        @always_inline
-        @parameter
-        def input_fn[
-            width: Int, rank: Int
-        ](idx: IndexList[rank]) -> SIMD[native, width]:
-            return vals.load[width](idx[0])
-
-        comptime if op == "sum":
-            algo_sum[
-                native,
-                input_fn,
-                output_fn,
-                single_thread_blocking_override=True,
-            ](Index(length), reduce_dim=0)
-        elif op == "product":
-            algo_product[
-                native,
-                input_fn,
-                output_fn,
-                single_thread_blocking_override=True,
-            ](Index(length), reduce_dim=0)
-        elif op == "min":
-            algo_min[
-                native,
-                input_fn,
-                output_fn,
-                single_thread_blocking_override=True,
-            ](Index(length), reduce_dim=0)
-        elif op == "max":
-            algo_max[
-                native,
-                input_fn,
-                output_fn,
-                single_thread_blocking_override=True,
-            ](Index(length), reduce_dim=0)
-
-    return out
+        return reduce[native, combine](array.values(), identity, ctx)
 
 
 # ---------------------------------------------------------------------------
@@ -163,36 +84,21 @@ def _reduce[
 
 def sum_[
     T: PrimitiveType
-](array: PrimitiveArray[T]) raises -> PrimitiveScalar[T]:
+](
+    array: PrimitiveArray[T], ctx: ExecutionContext = ExecutionContext.serial()
+) raises -> PrimitiveScalar[T]:
     """Sum all valid (non-null) elements. Returns 0 if empty or all null."""
-    return PrimitiveScalar[T](_reduce[T, "sum"](array, Scalar[T.native](0)))
+    return PrimitiveScalar[T](
+        _reduce[T, _add[T.native, _]](array, Scalar[T.native](0), ctx),
+        array.dtype.copy(),
+    )
 
 
-def sum_(array: AnyArray) raises -> AnyScalar:
+def sum_(
+    array: AnyArray, ctx: ExecutionContext = ExecutionContext.serial()
+) raises -> AnyScalar:
     """Runtime-typed sum."""
-    if array.dtype() == int8:
-        return sum_(array.as_int8())
-    elif array.dtype() == int16:
-        return sum_(array.as_int16())
-    elif array.dtype() == int32:
-        return sum_(array.as_int32())
-    elif array.dtype() == int64:
-        return sum_(array.as_int64())
-    elif array.dtype() == uint8:
-        return sum_(array.as_uint8())
-    elif array.dtype() == uint16:
-        return sum_(array.as_uint16())
-    elif array.dtype() == uint32:
-        return sum_(array.as_uint32())
-    elif array.dtype() == uint64:
-        return sum_(array.as_uint64())
-    elif array.dtype() == float16:
-        return sum_(array.as_float16())
-    elif array.dtype() == float32:
-        return sum_(array.as_float32())
-    elif array.dtype() == float64:
-        return sum_(array.as_float64())
-    raise Error("sum: unsupported dtype ", array.dtype())
+    return unary_scalar_dispatch["sum_", sum_[_]](array, ctx)
 
 
 # ---------------------------------------------------------------------------
@@ -202,37 +108,22 @@ def sum_(array: AnyArray) raises -> AnyScalar:
 
 def product[
     T: PrimitiveType
-](array: PrimitiveArray[T]) raises -> PrimitiveScalar[T]:
+](
+    array: PrimitiveArray[T], ctx: ExecutionContext = ExecutionContext.serial()
+) raises -> PrimitiveScalar[T]:
     """Multiply all valid (non-null) elements. Returns 1 if empty or all null.
     """
-    return PrimitiveScalar[T](_reduce[T, "product"](array, Scalar[T.native](1)))
+    return PrimitiveScalar[T](
+        _reduce[T, _mul[T.native, _]](array, Scalar[T.native](1), ctx),
+        array.dtype.copy(),
+    )
 
 
-def product(array: AnyArray) raises -> AnyScalar:
+def product(
+    array: AnyArray, ctx: ExecutionContext = ExecutionContext.serial()
+) raises -> AnyScalar:
     """Runtime-typed product."""
-    if array.dtype() == int8:
-        return product(array.as_int8())
-    elif array.dtype() == int16:
-        return product(array.as_int16())
-    elif array.dtype() == int32:
-        return product(array.as_int32())
-    elif array.dtype() == int64:
-        return product(array.as_int64())
-    elif array.dtype() == uint8:
-        return product(array.as_uint8())
-    elif array.dtype() == uint16:
-        return product(array.as_uint16())
-    elif array.dtype() == uint32:
-        return product(array.as_uint32())
-    elif array.dtype() == uint64:
-        return product(array.as_uint64())
-    elif array.dtype() == float16:
-        return product(array.as_float16())
-    elif array.dtype() == float32:
-        return product(array.as_float32())
-    elif array.dtype() == float64:
-        return product(array.as_float64())
-    raise Error("product: unsupported dtype ", array.dtype())
+    return unary_scalar_dispatch["product", product[_]](array, ctx)
 
 
 # ---------------------------------------------------------------------------
@@ -242,41 +133,24 @@ def product(array: AnyArray) raises -> AnyScalar:
 
 def min_[
     T: PrimitiveType
-](array: PrimitiveArray[T]) raises -> PrimitiveScalar[T]:
+](
+    array: PrimitiveArray[T], ctx: ExecutionContext = ExecutionContext.serial()
+) raises -> PrimitiveScalar[T]:
     """Minimum of all valid (non-null) elements.
 
     Returns MAX_FINITE if empty or all null.
     """
     return PrimitiveScalar[T](
-        _reduce[T, "min"](array, Scalar[T.native].MAX_FINITE)
+        _reduce[T, _min[T.native, _]](array, Scalar[T.native].MAX_FINITE, ctx),
+        array.dtype.copy(),
     )
 
 
-def min_(array: AnyArray) raises -> AnyScalar:
+def min_(
+    array: AnyArray, ctx: ExecutionContext = ExecutionContext.serial()
+) raises -> AnyScalar:
     """Runtime-typed min."""
-    if array.dtype() == int8:
-        return min_(array.as_int8())
-    elif array.dtype() == int16:
-        return min_(array.as_int16())
-    elif array.dtype() == int32:
-        return min_(array.as_int32())
-    elif array.dtype() == int64:
-        return min_(array.as_int64())
-    elif array.dtype() == uint8:
-        return min_(array.as_uint8())
-    elif array.dtype() == uint16:
-        return min_(array.as_uint16())
-    elif array.dtype() == uint32:
-        return min_(array.as_uint32())
-    elif array.dtype() == uint64:
-        return min_(array.as_uint64())
-    elif array.dtype() == float16:
-        return min_(array.as_float16())
-    elif array.dtype() == float32:
-        return min_(array.as_float32())
-    elif array.dtype() == float64:
-        return min_(array.as_float64())
-    raise Error("min_: unsupported dtype ", array.dtype())
+    return unary_scalar_dispatch["min_", min_[_]](array, ctx)
 
 
 # ---------------------------------------------------------------------------
@@ -286,41 +160,24 @@ def min_(array: AnyArray) raises -> AnyScalar:
 
 def max_[
     T: PrimitiveType
-](array: PrimitiveArray[T]) raises -> PrimitiveScalar[T]:
+](
+    array: PrimitiveArray[T], ctx: ExecutionContext = ExecutionContext.serial()
+) raises -> PrimitiveScalar[T]:
     """Maximum of all valid (non-null) elements.
 
     Returns MIN_FINITE if empty or all null.
     """
     return PrimitiveScalar[T](
-        _reduce[T, "max"](array, Scalar[T.native].MIN_FINITE)
+        _reduce[T, _max[T.native, _]](array, Scalar[T.native].MIN_FINITE, ctx),
+        array.dtype.copy(),
     )
 
 
-def max_(array: AnyArray) raises -> AnyScalar:
+def max_(
+    array: AnyArray, ctx: ExecutionContext = ExecutionContext.serial()
+) raises -> AnyScalar:
     """Runtime-typed max."""
-    if array.dtype() == int8:
-        return max_(array.as_int8())
-    elif array.dtype() == int16:
-        return max_(array.as_int16())
-    elif array.dtype() == int32:
-        return max_(array.as_int32())
-    elif array.dtype() == int64:
-        return max_(array.as_int64())
-    elif array.dtype() == uint8:
-        return max_(array.as_uint8())
-    elif array.dtype() == uint16:
-        return max_(array.as_uint16())
-    elif array.dtype() == uint32:
-        return max_(array.as_uint32())
-    elif array.dtype() == uint64:
-        return max_(array.as_uint64())
-    elif array.dtype() == float16:
-        return max_(array.as_float16())
-    elif array.dtype() == float32:
-        return max_(array.as_float32())
-    elif array.dtype() == float64:
-        return max_(array.as_float64())
-    raise Error("max_: unsupported dtype ", array.dtype())
+    return unary_scalar_dispatch["max_", max_[_]](array, ctx)
 
 
 # ---------------------------------------------------------------------------

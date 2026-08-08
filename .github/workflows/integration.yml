@@ -1,0 +1,55 @@
+name: Integration Tests
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  archery:
+    name: archery (linux, x86_64)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      MODULAR_HOME: "/home/runner/.modular"
+      FORCE_COLOR: "1"
+
+    steps:
+      - name: Checkout marrow
+        uses: actions/checkout@v4
+
+      - name: Set up pixi
+        uses: prefix-dev/setup-pixi@v0.9.4
+        with:
+          cache: true
+          cache-write: ${{ github.event_name == 'push' && github.ref_name == 'main' }}
+          frozen: true
+          environments: integration
+
+      # Arrow reference implementation builds are slow (~30 min); cache by the
+      # HEAD SHAs of the three repos so rebuilds only happen on upstream changes.
+      # The clone + SHA capture must happen before the cache restore so the key
+      # is always known — the clone tasks are idempotent (test -d guard).
+      - name: Clone reference implementations
+        run: |
+          pixi run -e integration clone_arrow
+          pixi run -e integration clone_arrow_rs
+          pixi run -e integration clone_arrow_go
+
+      - name: Record repo SHAs for cache key
+        id: shas
+        run: |
+          echo "arrow=$(git -C integration/arrow rev-parse HEAD)" >> $GITHUB_OUTPUT
+          echo "arrow_rs=$(git -C integration/arrow/rust rev-parse HEAD)" >> $GITHUB_OUTPUT
+          echo "arrow_go=$(git -C integration/arrow/go rev-parse HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Cache Arrow reference implementation builds
+        id: arrow-build-cache
+        uses: actions/cache@v4
+        with:
+          path: integration/arrow/build
+          key: arrow-build-${{ runner.os }}-${{ steps.shas.outputs.arrow }}-${{ steps.shas.outputs.arrow_rs }}-${{ steps.shas.outputs.arrow_go }}
+
+      - name: Run integration tests
+        run: pixi run -e integration integration

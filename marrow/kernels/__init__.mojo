@@ -5,6 +5,7 @@ Provides:
   - `binary_array_dispatch` — runtime-typed dispatch over numeric dtypes.
   - `unary_numeric_dispatch` — runtime-typed unary dispatch over numeric dtypes.
   - `unary_float_dispatch` — runtime-typed unary dispatch over float dtypes.
+  - `unary_scalar_dispatch` — runtime-typed unary dispatch returning a scalar.
 
 Kernel implementations live in their respective modules:
   - `arithmetic.mojo` — binary arithmetic, unary math, GPU dispatch via ``elementwise``
@@ -15,12 +16,12 @@ Kernel implementations live in their respective modules:
   - `hashing.mojo` — hash_ for PrimitiveArray, StringArray, StructArray, AnyArray
 """
 
-from std.gpu.host import DeviceContext
-
-from marrow.arrays import BoolArray, PrimitiveArray, AnyArray
-from marrow.buffers import Bitmap
-from marrow.views import BitmapView
-from marrow.dtypes import (
+from ..arrays import BoolArray, PrimitiveArray, AnyArray
+from ..buffers import Bitmap
+from ..scalars import PrimitiveScalar, AnyScalar
+from ..views import BitmapView
+from .execution import ExecutionContext
+from ..dtypes import (
     PrimitiveType,
     Int8Type,
     Int16Type,
@@ -54,8 +55,8 @@ from marrow.dtypes import (
 
 
 def bitmap_and(
-    a: Optional[Bitmap[]], b: Optional[Bitmap[]]
-) raises -> Optional[Bitmap[]]:
+    a: Optional[Bitmap[mut=False]], b: Optional[Bitmap[mut=False]]
+) raises -> Optional[Bitmap[mut=False]]:
     """Compute the output validity bitmap as the bitwise AND of two input bitmaps.
 
     Output bit i is True iff both a[i] and b[i] are True (valid).
@@ -85,12 +86,12 @@ def bitmap_and(
 def binary_array_dispatch[
     name: StringLiteral,
     func: def[T: PrimitiveType](
-        PrimitiveArray[T], PrimitiveArray[T], Optional[DeviceContext]
+        PrimitiveArray[T], PrimitiveArray[T], ExecutionContext
     ) thin raises -> PrimitiveArray[T],
 ](
     left: AnyArray,
     right: AnyArray,
-    ctx: Optional[DeviceContext] = None,
+    ctx: ExecutionContext = ExecutionContext.serial(),
 ) raises -> AnyArray:
     """Runtime-typed binary dispatch: checks dtype match, loops over numeric types.
 
@@ -140,12 +141,12 @@ def binary_array_dispatch[
     name: StringLiteral,
     OutT: PrimitiveType,
     func: def[T: PrimitiveType](
-        PrimitiveArray[T], PrimitiveArray[T], Optional[DeviceContext]
+        PrimitiveArray[T], PrimitiveArray[T], ExecutionContext
     ) thin raises -> PrimitiveArray[OutT],
 ](
     left: AnyArray,
     right: AnyArray,
-    ctx: Optional[DeviceContext] = None,
+    ctx: ExecutionContext = ExecutionContext.serial(),
 ) raises -> AnyArray:
     """Runtime-typed binary dispatch with a fixed output type (e.g. comparisons).
 
@@ -195,12 +196,12 @@ def binary_array_dispatch[
 def bool_array_dispatch[
     name: StringLiteral,
     func: def[T: PrimitiveType](
-        PrimitiveArray[T], PrimitiveArray[T], Optional[DeviceContext]
+        PrimitiveArray[T], PrimitiveArray[T], ExecutionContext
     ) thin raises -> BoolArray,
 ](
     left: AnyArray,
     right: AnyArray,
-    ctx: Optional[DeviceContext] = None,
+    ctx: ExecutionContext = ExecutionContext.serial(),
 ) raises -> AnyArray:
     """Runtime-typed binary dispatch producing a BoolArray result (e.g. comparisons).
 
@@ -331,3 +332,49 @@ def unary_float_dispatch[
     raise Error(
         t"{name}: unsupported dtype {array.dtype()}, expected float type"
     )
+
+
+def unary_scalar_dispatch[
+    name: StringLiteral,
+    func: def[T: PrimitiveType](
+        PrimitiveArray[T], ExecutionContext
+    ) thin raises -> PrimitiveScalar[T],
+](
+    array: AnyArray, ctx: ExecutionContext = ExecutionContext.serial()
+) raises -> AnyScalar:
+    """Runtime-typed unary dispatch returning a scalar (e.g. reductions).
+
+    Parameters:
+        name: Operation name used in error messages.
+        func: The typed reduction kernel to dispatch to.
+
+    Args:
+        array: Input array (runtime-typed).
+        ctx: Optional GPU device context; forwarded to the typed kernel.
+
+    Returns:
+        A scalar result wrapped in AnyScalar.
+    """
+    if array.dtype() == int8:
+        return func(array.as_int8(), ctx)
+    elif array.dtype() == int16:
+        return func(array.as_int16(), ctx)
+    elif array.dtype() == int32:
+        return func(array.as_int32(), ctx)
+    elif array.dtype() == int64:
+        return func(array.as_int64(), ctx)
+    elif array.dtype() == uint8:
+        return func(array.as_uint8(), ctx)
+    elif array.dtype() == uint16:
+        return func(array.as_uint16(), ctx)
+    elif array.dtype() == uint32:
+        return func(array.as_uint32(), ctx)
+    elif array.dtype() == uint64:
+        return func(array.as_uint64(), ctx)
+    elif array.dtype() == float16:
+        return func(array.as_float16(), ctx)
+    elif array.dtype() == float32:
+        return func(array.as_float32(), ctx)
+    elif array.dtype() == float64:
+        return func(array.as_float64(), ctx)
+    raise Error(t"{name}: unsupported dtype {array.dtype()}")

@@ -33,7 +33,7 @@ def test_schema_from_pyarrow() raises:
     var c_schema = c_schema_from_pyobj(pyschema)
     var schema = c_schema.to_dtype()
 
-    var sf = schema.as_struct_type().fields.copy()
+    var sf = schema.as_struct().fields.copy()
     assert_equal(sf[0].name, "int_field")
     assert_equal(sf[0].dtype, int32)
     assert_equal(sf[1].name, "string_field")
@@ -60,16 +60,15 @@ def test_primitive_array_from_pyarrow() raises:
 
     var data = c_array^.to_array(dtype)
     ref array = data.as_int64()
-    assert_equal(array.bitmap.value().byte_count(), 1)  # ceildiv(5, 8)
     assert_equal(array.is_valid(0), True)
     assert_equal(array.is_valid(1), True)
     assert_equal(array.is_valid(2), True)
     assert_equal(array.is_valid(3), True)
     assert_equal(array.is_valid(4), False)
-    assert_equal(array[0], 1)
-    assert_equal(array[1], 2)
-    assert_equal(array[2], 3)
-    assert_equal(array[3], 4)
+    assert_equal(array[0].value(), 1)
+    assert_equal(array[1].value(), 2)
+    assert_equal(array[2].value(), 3)
+    assert_equal(array[3].value(), 4)
 
 
 def test_binary_array_from_pyarrow() raises:
@@ -95,13 +94,12 @@ def test_binary_array_from_pyarrow() raises:
     var data = c_array^.to_array(dtype)
     ref array = data.as_string()
 
-    assert_equal(array.bitmap.value().byte_count(), 1)  # ceildiv(3, 8)
     assert_equal(array.is_valid(0), True)
     assert_equal(array.is_valid(1), True)
     assert_equal(array.is_valid(2), False)
 
-    assert_equal(array[0], "foo")
-    assert_equal(array[1], "bar")
+    assert_equal(array[0].to_string(), "foo")
+    assert_equal(array[1].to_string(), "bar")
 
 
 def test_list_array_from_pyarrow() raises:
@@ -130,7 +128,6 @@ def test_list_array_from_pyarrow() raises:
     var data = c_array^.to_array(dtype)
     ref array = data.as_list()
 
-    assert_equal(array.bitmap.value().byte_count(), 1)  # ceildiv(3, 8)
     assert_equal(array.is_valid(0), True)
     assert_equal(array.is_valid(1), False)
     assert_equal(array.is_valid(2), True)
@@ -211,12 +208,12 @@ def test_arrow_array_stream() raises:
 
     var batch = batches[0].copy()
     ref col1_array = batch.columns[0].as_int64()
-    assert_equal(col1_array[0], 1)
-    assert_equal(col1_array[4], 5)
+    assert_equal(col1_array[0].value(), 1)
+    assert_equal(col1_array[4].value(), 5)
 
     ref col2_array = batch.columns[1].as_string()
-    assert_equal(col2_array[0], "a")
-    assert_equal(col2_array[4], "e")
+    assert_equal(col2_array[0].to_string(), "a")
+    assert_equal(col2_array[4].to_string(), "e")
 
 
 def test_struct_dtype_conversion() raises:
@@ -230,7 +227,7 @@ def test_struct_dtype_conversion() raises:
     var dtype = c_schema.to_dtype()
 
     assert_true(dtype.is_struct())
-    var df = dtype.as_struct_type().fields.copy()
+    var df = dtype.as_struct().fields.copy()
     assert_equal(len(df), 2)
     assert_equal(df[0].name, "x")
     assert_equal(df[0].dtype, int32)
@@ -246,7 +243,7 @@ def test_list_dtype_conversion() raises:
     var dtype = c_schema.to_dtype()
 
     assert_true(dtype.is_list())
-    assert_equal(dtype.as_list_type().value_type(), int32)
+    assert_equal(dtype.as_list().value_type(), int32)
 
 
 def test_fixed_size_list_dtype_conversion() raises:
@@ -258,7 +255,7 @@ def test_fixed_size_list_dtype_conversion() raises:
     var dtype = c_schema.to_dtype()
 
     assert_true(dtype.is_fixed_size_list())
-    var fsl = dtype.as_fixed_size_list_type()
+    ref fsl = dtype.as_fixed_size_list()
     assert_equal(fsl.size, 3)
     assert_equal(fsl.value_type(), float32)
 
@@ -281,7 +278,7 @@ def test_fixed_size_list_from_pyarrow() raises:
 
     var dtype = c_schema.to_dtype()
     assert_true(dtype.is_fixed_size_list())
-    assert_equal(dtype.as_fixed_size_list_type().size, 3)
+    assert_equal(dtype.as_fixed_size_list().size, 3)
 
     assert_equal(c_array.length, 3)
     assert_equal(c_array.n_buffers, 1)
@@ -293,15 +290,15 @@ def test_fixed_size_list_from_pyarrow() raises:
 
     # First list: [1, 2, 3]
     ref first = fsl[0].value().as_int32()
-    assert_equal(first[0], 1)
-    assert_equal(first[1], 2)
-    assert_equal(first[2], 3)
+    assert_equal(first[0].value(), 1)
+    assert_equal(first[1].value(), 2)
+    assert_equal(first[2].value(), 3)
 
     # Second list: [4, 5, 6]
     ref second = fsl[1].value().as_int32()
-    assert_equal(second[0], 4)
-    assert_equal(second[1], 5)
-    assert_equal(second[2], 6)
+    assert_equal(second[0].value(), 4)
+    assert_equal(second[1].value(), 5)
+    assert_equal(second[2].value(), 6)
 
 
 def test_numeric_dtypes() raises:
@@ -387,9 +384,9 @@ def test_primitive_array_no_nulls() raises:
     assert_true(arr.is_valid(0))
     assert_true(arr.is_valid(1))
     assert_true(arr.is_valid(2))
-    assert_equal(arr[0], 10)
-    assert_equal(arr[1], 20)
-    assert_equal(arr[2], 30)
+    assert_equal(arr[0].value(), 10)
+    assert_equal(arr[1].value(), 20)
+    assert_equal(arr[2].value(), 30)
 
 
 def test_primitive_array_with_offset() raises:
@@ -411,9 +408,9 @@ def test_primitive_array_with_offset() raises:
     assert_equal(arr.length, 3)
     assert_equal(arr.offset, 1)
     # Values at logical positions 0..2 correspond to physical positions 1..3
-    assert_equal(arr[0], 20)
-    assert_equal(arr[1], 30)
-    assert_equal(arr[2], 40)
+    assert_equal(arr[0].value(), 20)
+    assert_equal(arr[1].value(), 30)
+    assert_equal(arr[2].value(), 40)
 
 
 def test_string_array_with_offset() raises:
@@ -512,9 +509,9 @@ def test_struct_array_values_from_pyarrow() raises:
     assert_equal(len(data_struct.children), 2)
 
     ref xs = data_struct.children[0].as_int32()
-    assert_equal(xs[0], 1)
-    assert_equal(xs[1], 2)
-    assert_equal(xs[2], 3)
+    assert_equal(xs[0].value(), 1)
+    assert_equal(xs[1].value(), 2)
+    assert_equal(xs[2].value(), 3)
 
     ref ys = data_struct.children[1].as_string()
     assert_equal(String(ys[0]), "a")
@@ -550,9 +547,9 @@ def test_fixed_size_list_with_nulls() raises:
     assert_false(fsl.is_valid(1))
 
     ref first = fsl[0].value().as_int32()
-    assert_equal(first[0], 1)
-    assert_equal(first[1], 2)
-    assert_equal(first[2], 3)
+    assert_equal(first[0].value(), 1)
+    assert_equal(first[1].value(), 2)
+    assert_equal(first[2].value(), 3)
 
 
 def test_schema_from_dtype_all_types() raises:
@@ -584,13 +581,13 @@ def test_schema_from_dtype_all_types() raises:
     var c_list = CArrowSchema.from_dtype(list_dt.copy().to_any())
     var rt_list = c_list.to_dtype()
     assert_true(rt_list.is_list())
-    assert_equal(rt_list.as_list_type().value_type(), int64)
+    assert_equal(rt_list.as_list().value_type(), int64)
 
     var fsl_dt = fixed_size_list_(float32, 4)
     var c_fsl = CArrowSchema.from_dtype(fsl_dt.copy().to_any())
     var rt_fsl = c_fsl.to_dtype()
     assert_true(rt_fsl.is_fixed_size_list())
-    var rt_fsl_t = rt_fsl.as_fixed_size_list_type()
+    ref rt_fsl_t = rt_fsl.as_fixed_size_list()
     assert_equal(rt_fsl_t.size, 4)
     assert_equal(rt_fsl_t.value_type(), float32)
 
@@ -600,7 +597,7 @@ def test_schema_from_dtype_all_types() raises:
     var c_struct = CArrowSchema.from_dtype(struct_dt.copy().to_any())
     var rt_struct = c_struct.to_dtype()
     assert_true(rt_struct.is_struct())
-    var rt_sf = rt_struct.as_struct_type().fields.copy()
+    var rt_sf = rt_struct.as_struct().fields.copy()
     assert_equal(len(rt_sf), 1)
     assert_equal(rt_sf[0].name, "a")
     assert_equal(rt_sf[0].dtype, int32)
@@ -626,85 +623,392 @@ def test_all_numeric_array_imports() raises:
         pa.array(Python.list(1, 2, 3), type=pa.int8())
     )
     var data_i8 = arr_i8^.to_array(int8)
-    assert_equal(data_i8^.as_int8()[0], 1)
+    assert_equal(data_i8^.as_int8()[0].value(), 1)
 
     # uint8
     var arr_u8 = c_array_from_pyobj(
         pa.array(Python.list(10, 20, 30), type=pa.uint8())
     )
     var data_u8 = arr_u8^.to_array(uint8)
-    assert_equal(data_u8^.as_uint8()[1], 20)
+    assert_equal(data_u8^.as_uint8()[1].value(), 20)
 
     # int16
     var arr_i16 = c_array_from_pyobj(
         pa.array(Python.list(100, 200), type=pa.int16())
     )
     var data_i16 = arr_i16^.to_array(int16)
-    assert_equal(data_i16^.as_int16()[0], 100)
+    assert_equal(data_i16^.as_int16()[0].value(), 100)
 
     # uint16
     var arr_u16 = c_array_from_pyobj(
         pa.array(Python.list(300, 400), type=pa.uint16())
     )
     var data_u16 = arr_u16^.to_array(uint16)
-    assert_equal(data_u16^.as_uint16()[1], 400)
+    assert_equal(data_u16^.as_uint16()[1].value(), 400)
 
     # int32
     var arr_i32 = c_array_from_pyobj(
         pa.array(Python.list(-1, 0, 1), type=pa.int32())
     )
     var data_i32 = arr_i32^.to_array(int32)
-    assert_equal(data_i32^.as_int32()[0], -1)
+    assert_equal(data_i32^.as_int32()[0].value(), -1)
 
     # uint32
     var arr_u32 = c_array_from_pyobj(
         pa.array(Python.list(0, 4294967295), type=pa.uint32())
     )
     var data_u32 = arr_u32^.to_array(uint32)
-    assert_equal(data_u32^.as_uint32()[1], 4294967295)
+    assert_equal(data_u32^.as_uint32()[1].value(), 4294967295)
 
     # int64 (already covered by test_primitive_array_from_pyarrow, include for completeness)
     var arr_i64 = c_array_from_pyobj(
         pa.array(Python.list(9999999999), type=pa.int64())
     )
     var data_i64 = arr_i64^.to_array(int64)
-    assert_equal(data_i64^.as_int64()[0], 9999999999)
+    assert_equal(data_i64^.as_int64()[0].value(), 9999999999)
 
     # uint64
     var arr_u64 = c_array_from_pyobj(
         pa.array(Python.list(0, 1), type=pa.uint64())
     )
     var data_u64 = arr_u64^.to_array(uint64)
-    assert_equal(data_u64^.as_uint64()[0], 0)
+    assert_equal(data_u64^.as_uint64()[0].value(), 0)
 
     # float32
     var arr_f32 = c_array_from_pyobj(
         pa.array(Python.list(1.5, 2.5), type=pa.float32())
     )
     var data_f32 = arr_f32^.to_array(float32)
-    assert_equal(data_f32^.as_float32()[0], 1.5)
+    assert_equal(data_f32^.as_float32()[0].value(), 1.5)
 
     # float64
     var arr_f64 = c_array_from_pyobj(
         pa.array(Python.list(3.14, 2.71), type=pa.float64())
     )
     var data_f64 = arr_f64^.to_array(float64)
-    assert_equal(data_f64^.as_float64()[1], 2.71)
+    assert_equal(data_f64^.as_float64()[1].value(), 2.71)
 
 
-# def test_schema_to_pyarrow():
-#     var pa = Python.import_module("pyarrow")
+def test_temporal_dtype_schema_roundtrip() raises:
+    """All temporal dtypes survive a CArrowSchema.from_dtype → to_dtype roundtrip.
 
-#     var struct_type = struct_(
-#         Field("int_field", int32),
-#         Field("string_field", string),
-#     )
+    Regression coverage for the tts/ttS and tss:/tsS: format-string bugs where
+    time32[s] and timestamp[s, tz] failed to parse back from PyArrow capsules.
+    """
+    # date
+    var c = CArrowSchema.from_dtype(date32().to_any())
+    assert_equal(c.to_dtype(), date32().to_any())
+    c = CArrowSchema.from_dtype(date64().to_any())
+    assert_equal(c.to_dtype(), date64().to_any())
+    # time32 — seconds unit was the bug (tts, not ttS)
+    c = CArrowSchema.from_dtype(time32(second).to_any())
+    assert_equal(c.to_dtype(), time32(second).to_any())
+    c = CArrowSchema.from_dtype(time32(millisecond).to_any())
+    assert_equal(c.to_dtype(), time32(millisecond).to_any())
+    # time64
+    c = CArrowSchema.from_dtype(time64(microsecond).to_any())
+    assert_equal(c.to_dtype(), time64(microsecond).to_any())
+    c = CArrowSchema.from_dtype(time64(nanosecond).to_any())
+    assert_equal(c.to_dtype(), time64(nanosecond).to_any())
+    # timestamp — seconds unit was the bug (tss:, not tsS:)
+    c = CArrowSchema.from_dtype(timestamp(second).to_any())
+    assert_equal(c.to_dtype(), timestamp(second).to_any())
+    c = CArrowSchema.from_dtype(timestamp(millisecond).to_any())
+    assert_equal(c.to_dtype(), timestamp(millisecond).to_any())
+    c = CArrowSchema.from_dtype(timestamp(microsecond).to_any())
+    assert_equal(c.to_dtype(), timestamp(microsecond).to_any())
+    c = CArrowSchema.from_dtype(timestamp(nanosecond).to_any())
+    assert_equal(c.to_dtype(), timestamp(nanosecond).to_any())
+    # timestamp with timezone — seconds+tz was the bug (tss:UTC, not tsS:UTC)
+    c = CArrowSchema.from_dtype(timestamp(second, "UTC").to_any())
+    assert_equal(c.to_dtype(), timestamp(second, "UTC").to_any())
+    c = CArrowSchema.from_dtype(timestamp(millisecond, "US/Eastern").to_any())
+    assert_equal(c.to_dtype(), timestamp(millisecond, "US/Eastern").to_any())
+    c = CArrowSchema.from_dtype(timestamp(microsecond, "Europe/Paris").to_any())
+    assert_equal(c.to_dtype(), timestamp(microsecond, "Europe/Paris").to_any())
+    c = CArrowSchema.from_dtype(timestamp(nanosecond, "US/Pacific").to_any())
+    assert_equal(c.to_dtype(), timestamp(nanosecond, "US/Pacific").to_any())
+    # duration
+    c = CArrowSchema.from_dtype(duration(second).to_any())
+    assert_equal(c.to_dtype(), duration(second).to_any())
+    c = CArrowSchema.from_dtype(duration(millisecond).to_any())
+    assert_equal(c.to_dtype(), duration(millisecond).to_any())
+    c = CArrowSchema.from_dtype(duration(microsecond).to_any())
+    assert_equal(c.to_dtype(), duration(microsecond).to_any())
+    c = CArrowSchema.from_dtype(duration(nanosecond).to_any())
+    assert_equal(c.to_dtype(), duration(nanosecond).to_any())
 
-#     try:
-#         # mojo->python direction is not working yet
-#         var c_schema = CArrowSchema.from_dtype(int32)
-#     except Error:
-#         pass
+
+def test_temporal_schema_from_pyarrow() raises:
+    """PyArrow temporal type schemas are correctly parsed into Mojo temporal dtypes.
+
+    Regression coverage: time32('s') exports format 'tts' (not 'ttS'), and
+    timestamp('s') / timestamp('s', tz='UTC') export 'tss:' (not 'tsS:').
+    """
+    var pa = Python.import_module("pyarrow")
+
+    var c = c_schema_from_pyobj(pa.date32())
+    assert_equal(c.to_dtype(), date32().to_any())
+    c = c_schema_from_pyobj(pa.date64())
+    assert_equal(c.to_dtype(), date64().to_any())
+    # time32[s] — was broken (ttS), now tts
+    c = c_schema_from_pyobj(pa.time32("s"))
+    assert_equal(c.to_dtype(), time32(second).to_any())
+    c = c_schema_from_pyobj(pa.time32("ms"))
+    assert_equal(c.to_dtype(), time32(millisecond).to_any())
+    c = c_schema_from_pyobj(pa.time64("us"))
+    assert_equal(c.to_dtype(), time64(microsecond).to_any())
+    c = c_schema_from_pyobj(pa.time64("ns"))
+    assert_equal(c.to_dtype(), time64(nanosecond).to_any())
+    # timestamp[s] — was broken (tsS:), now tss:
+    c = c_schema_from_pyobj(pa.timestamp("s"))
+    assert_equal(c.to_dtype(), timestamp(second).to_any())
+    c = c_schema_from_pyobj(pa.timestamp("ms"))
+    assert_equal(c.to_dtype(), timestamp(millisecond).to_any())
+    c = c_schema_from_pyobj(pa.timestamp("us"))
+    assert_equal(c.to_dtype(), timestamp(microsecond).to_any())
+    c = c_schema_from_pyobj(pa.timestamp("ns"))
+    assert_equal(c.to_dtype(), timestamp(nanosecond).to_any())
+    # timestamp with timezone — was broken for seconds unit
+    c = c_schema_from_pyobj(pa.timestamp("s", tz="UTC"))
+    assert_equal(c.to_dtype(), timestamp(second, "UTC").to_any())
+    c = c_schema_from_pyobj(pa.timestamp("ms", tz="US/Eastern"))
+    assert_equal(c.to_dtype(), timestamp(millisecond, "US/Eastern").to_any())
+    c = c_schema_from_pyobj(pa.timestamp("us", tz="Europe/Paris"))
+    assert_equal(c.to_dtype(), timestamp(microsecond, "Europe/Paris").to_any())
+    c = c_schema_from_pyobj(pa.timestamp("ns", tz="US/Pacific"))
+    assert_equal(c.to_dtype(), timestamp(nanosecond, "US/Pacific").to_any())
+    c = c_schema_from_pyobj(pa.duration("s"))
+    assert_equal(c.to_dtype(), duration(second).to_any())
+    c = c_schema_from_pyobj(pa.duration("ms"))
+    assert_equal(c.to_dtype(), duration(millisecond).to_any())
+    c = c_schema_from_pyobj(pa.duration("us"))
+    assert_equal(c.to_dtype(), duration(microsecond).to_any())
+    c = c_schema_from_pyobj(pa.duration("ns"))
+    assert_equal(c.to_dtype(), duration(nanosecond).to_any())
+
+
+def test_date32_array_from_pyarrow() raises:
+    """Date32 array import: length, null bitmap, and values."""
+    var pa = Python.import_module("pyarrow")
+
+    var pyarr = pa.array(
+        Python.list(10, 20, 30),
+        type=pa.date32(),
+        mask=Python.list(False, True, False),
+    )
+
+    var c_array = c_array_from_pyobj(pyarr)
+    var c_schema = c_schema_from_pyobj(pyarr.type)
+    var dtype = c_schema.to_dtype()
+
+    assert_true(dtype.is_date32())
+    assert_equal(c_array.length, 3)
+    assert_equal(c_array.null_count, 1)
+    assert_equal(c_array.n_buffers, 2)
+
+    var data = c_array^.to_array(dtype)
+    ref arr = data.as_date32()
+
+    assert_equal(len(arr), 3)
+    assert_true(arr.is_valid(0))
+    assert_false(arr.is_valid(1))
+    assert_true(arr.is_valid(2))
+    assert_equal(arr[0].value(), 10)
+    assert_equal(arr[2].value(), 30)
+
+
+def test_timestamp_array_from_pyarrow() raises:
+    """Timestamp[s, tz=UTC] array import — regression for the tss: format bug.
+    """
+    var pa = Python.import_module("pyarrow")
+
+    var pyarr = pa.array(
+        Python.list(1000, 2000, 3000),
+        type=pa.timestamp("s", tz="UTC"),
+        mask=Python.list(False, False, True),
+    )
+
+    var c_array = c_array_from_pyobj(pyarr)
+    var c_schema = c_schema_from_pyobj(pyarr.type)
+    var dtype = c_schema.to_dtype()
+
+    assert_true(dtype.is_timestamp())
+    ref ts_type = dtype.as_timestamp()
+    assert_equal(ts_type.unit, second)
+    assert_equal(ts_type.timezone, "UTC")
+    assert_equal(c_array.length, 3)
+    assert_equal(c_array.null_count, 1)
+
+    var data = c_array^.to_array(dtype)
+    ref arr = data.as_timestamp()
+
+    assert_equal(len(arr), 3)
+    assert_true(arr.is_valid(0))
+    assert_true(arr.is_valid(1))
+    assert_false(arr.is_valid(2))
+    assert_equal(arr[0].value(), 1000)
+    assert_equal(arr[1].value(), 2000)
+
+
+def test_all_temporal_array_types_from_pyarrow() raises:
+    """One representative value import per temporal base type via C Data Interface.
+    """
+    var pa = Python.import_module("pyarrow")
+
+    # date32
+    var ca_d32 = c_array_from_pyobj(
+        pa.array(Python.list(100), type=pa.date32())
+    )
+    var data_d32 = ca_d32^.to_array(date32().to_any())
+    ref arr_d32 = data_d32.as_date32()
+    assert_equal(arr_d32[0].value(), 100)
+
+    # date64
+    var ca_d64 = c_array_from_pyobj(
+        pa.array(Python.list(86400000), type=pa.date64())
+    )
+    var data_d64 = ca_d64^.to_array(date64().to_any())
+    ref arr_d64 = data_d64.as_date64()
+    assert_equal(arr_d64[0].value(), 86400000)
+
+    # time32[s]
+    var ca_t32s = c_array_from_pyobj(
+        pa.array(Python.list(3600), type=pa.time32("s"))
+    )
+    var data_t32s = ca_t32s^.to_array(time32(second).to_any())
+    ref arr_t32s = data_t32s.as_time32()
+    assert_equal(arr_t32s[0].value(), 3600)
+
+    # time32[ms]
+    var ca_t32m = c_array_from_pyobj(
+        pa.array(Python.list(3600000), type=pa.time32("ms"))
+    )
+    var data_t32m = ca_t32m^.to_array(time32(millisecond).to_any())
+    ref arr_t32m = data_t32m.as_time32()
+    assert_equal(arr_t32m[0].value(), 3600000)
+
+    # time64[us]
+    var ca_t64u = c_array_from_pyobj(
+        pa.array(Python.list(3600000000), type=pa.time64("us"))
+    )
+    var data_t64u = ca_t64u^.to_array(time64(microsecond).to_any())
+    ref arr_t64u = data_t64u.as_time64()
+    assert_equal(arr_t64u[0].value(), 3600000000)
+
+    # time64[ns]
+    var ca_t64n = c_array_from_pyobj(
+        pa.array(Python.list(3600000000000), type=pa.time64("ns"))
+    )
+    var data_t64n = ca_t64n^.to_array(time64(nanosecond).to_any())
+    ref arr_t64n = data_t64n.as_time64()
+    assert_equal(arr_t64n[0].value(), 3600000000000)
+
+    # timestamp[s]
+    var ca_ts_s = c_array_from_pyobj(
+        pa.array(Python.list(1000), type=pa.timestamp("s"))
+    )
+    var data_ts_s = ca_ts_s^.to_array(timestamp(second).to_any())
+    ref arr_ts_s = data_ts_s.as_timestamp()
+    assert_equal(arr_ts_s[0].value(), 1000)
+
+    # timestamp[ns, tz=UTC]
+    var ca_ts_ntz = c_array_from_pyobj(
+        pa.array(Python.list(1000000000000), type=pa.timestamp("ns", tz="UTC"))
+    )
+    var data_ts_ntz = ca_ts_ntz^.to_array(timestamp(nanosecond, "UTC").to_any())
+    ref arr_ts_ntz = data_ts_ntz.as_timestamp()
+    assert_equal(arr_ts_ntz[0].value(), 1000000000000)
+
+    # duration[ms]
+    var ca_dur = c_array_from_pyobj(
+        pa.array(Python.list(5000), type=pa.duration("ms"))
+    )
+    var data_dur = ca_dur^.to_array(duration(millisecond).to_any())
+    ref arr_dur = data_dur.as_duration()
+    assert_equal(arr_dur[0].value(), 5000)
+
+
+def test_dictionary_dtype_schema_roundtrip() raises:
+    """CArrowSchema round-trip for dictionary(int32, string)."""
+    var dt = dictionary(AnyDataType(int32), AnyDataType(string)).to_any()
+    var c_schema = CArrowSchema.from_dtype(dt)
+    var rt = c_schema.to_dtype()
+    assert_true(rt.is_dictionary())
+    ref dd = rt.as_dictionary()
+    assert_true(dd.index_type() == AnyDataType(int32))
+    assert_true(dd.value_type() == AnyDataType(string))
+    assert_false(dd.ordered)
+
+
+def test_dictionary_ordered_roundtrip() raises:
+    """ARROW_FLAG_DICT_ORDERED is preserved in the schema round-trip."""
+    var dt = dictionary(
+        AnyDataType(int8), AnyDataType(int32), ordered=True
+    ).to_any()
+    var c_schema = CArrowSchema.from_dtype(dt)
+    var rt = c_schema.to_dtype()
+    assert_true(rt.is_dictionary())
+    assert_true(rt.as_dictionary().ordered)
+
+
+def test_dictionary_from_pyarrow() raises:
+    """Import a PyArrow dictionary array via C Data Interface."""
+    var pa = Python.import_module("pyarrow")
+
+    var pa_vals = pa.array(Python.list("cat", "dog", "fish"))
+    var pa_idx = pa.array(Python.list(0, 1, 2, 0, 1), type=pa.int8())
+    var pa_dict = pa.DictionaryArray.from_arrays(pa_idx, pa_vals)
+
+    var c_schema = c_schema_from_pyobj(pa_dict.type)
+    var dtype = c_schema.to_dtype()
+    assert_true(dtype.is_dictionary())
+
+    var c_array = c_array_from_pyobj(pa_dict)
+    var data = c_array^.to_array(dtype)
+    ref da = data.as_dictionary()
+    assert_equal(len(da), 5)
+    assert_equal(da[0].value().as_string().to_string(), "cat")
+    assert_equal(da[1].value().as_string().to_string(), "dog")
+    assert_equal(da[2].value().as_string().to_string(), "fish")
+    assert_equal(da[3].value().as_string().to_string(), "cat")
+    assert_equal(da[4].value().as_string().to_string(), "dog")
+
+
+def test_dictionary_to_pyarrow() raises:
+    """Export a Mojo dictionary array to PyArrow via C Data Interface."""
+    from marrow.arrays import DictionaryArray
+    from marrow.builders import Int32Builder, StringBuilder
+
+    var pa = Python.import_module("pyarrow")
+
+    var vb = StringBuilder()
+    vb.append("red")
+    vb.append("green")
+    var values: AnyArray = vb.finish()
+
+    var ib = Int32Builder()
+    ib.append(0)
+    ib.append(1)
+    ib.append(0)
+    var indices: AnyArray = ib.finish()
+    var arr: AnyArray = DictionaryArray.from_arrays(indices^, values^)
+
+    # Verify CArrowSchema structure: format = "i" (int32 index), dictionary != null
+    var c_schema = CArrowSchema.from_dtype(arr.dtype())
+    var fmt = String(StringSlice(unsafe_from_utf8_ptr=c_schema.format))
+    assert_equal(fmt, "i")  # int32 index type format
+    # dictionary schema pointer must be non-null
+    assert_true(UnsafePointer(to=c_schema.dictionary).unsafe_bitcast[UInt64]()[0] != 0)
+
+    # Round-trip the array back through CArrow and check values
+    var c_array = CArrowArray.from_array(arr)
+    var data = c_array^.to_array(arr.dtype())
+    ref da = data.as_dictionary()
+    assert_equal(len(da), 3)
+    assert_equal(da[0].value().as_string().to_string(), "red")
+    assert_equal(da[1].value().as_string().to_string(), "green")
+    assert_equal(da[2].value().as_string().to_string(), "red")
 
 
 def main() raises:

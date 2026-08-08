@@ -9,7 +9,7 @@ Architecture:
   Each layer is independently swappable.
 """
 
-from std.algorithm.functional import sync_parallelize
+from max.algorithm.functional import sync_parallelize
 from std.bit import count_trailing_zeros, next_power_of_two
 from std.gpu.host import DeviceContext
 from std.memory import pack_bits
@@ -23,7 +23,7 @@ from ..arrays import (
 )
 from ..builders import PrimitiveBuilder, Int32Builder
 from ..buffers import Buffer
-from ..dtypes import int32, uint64, UInt64Type
+from ..dtypes import int32, uint64, Int32Type, UInt64Type
 from ..views import BufferView
 from .compare import equal
 from .execution import ExecutionContext
@@ -274,9 +274,9 @@ comptime _PIPE_DEPTH: Int = 16
 
 
 struct SwissHashTable[
-    hasher: def(StructArray, ExecutionContext) thin raises -> PrimitiveArray[
-        UInt64Type
-    ] = rapidhash
+    hasher: def(
+        StructArray, ExecutionContext
+    ) thin raises -> UInt64Array = rapidhash
 ](Copyable, Movable):
     """Swiss Table hash table with SIMD group matching.
 
@@ -742,6 +742,9 @@ struct SwissHashTable[
 
             var start = self._get_offset(bid)
             var end = self._get_offset(bid + 1)
+            var count = end - start if not single_match else 1
+            left_out.reserve(count)
+            right_out.reserve(count)
             for j in range(start, end):
                 left_out.unsafe_append(Scalar[int32.native](self._get_row(j)))
                 right_out.unsafe_append(Scalar[int32.native](probe_row))
