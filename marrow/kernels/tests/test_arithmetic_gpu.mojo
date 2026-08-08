@@ -1,6 +1,6 @@
 from std.testing import assert_equal, assert_false, assert_true
 from marrow.testing import TestSuite
-from std.gpu.host import DeviceContext
+from max.gpu.host import DeviceContext
 from std.sys.info import CompilationTarget
 
 from marrow.builders import array, arange

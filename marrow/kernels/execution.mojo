@@ -20,7 +20,7 @@ Implicit conversions from ``Optional[DeviceContext]`` keep all existing
 call sites working without source changes.
 """
 
-from std.gpu.host import DeviceContext
+from max.gpu.host import DeviceContext
 from std.python import PythonObject
 from std.python.conversions import ConvertibleFromPython, ConvertibleToPython
 from std.sys.info import num_physical_cores

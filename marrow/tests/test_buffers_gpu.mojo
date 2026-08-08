@@ -1,7 +1,7 @@
 import std.math as math
 from std.testing import assert_equal, assert_true, assert_false
 from marrow.testing import TestSuite
-from std.gpu.host import DeviceContext
+from max.gpu.host import DeviceContext
 
 from marrow.buffers import Buffer, DeviceType
 

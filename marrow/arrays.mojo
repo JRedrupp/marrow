@@ -35,7 +35,7 @@ paths.  It is NOT stored inside AnyArray.
 from std.bit import pop_count
 from std.memory import unsafe_memcpy, ArcPointer, OwnedPointer
 from std.sys import size_of
-from std.gpu.host import DeviceContext
+from max.gpu.host import DeviceContext
 from std.python import Python, PythonObject
 from std.python.conversions import ConvertibleFromPython, ConvertibleToPython
 from std.utils import Variant

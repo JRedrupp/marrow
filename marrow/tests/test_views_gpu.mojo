@@ -6,7 +6,7 @@ capture) so that Mojo's DevicePassable mechanism transfers the struct fields
 """
 
 from std.algorithm.functional import elementwise
-from std.gpu.host import DeviceContext, get_gpu_target
+from max.gpu.host import DeviceContext, get_gpu_target
 from std.sys import has_accelerator
 from std.sys.info import simd_width_of
 from std.testing import assert_equal, assert_false, assert_true

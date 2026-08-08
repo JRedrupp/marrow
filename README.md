@@ -329,7 +329,7 @@ The key pattern: upload data to the GPU once, run multiple kernels, download res
 Element-wise arithmetic (`add`, `mul`, etc.) is faster on CPU SIMD — data transfer overhead dominates for low arithmetic-intensity operations.
 
 ```mojo
-from std.gpu.host import DeviceContext
+from max.gpu.host import DeviceContext
 from marrow.kernels.similarity import cosine_similarity
 
 # Pre-load data onto the GPU once

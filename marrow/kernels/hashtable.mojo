@@ -11,7 +11,7 @@ Architecture:
 
 from max.algorithm.functional import sync_parallelize
 from std.bit import count_trailing_zeros, next_power_of_two
-from std.gpu.host import DeviceContext
+from max.gpu.host import DeviceContext
 from std.memory import pack_bits
 from std.sys import size_of
 from ..arrays import (
