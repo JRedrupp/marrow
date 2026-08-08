@@ -22,14 +22,96 @@
   `ref[self._ptr[][T]]` matching the pattern established in `7b4e978`.
 
   Compiling `marrow/` (excluding `tests/` subdirectories — see note below)
-  with `mojo package --Werror` now produces exactly one remaining error
-  category: 11 errors in `marrow/views.mojo` from `elementwise`'s `Coord`-
-  based signature and mandatory `DeviceContext` parameter, which no longer
-  matches marrow's `IndexList`-based SIMD kernel callback type
+  with `mojo package --Werror` at that point produced exactly one remaining
+  error category: 11 errors in `marrow/views.mojo` from `elementwise`'s
+  `Coord`-based signature and mandatory `DeviceContext` parameter, which no
+  longer matched marrow's `IndexList`-based SIMD kernel callback type
   (`_apply_dispatch`, `_reduce_generator_wrapper` and their CPU-only call
-  sites). This is a deliberately deferred, large elementwise/`Coord`/
-  mandatory-`DeviceContext` GPU API rework — first flagged in `34dc32a` — not
-  solved here.
+  sites). That elementwise/`Coord`/mandatory-`DeviceContext` GPU API rework
+  — first flagged in `34dc32a` — is now fixed; see the entry below.
+
+- **`marrow/views.mojo`: migrate `elementwise`/`_reduce_generator_wrapper`
+  call sites to the `Coord`-based, mandatory-`DeviceContext` MAX API**
+  (resolves the 11 errors called out above, and completes the
+  `34dc32a`-flagged rework): `elementwise`'s three overloads (`max.algorithm.
+  functional`) dropped their `Optional[DeviceContext]` forms and their
+  `IndexList`-taking closure convention in favor of a mandatory `context:
+  DeviceContext` argument and a `Coord`-taking `process` closure; every CPU-
+  only call site in this file (which previously omitted `context` entirely,
+  relying on the now-removed optional overloads) now passes one explicitly.
+  `DeviceContext`'s import also moved from `std.gpu.host` to `max.gpu.host`
+  (which re-exports `get_gpu_target` too, so both come from one import now).
+
+  Constructing that CPU-side `DeviceContext` is the interesting part:
+  `DeviceContext()`'s `api` parameter defaults to `String(Self.
+  default_device_info.api)`, which evaluates `GPUInfo.from_name[
+  _accelerator_arch()]()` — on a machine with no accelerator this is a
+  **compile-time** `comptime assert` failure (`constraint failed: Unknown
+  GPU architecture detected`), not a runtime one, confirmed with a
+  standalone probe. Passing `api="cpu"` explicitly skips evaluating that
+  default and constructs successfully at runtime on CPU-only machines; a new
+  `_cpu_device_context()` helper does this for every CPU-only `elementwise`
+  call site. This isn't a guess — it mirrors what MAX's own CPU backend does
+  internally (`max/mojo/max/algorithm/backend/cpu/parallelize.mojo`:
+  `sync_parallelize` builds its context via `ctx.or_else(DeviceContext(
+  api="cpu"))`).
+
+  `_reduce_generator_wrapper`'s `output_fn`/`reduce_function` closures
+  changed their SIMD-width parameter kind from `Int` to the new `SIMDLength`
+  type (its `input_fn` closure kind and `IndexList`-based indexing were
+  *not* changed, so only the output/combine sides needed updating); its
+  `shape` argument changed from `IndexList[1](length)` to `Coord(length)`.
+  `combine_capturing`'s `SIMDLength`→`Int` bridge to the (unchanged, still
+  `Int`-parameterized) public `reduce[T, combine]`/`_reduce_dispatch`
+  `combine` signature is a plain `Int(W)` conversion — verified compiling
+  and running correctly via a standalone probe (`reduce[DType.int32, add](
+  0..9) == 45`).
+
+  One correctness-sensitive call site needed more than a mechanical
+  signature update: `apply[In, op: BinaryFn[In, DType.bool]]` (comparison
+  ops that bit-pack their `SIMD[bool, W]` result into a `BitmapView`) relied
+  on the now-removed `use_blocking_impl=True` to force single-worker
+  execution — its docstring already documented why: "bit-packed outputs
+  need whole-byte-aligned stride to avoid scalar read-modify-write races
+  between workers." `elementwise`'s own CPU parallel dispatch
+  (`_elementwise_impl_cpu_1d` in `max/mojo/max/algorithm/backend/cpu/
+  elementwise.mojo`) stripes work by `ceildiv(problem_size, num_workers)`,
+  which is not guaranteed to be a multiple of 8 — so simply routing this
+  call site through `elementwise`'s new auto-parallel CPU path (as every
+  other, race-free call site in this file now does) would silently
+  reintroduce that exact race above `elementwise`'s internal ~32768-element
+  parallel threshold. Fixed by bypassing `elementwise` for this one CPU
+  path entirely and running it single-threaded via `std.algorithm.
+  vectorize` instead, preserving the original single-worker guarantee. The
+  two byte-granular bitmap ops in this file (`process_zero`/
+  `process_shifted`, indexed by whole output byte rather than by element)
+  don't have this hazard — disjoint workers can never share a byte there —
+  so those were left on `elementwise`'s auto-parallel CPU path.
+
+  Net effect on `_apply_dispatch` (used by every element-strided
+  `BufferView` `apply` overload): `ExecutionContext.serial()` no longer
+  guarantees single-threaded execution once `length` crosses `elementwise`'s
+  internal parallel threshold — `ctx.num_threads`/`ctx.wants_parallel` are
+  no longer consulted on this path at all, since `use_blocking_impl` (the
+  mechanism that respected them) was removed upstream. Not a correctness
+  issue here (element-strided writes are disjoint regardless of chunk
+  boundaries), but worth flagging: a caller invoking `apply` from inside its
+  own already-parallel region can now nest with MAX's own CPU parallelism.
+  `wants_parallel`/`resolved_num_threads`/`num_threads` remain in active use
+  elsewhere in the tree (`kernels/sort.mojo`, `kernels/filter.mojo`,
+  `kernels/join.mojo`, all via direct `sync_parallelize` striping, not
+  `elementwise`) — this change does not make them dead code tree-wide, only
+  unused on this one `views.mojo` path.
+
+  Verified via `mojo package` against `marrow/` with `tests/` excluded
+  (`--Werror`, target nightly `1.0.0b3.dev2026080206`): 0 errors, down from
+  the 11 above. Not verified via marrow's own test suite — `pixi run -e dev
+  pytest` remains blocked by the same `pontoneer` build-dependency failure
+  noted elsewhere in this changelog, so nothing in this change has run
+  against marrow's actual `test_views.mojo`/`test_views_gpu.mojo` coverage;
+  standalone probes (outside the package, compiled and *run*, not just
+  type-checked) were used to validate the `elementwise`/`_reduce_generator_
+  wrapper`/`vectorize`/`DeviceContext` API usage patterns instead.
 
   **Known separate issue, not fixed in this pass:** `mojo package marrow`
   (marrow's own `pixi run package` task, and bison's `build-marrow` task)

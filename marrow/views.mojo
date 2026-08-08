@@ -25,10 +25,12 @@ from std.math import iota
 from std.memory import bitcast, unsafe_memcpy
 from std.builtin.device_passable import DevicePassable, DeviceTypeEncoder
 from std.sys.intrinsics import prefetch
+from std.algorithm import vectorize
 from max.algorithm.functional import elementwise
 from max.algorithm.reduction import _reduce_generator_wrapper
 from std.utils.index import IndexList
-from std.gpu.host import DeviceContext, get_gpu_target
+from std.utils.coord import Coord, coord_to_index_list
+from max.gpu.host import DeviceContext, get_gpu_target
 
 from .buffers import Buffer, Bitmap
 from .kernels.execution import ExecutionContext
@@ -1049,19 +1051,46 @@ comptime MaskedFn[In: DType, Out: DType] = def[W: Int](
 """A parameterized SIMD function that takes a value vector and a validity mask."""
 
 
+def _cpu_device_context() raises -> DeviceContext:
+    """Construct a throwaway CPU-only ``DeviceContext``.
+
+    ``elementwise`` now requires a real ``DeviceContext`` argument on every
+    call, including CPU-targeted ones — the ``Optional[DeviceContext]``
+    overloads were removed upstream (the CPU backend always wants a real
+    context to determine worker counts). Requesting the ``"cpu"`` API
+    explicitly bypasses the default-accelerator probe (which fails to even
+    compile on a machine with no GPU), so this succeeds everywhere. Mirrors
+    the fallback MAX's own CPU elementwise backend uses internally
+    (``max.algorithm.backend.cpu.parallelize``:
+    ``ctx.or_else(DeviceContext(api="cpu"))``).
+    """
+    return DeviceContext(api="cpu")
+
+
 def _apply_dispatch[
     Out: DType,
     gpu_ok: Bool,
-    process: def[W: Int, rank: Int, alignment: Int = 1](
-        IndexList[rank]
-    ) capturing -> None,
+    process: def[W: Int, alignment: Int = 1](Coord) capturing -> None,
 ](length: Int, ctx: ExecutionContext) raises:
-    """Dispatch `process` to GPU or CPU (serial/parallel) based on `ctx`.
+    """Dispatch `process` to GPU or CPU based on `ctx`.
 
     `gpu_ok` is the caller's has_accelerator_support[...] check — passed as a
     comptime Bool so the GPU branch is dead-code-eliminated when unsupported.
-    When ``ctx`` wants parallel execution, defers to elementwise's built-in
-    parallel executor; otherwise runs in-thread via ``use_blocking_impl=True``.
+
+    ``elementwise``'s ``use_blocking_impl`` parameter (previously used here
+    to force in-thread execution below the parallel threshold) was removed
+    upstream, and ``ctx.num_threads`` / ``ctx.wants_parallel`` are no longer
+    consulted on this path at all: MAX's CPU backend now always picks its
+    own worker count from problem size alone (``elementwise``'s internal
+    ``grain_size`` threshold), regardless of what ``ctx`` requested. This is
+    a real behavior change, not a no-op — ``ExecutionContext.serial()`` no
+    longer guarantees single-threaded execution here once ``length`` crosses
+    that internal threshold (~32768 elements as of this writing). Writes
+    into ``BufferView`` are element-strided and disjoint across workers
+    regardless of chunk boundaries, so this is not a correctness issue for
+    any caller of ``_apply_dispatch`` — but a caller invoking ``apply`` from
+    inside its own already-parallel region should be aware this can now
+    nest with MAX's own parallelism.
     """
     if ctx.is_gpu():
         comptime if gpu_ok:
@@ -1073,17 +1102,14 @@ def _apply_dispatch[
             raise Error("apply: no GPU accelerator available")
         return
 
+    # TODO: elementwise does not expose a thread-count parameter, so
+    # ctx.num_threads / ctx.resolved_num_threads() are ignored here. We need
+    # to either switch back to sync_parallelize striping or wait for
+    # elementwise to gain a num_threads knob.
     comptime cpu_width = simd_byte_width() // size_of[Scalar[Out]]()
-    if ctx.wants_parallel(length):
-        # TODO: elementwise does not expose a thread-count parameter, so
-        # ctx.num_threads / ctx.resolved_num_threads() are ignored here.
-        # We need to either switch back to sync_parallelize striping or wait
-        # for elementwise to gain a num_threads knob.
-        elementwise[process, cpu_width, target="cpu"](length)
-    else:
-        elementwise[process, cpu_width, target="cpu", use_blocking_impl=True](
-            length
-        )
+    elementwise[process, cpu_width, target="cpu"](
+        length, _cpu_device_context()
+    )
 
 
 def apply[
@@ -1104,10 +1130,8 @@ def apply[
 
     @parameter
     @always_inline
-    def process[
-        W: Int, rank: Int, alignment: Int = 1
-    ](idx: IndexList[rank]) -> None:
-        var i = idx[0]
+    def process[W: Int, alignment: Int = 1](coords: Coord) -> None:
+        var i = coord_to_index_list(coords)[0]
         dst.store[W](i, op[W](src.load[W](i)))
 
     _apply_dispatch[Out, has_accelerator_support[In, Out](), process](
@@ -1131,10 +1155,8 @@ def apply[
 
     @parameter
     @always_inline
-    def process[
-        W: Int, rank: Int, alignment: Int = 1
-    ](idx: IndexList[rank]) -> None:
-        var i = idx[0]
+    def process[W: Int, alignment: Int = 1](coords: Coord) -> None:
+        var i = coord_to_index_list(coords)[0]
         dst.store[W](i, op[W](lhs.load[W](i), rhs.load[W](i)))
 
     _apply_dispatch[Out, has_accelerator_support[In, Out](), process](
@@ -1162,14 +1184,6 @@ def apply[
     """
     var length = len(dst)
 
-    @parameter
-    @always_inline
-    def process[
-        W: Int, rank: Int, alignment: Int = 1
-    ](idx: IndexList[rank]) -> None:
-        var i = idx[0]
-        dst.store[W](i, op[W](lhs.load[W](i), rhs.load[W](i)))
-
     if ctx.is_gpu():
         comptime if has_accelerator_support[In]():
             comptime gpu_width = max(
@@ -1184,16 +1198,39 @@ def apply[
                 math.align_up(length, gpu_width),
                 length + max_pad,
             )
+
+            @parameter
+            @always_inline
+            def process[W: Int, alignment: Int = 1](coords: Coord) -> None:
+                var i = coord_to_index_list(coords)[0]
+                dst.store[W](i, op[W](lhs.load[W](i), rhs.load[W](i)))
+
             elementwise[process, gpu_width, target="gpu"](
                 padded, ctx.device.value()
             )
         else:
             raise Error("apply: no GPU accelerator available")
     else:
+        # Bit-packed stores need whole-byte-aligned stride to avoid a
+        # scalar read-modify-write race between workers. elementwise's own
+        # CPU parallel dispatch (`_elementwise_impl_cpu_1d`) stripes work by
+        # `ceildiv(length, num_workers)`, which is not guaranteed to be a
+        # multiple of 8 — so routing through `elementwise`'s auto-parallel
+        # CPU path here would reintroduce exactly the race this function's
+        # docstring says is avoided. (The `use_blocking_impl=True` escape
+        # hatch that used to force single-worker execution for this call
+        # site was removed upstream.) Run single-threaded via `vectorize`
+        # instead, matching the previous ``use_blocking_impl=True``
+        # single-worker guarantee (execution ordering/unrolling internals
+        # differ from `elementwise`'s own blocking path, but the safety
+        # property — no concurrent writers — is identical).
         comptime cpu_width = max(8, simd_byte_width() // size_of[Scalar[In]]())
-        elementwise[process, cpu_width, target="cpu", use_blocking_impl=True](
-            length
-        )
+
+        @always_inline
+        def process_serial[W: Int](i: Int) {imm} -> None:
+            dst.store[W](i, op[W](lhs.load[W](i), rhs.load[W](i)))
+
+        vectorize[cpu_width, unroll_factor=8](length, process_serial)
 
 
 def apply[
@@ -1209,10 +1246,8 @@ def apply[
 
     @parameter
     @always_inline
-    def process[
-        W: Int, rank: Int, alignment: Int = 1
-    ](idx: IndexList[rank]) -> None:
-        var i = idx[0]
+    def process[W: Int, alignment: Int = 1](coords: Coord) -> None:
+        var i = coord_to_index_list(coords)[0]
         dst.store[W](i, op[W](src.mask[W](i)))
 
     _apply_dispatch[Out, has_accelerator_support[Out](), process](length, ctx)
@@ -1233,10 +1268,8 @@ def apply[
 
     @parameter
     @always_inline
-    def process[
-        W: Int, rank: Int, alignment: Int = 1
-    ](idx: IndexList[rank]) -> None:
-        var i = idx[0]
+    def process[W: Int, alignment: Int = 1](coords: Coord) -> None:
+        var i = coord_to_index_list(coords)[0]
         dst.store[W](i, op[W](src.load[W](i), validity.mask[W](i)))
 
     _apply_dispatch[Out, has_accelerator_support[In, Out](), process](
@@ -1258,10 +1291,8 @@ def apply[
 
     @parameter
     @always_inline
-    def process[
-        W: Int, rank: Int, alignment: Int = 1
-    ](idx: IndexList[rank]) -> None:
-        var i = idx[0]
+    def process[W: Int, alignment: Int = 1](coords: Coord) -> None:
+        var i = coord_to_index_list(coords)[0]
         dst.store[W](i, op[W](src.mask[W](i), validity.mask[W](i)))
 
     _apply_dispatch[Out, has_accelerator_support[Out](), process](length, ctx)
@@ -1296,10 +1327,8 @@ def apply[
 
         @parameter
         @always_inline
-        def process_zero[
-            W: Int, rank: Int, alignment: Int = 1
-        ](idx: IndexList[rank]) -> None:
-            var i = idx[0]
+        def process_zero[W: Int, alignment: Int = 1](coords: Coord) -> None:
+            var i = coord_to_index_list(coords)[0]
             dst.store[DType.uint8, W](
                 i,
                 op[W](
@@ -1307,9 +1336,9 @@ def apply[
                 ),
             )
 
-        elementwise[
-            process_zero, cpu_width, target="cpu", use_blocking_impl=True
-        ](out_bytes)
+        elementwise[process_zero, cpu_width, target="cpu"](
+            out_bytes, _cpu_device_context()
+        )
         return
 
     # Non-zero bit_shift: shift-combine (lo >> rshift | hi << lshift).
@@ -1320,18 +1349,18 @@ def apply[
         @parameter
         @always_inline
         def process_shifted[
-            W: Int, rank: Int, alignment: Int = 1
-        ](idx: IndexList[rank]) -> None:
-            var i = idx[0]
+            W: Int, alignment: Int = 1
+        ](coords: Coord) -> None:
+            var i = coord_to_index_list(coords)[0]
             var lo = data.unsafe_offset(byte_start + i).unsafe_load[width=W]()
             var hi = data.unsafe_offset(byte_start + i + 1).unsafe_load[
                 width=W
             ]()
             dst.store[DType.uint8, W](i, op[W]((lo >> rshift) | (hi << lshift)))
 
-        elementwise[
-            process_shifted, cpu_width, target="cpu", use_blocking_impl=True
-        ](bulk)
+        elementwise[process_shifted, cpu_width, target="cpu"](
+            bulk, _cpu_device_context()
+        )
 
     # Last output byte: read hi only when the view's bits span into the next
     # source byte, avoiding a read past the end of source data.
@@ -1384,10 +1413,8 @@ def apply[
 
         @parameter
         @always_inline
-        def process_zero[
-            W: Int, rank: Int, alignment: Int = 1
-        ](idx: IndexList[rank]) -> None:
-            var i = idx[0]
+        def process_zero[W: Int, alignment: Int = 1](coords: Coord) -> None:
+            var i = coord_to_index_list(coords)[0]
             dst.store[DType.uint8, W](
                 i,
                 op[W](
@@ -1400,9 +1427,9 @@ def apply[
                 ),
             )
 
-        elementwise[
-            process_zero, cpu_width, target="cpu", use_blocking_impl=True
-        ](out_bytes)
+        elementwise[process_zero, cpu_width, target="cpu"](
+            out_bytes, _cpu_device_context()
+        )
         return
 
     # At least one non-zero shift: shift-combine both operands.
@@ -1414,9 +1441,9 @@ def apply[
         @parameter
         @always_inline
         def process_shifted[
-            W: Int, rank: Int, alignment: Int = 1
-        ](idx: IndexList[rank]) -> None:
-            var i = idx[0]
+            W: Int, alignment: Int = 1
+        ](coords: Coord) -> None:
+            var i = coord_to_index_list(coords)[0]
             var lo_a = src_a.unsafe_offset(byte_start_a + i).unsafe_load[
                 width=W
             ]()
@@ -1437,9 +1464,9 @@ def apply[
                 ),
             )
 
-        elementwise[
-            process_shifted, cpu_width, target="cpu", use_blocking_impl=True
-        ](bulk)
+        elementwise[process_shifted, cpu_width, target="cpu"](
+            bulk, _cpu_device_context()
+        )
 
     # Last output byte: read hi only when bits span into the next source byte.
     var remaining_bits = lhs._length - bulk * 8
@@ -1487,8 +1514,10 @@ def _reduce_dispatch[
 
     @always_inline
     @parameter
-    def combine_capturing[W: Int](a: SIMD[T, W], b: SIMD[T, W]) -> SIMD[T, W]:
-        return combine[W](a, b)
+    def combine_capturing[
+        W: SIMDLength
+    ](a: SIMD[T, W], b: SIMD[T, W]) -> SIMD[T, W]:
+        return combine[Int(W)](a, b)
 
     if length == 0:
         return identity
@@ -1505,7 +1534,7 @@ def _reduce_dispatch[
             @__copy_capture(dev_view)
             @parameter
             def output_fn_gpu[
-                W: Int, rank: Int
+                W: SIMDLength, rank: Int
             ](idx: IndexList[rank], val: SIMD[T, W]):
                 dev_view.store[1](0, val[0])
 
@@ -1516,7 +1545,7 @@ def _reduce_dispatch[
                 combine_capturing,
                 target="gpu",
                 reduce_dim=0,
-            ](IndexList[1](length), identity, ctx.device)
+            ](Coord(length), identity, ctx.device)
             return (
                 dev_buf.to_immutable()
                 .to_cpu(ctx.device.value())
@@ -1532,7 +1561,7 @@ def _reduce_dispatch[
         @always_inline
         @parameter
         def output_fn_cpu[
-            W: Int, rank: Int
+            W: SIMDLength, rank: Int
         ](idx: IndexList[rank], val: SIMD[T, W]):
             out_view.store[1](0, val[0])
 
@@ -1542,7 +1571,7 @@ def _reduce_dispatch[
             output_fn_cpu,
             combine_capturing,
             reduce_dim=0,
-        ](IndexList[1](length), identity)
+        ](Coord(length), identity)
         return out_view.load[1](0)
 
 
