@@ -16,7 +16,7 @@ Public API:
 Rapidhash port follows the C reference at https://github.com/Nicoshev/rapidhash
 """
 
-from std.gpu.host import DeviceContext
+from max.gpu.host import DeviceContext
 from std.hashlib import hash as _hash
 from std.sys import size_of
 

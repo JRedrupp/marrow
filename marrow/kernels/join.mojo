@@ -107,7 +107,7 @@ See ``docs/joins-design.md`` for the high-level architecture and the
 """
 
 from max.algorithm.functional import sync_parallelize
-from std.gpu.host import DeviceContext
+from max.gpu.host import DeviceContext
 from std.sys.info import num_physical_cores
 
 from ..arrays import (

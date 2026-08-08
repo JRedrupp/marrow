@@ -5,7 +5,7 @@ Verifies that GPU-dispatched rapidhash produces identical results to CPU SIMD.
 
 from std.testing import assert_equal, assert_true
 from marrow.testing import TestSuite
-from std.gpu.host import DeviceContext
+from max.gpu.host import DeviceContext
 
 from marrow.arrays import BoolArray, PrimitiveArray
 from marrow.kernels.execution import ExecutionContext

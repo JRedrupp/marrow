@@ -23,7 +23,7 @@ Convenience wrapper ``execute(relation)`` materialises the full result as a
 """
 
 from std.memory import ArcPointer
-from std.gpu.host import DeviceContext
+from max.gpu.host import DeviceContext
 import std.math as math
 
 from ..arrays import PrimitiveArray, AnyArray

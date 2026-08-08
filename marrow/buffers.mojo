@@ -101,7 +101,7 @@ from std.memory import (
 from std.sys.info import simd_byte_width
 from std.sys import size_of
 import std.math as math
-from std.gpu.host import DeviceBuffer, DeviceContext, HostBuffer
+from max.gpu.host import DeviceBuffer, DeviceContext, HostBuffer
 from .views import (
     BufferView,
     BitmapView,
