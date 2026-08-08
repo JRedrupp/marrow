@@ -25,7 +25,7 @@ comptime ARROW_FLAG_DICT_ORDERED: Int64 = 1
 def _null_ptr[T: AnyType]() -> UnsafePointer[T, MutUntrackedOrigin]:
     """Construct an address-zero pointer for C ABI struct fields that may be null.
     """
-    return UnsafePointer[T, MutUntrackedOrigin](unsafe_from_address=0)
+    return UnsafePointer[T, MutUntrackedOrigin](unsafe_from_address=Int(0))
 
 
 def _alloc_c_string(s: String) -> UnsafePointer[c_char, MutUntrackedOrigin]:
